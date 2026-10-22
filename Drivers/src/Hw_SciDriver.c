@@ -10,6 +10,7 @@
  */
 
 #include "Hw_SciDriver.h"
+#include "RingBuff.h"
 
 /* LSPCLK频率：SysCtl_setLowSpeedClock(SYSCTL_LSPCLK_PRESCALE_4)配置为SYSCLK/4
  * 与device.h里的DEVICE_LSPCLK_FREQ保持一致 */
@@ -35,6 +36,26 @@ static volatile struct SCI_REGS * const gSciRegs[HW_SCI_ID_MAX] =
 
 /* 各模块当前是否工作在FIFO模式，收发时按此选择判断标志 */
 static Uint16 gSciFifoEn[HW_SCI_ID_MAX] = {0U, 0U, 0U, 0U};
+
+/* ==================== 通信环形缓存 ==================== */
+static Uint16 gSciRxBuf[HW_SCI_ID_MAX][HW_SCI_RX_BUF_SIZE];
+static Uint16 gSciTxBuf[HW_SCI_ID_MAX][HW_SCI_TX_BUF_SIZE];
+static ST_RING_BUFF gSciRxRing[HW_SCI_ID_MAX];
+static ST_RING_BUFF gSciTxRing[HW_SCI_ID_MAX];
+
+/* 判帧状态：累计接收字节、本帧起点、连续无新字节的扫描拍数、本帧长度 */
+static volatile Uint16 gSciRxTotal[HW_SCI_ID_MAX];
+static volatile Uint16 gSciFrameStart[HW_SCI_ID_MAX];
+static volatile Uint16 gSciRxIdleCnt[HW_SCI_ID_MAX];
+static volatile Uint16 gSciFrameLen[HW_SCI_ID_MAX];
+static volatile Uint16 gSciFrameReady[HW_SCI_ID_MAX];
+static volatile Uint16 gSciFrameActive[HW_SCI_ID_MAX];
+
+/* 扫描辅助量 */
+static Uint16 gSciLastTotal[HW_SCI_ID_MAX];
+static Uint16 gSciIdleTh[HW_SCI_ID_MAX];
+static Uint16 gSciInited[HW_SCI_ID_MAX];
+static Uint16 gSciFrameLost[HW_SCI_ID_MAX];
 
 /* 取模块寄存器指针，编号非法返回空指针 */
 static volatile struct SCI_REGS *Hw_SciGetRegs(Uint16 u16SciId)
@@ -215,6 +236,24 @@ void Hw_SciSingleInit(const ST_SCI_CFG_ITEM *pstSciCfgItem)
     Hw_SciConfigFifo(pstRegs, pstSciCfgItem);
 
     gSciFifoEn[pstSciCfgItem->u16SciId] = (pstSciCfgItem->bFifoEnable != 0U) ? 1U : 0U;
+
+    /* 初始化本模块的收发环形缓存，并记录断帧门限 */
+    (void)RingBuffInit(&gSciRxRing[pstSciCfgItem->u16SciId],
+                       gSciRxBuf[pstSciCfgItem->u16SciId], HW_SCI_RX_BUF_SIZE);
+    (void)RingBuffInit(&gSciTxRing[pstSciCfgItem->u16SciId],
+                       gSciTxBuf[pstSciCfgItem->u16SciId], HW_SCI_TX_BUF_SIZE);
+
+    gSciIdleTh[pstSciCfgItem->u16SciId] =
+        (pstSciCfgItem->u16IdleTh == 0U) ? 1U : pstSciCfgItem->u16IdleTh;
+    gSciRxTotal[pstSciCfgItem->u16SciId] = 0U;
+    gSciFrameStart[pstSciCfgItem->u16SciId] = 0U;
+    gSciRxIdleCnt[pstSciCfgItem->u16SciId] = 0U;
+    gSciFrameLen[pstSciCfgItem->u16SciId] = 0U;
+    gSciFrameReady[pstSciCfgItem->u16SciId] = 0U;
+    gSciFrameActive[pstSciCfgItem->u16SciId] = 0U;
+    gSciFrameLost[pstSciCfgItem->u16SciId] = 0U;
+    gSciLastTotal[pstSciCfgItem->u16SciId] = 0U;
+    gSciInited[pstSciCfgItem->u16SciId] = 1U;
 
     /* 释放软复位并打开收发使能 */
     pstRegs->SCICTL1.bit.SWRESET = 1U;
@@ -446,4 +485,308 @@ Uint16 Hw_SciGetRxError(Uint16 u16SciId)
     pstRegs->SCIRXST.all = (Uint16)(u16Status & 0x003CU);
 
     return 1U;
+}
+
+/* ==================== 环形缓存 + 判帧实现 ==================== */
+
+/* 把发送环形缓存里的数据尽量填进硬件 FIFO */
+static void Hw_SciTxPoll(Uint16 u16SciId)
+{
+    volatile struct SCI_REGS *pstRegs;
+    Uint16 u16Data;
+
+    pstRegs = Hw_SciGetRegs(u16SciId);
+    if ((pstRegs == (volatile struct SCI_REGS *)0) || (gSciInited[u16SciId] == 0U))
+    {
+        return;
+    }
+
+    if (gSciFifoEn[u16SciId] != 0U)
+    {
+        while ((pstRegs->SCIFFTX.bit.TXFFST < HW_SCI_FIFO_DEPTH) &&
+               (RingBuffUsed(&gSciTxRing[u16SciId]) > 0U))
+        {
+            if (RingBuffRead(&gSciTxRing[u16SciId], &u16Data, 1U) != 1U)
+            {
+                break;
+            }
+            pstRegs->SCITXBUF.all = (Uint16)(u16Data & 0x00FFU);
+        }
+    }
+    else
+    {
+        while ((pstRegs->SCICTL2.bit.TXRDY != 0U) &&
+               (RingBuffUsed(&gSciTxRing[u16SciId]) > 0U))
+        {
+            if (RingBuffRead(&gSciTxRing[u16SciId], &u16Data, 1U) != 1U)
+            {
+                break;
+            }
+            pstRegs->SCITXBUF.all = (Uint16)(u16Data & 0x00FFU);
+        }
+    }
+}
+
+void Hw_SciRxIsr(Uint16 u16SciId)
+{
+    volatile struct SCI_REGS *pstRegs;
+    Uint16 u16Count;
+    Uint16 u16Data;
+
+    if (u16SciId >= (Uint16)HW_SCI_ID_MAX)
+    {
+        return;
+    }
+
+    pstRegs = Hw_SciGetRegs(u16SciId);
+    if ((pstRegs == (volatile struct SCI_REGS *)0) || (gSciInited[u16SciId] == 0U))
+    {
+        return;
+    }
+
+    if (gSciFifoEn[u16SciId] != 0U)
+    {
+        u16Count = pstRegs->SCIFFRX.bit.RXFFST;
+
+        while (u16Count > 0U)
+        {
+            if (pstRegs->SCIRXST.bit.RXRDY == 0U)
+            {
+                break;
+            }
+
+            u16Data = pstRegs->SCIRXBUF.bit.SAR;
+
+            /* 新的一帧刚开始：记下起点字节序号 */
+            if (gSciFrameActive[u16SciId] == 0U)
+            {
+                gSciFrameActive[u16SciId] = 1U;
+                gSciFrameStart[u16SciId] = gSciRxTotal[u16SciId];
+            }
+
+            (void)RingBuffWrite(&gSciRxRing[u16SciId], &u16Data, 1U);
+            gSciRxTotal[u16SciId] = (Uint16)(gSciRxTotal[u16SciId] + 1U);
+            gSciRxIdleCnt[u16SciId] = 0U;
+            u16Count--;
+        }
+
+        /* 接收 FIFO 中断标志必须写 1 清除，否则会一直重进 */
+        pstRegs->SCIFFRX.bit.RXFFINTCLR = 1U;
+    }
+    else
+    {
+        if (pstRegs->SCIRXST.bit.RXRDY != 0U)
+        {
+            u16Data = pstRegs->SCIRXBUF.bit.SAR;
+
+            if (gSciFrameActive[u16SciId] == 0U)
+            {
+                gSciFrameActive[u16SciId] = 1U;
+                gSciFrameStart[u16SciId] = gSciRxTotal[u16SciId];
+            }
+
+            (void)RingBuffWrite(&gSciRxRing[u16SciId], &u16Data, 1U);
+            gSciRxTotal[u16SciId] = (Uint16)(gSciRxTotal[u16SciId] + 1U);
+            gSciRxIdleCnt[u16SciId] = 0U;
+        }
+        else
+        {
+            /* 没有数据可读，直接返回 */
+        }
+    }
+}
+
+void Hw_SciScan(Uint16 u16SciId)
+{
+    Uint16 u16Len;
+    Uint16 u16Used;
+
+    if ((u16SciId >= (Uint16)HW_SCI_ID_MAX) || (gSciInited[u16SciId] == 0U))
+    {
+        return;
+    }
+
+    /* 1. 先把欠发的数据补进硬件 FIFO */
+    Hw_SciTxPoll(u16SciId);
+
+    /* 2. 判帧第一步：本拍有没有新字节 */
+    if (gSciRxTotal[u16SciId] != gSciLastTotal[u16SciId])
+    {
+        gSciLastTotal[u16SciId] = gSciRxTotal[u16SciId];
+        gSciRxIdleCnt[u16SciId] = 0U;
+    }
+    else if (gSciFrameActive[u16SciId] != 0U)
+    {
+        if (gSciRxIdleCnt[u16SciId] < 0xFFFFU)
+        {
+            gSciRxIdleCnt[u16SciId] = (Uint16)(gSciRxIdleCnt[u16SciId] + 1U);
+        }
+    }
+    else
+    {
+        /* 没有在收帧，不用累加空闲时间 */
+    }
+
+    /* 3. 判帧第二步：空闲拍数达到门限，说明一帧收完 */
+    if ((gSciFrameActive[u16SciId] != 0U) &&
+        (gSciRxIdleCnt[u16SciId] >= gSciIdleTh[u16SciId]))
+    {
+        u16Len = (Uint16)(gSciRxTotal[u16SciId] - gSciFrameStart[u16SciId]);
+        u16Used = RingBuffUsed(&gSciRxRing[u16SciId]);
+
+        if ((u16Len == 0U) || (u16Len > u16Used))
+        {
+            /* 环形缓存进满过，这一帧已经不全，整段扔掉 */
+            (void)RingBuffClear(&gSciRxRing[u16SciId]);
+        }
+        else if (gSciFrameReady[u16SciId] != 0U)
+        {
+            /* 上一帧还没被取走，本帧只能放弃，避免长度错位 */
+            (void)RingBuffClear(&gSciRxRing[u16SciId]);
+            gSciFrameLost[u16SciId] = (Uint16)(gSciFrameLost[u16SciId] + 1U);
+        }
+        else
+        {
+            gSciFrameLen[u16SciId] = u16Len;
+            gSciFrameReady[u16SciId] = 1U;
+        }
+
+        gSciFrameActive[u16SciId] = 0U;
+    }
+}
+
+void Hw_SciScanAllTask(void *pArgV)
+{
+    Uint16 u16Idx;
+
+    (void)pArgV;
+
+    for (u16Idx = 0U; u16Idx < (Uint16)HW_SCI_ID_MAX; u16Idx++)
+    {
+        if (gSciInited[u16Idx] != 0U)
+        {
+            Hw_SciScan(u16Idx);
+        }
+    }
+}
+
+Uint16 Hw_SciFrameIsReady(Uint16 u16SciId)
+{
+    if (u16SciId >= (Uint16)HW_SCI_ID_MAX)
+    {
+        return 0U;
+    }
+
+    return gSciFrameReady[u16SciId];
+}
+
+Uint16 Hw_SciFrameRead(Uint16 u16SciId, Uint16 *pu16Dst, Uint16 u16MaxLen)
+{
+    Uint16 u16Len;
+
+    if ((u16SciId >= (Uint16)HW_SCI_ID_MAX) || (pu16Dst == (Uint16 *)0))
+    {
+        return 0U;
+    }
+
+    if (gSciFrameReady[u16SciId] == 0U)
+    {
+        return 0U;
+    }
+
+    u16Len = gSciFrameLen[u16SciId];
+    if (u16Len > u16MaxLen)
+    {
+        u16Len = u16MaxLen;
+    }
+
+    u16Len = RingBuffRead(&gSciRxRing[u16SciId], pu16Dst, u16Len);
+
+    /* 剩余部分（超过 u16MaxLen 的）直接丢掉，避免下一帧长度错位 */
+    (void)RingBuffClear(&gSciRxRing[u16SciId]);
+
+    gSciFrameReady[u16SciId] = 0U;
+    gSciFrameLen[u16SciId] = 0U;
+
+    return u16Len;
+}
+
+Uint16 Hw_SciTxWrite(Uint16 u16SciId, const Uint16 *pu16Data, Uint16 u16Len)
+{
+    Uint16 u16Written;
+
+    if ((u16SciId >= (Uint16)HW_SCI_ID_MAX) || (pu16Data == (const Uint16 *)0))
+    {
+        return 0U;
+    }
+
+    if (gSciInited[u16SciId] == 0U)
+    {
+        return 0U;
+    }
+
+    u16Written = RingBuffWrite(&gSciTxRing[u16SciId], pu16Data, u16Len);
+
+    /* 写完立刻尝试启动发送，避免等下一个 100us 扫描 */
+    Hw_SciTxPoll(u16SciId);
+
+    return u16Written;
+}
+
+Uint16 Hw_SciTxBusy(Uint16 u16SciId)
+{
+    volatile struct SCI_REGS *pstRegs;
+
+    if (u16SciId >= (Uint16)HW_SCI_ID_MAX)
+    {
+        return 0U;
+    }
+
+    if (RingBuffUsed(&gSciTxRing[u16SciId]) > 0U)
+    {
+        return 1U;
+    }
+
+    pstRegs = Hw_SciGetRegs(u16SciId);
+    if (pstRegs == (volatile struct SCI_REGS *)0)
+    {
+        return 0U;
+    }
+
+    if (gSciFifoEn[u16SciId] != 0U)
+    {
+        return (pstRegs->SCIFFTX.bit.TXFFST > 0U) ? 1U : 0U;
+    }
+
+    return (pstRegs->SCICTL2.bit.TXRDY == 0U) ? 1U : 0U;
+}
+
+Uint16 Hw_SciGetRxTotal(Uint16 u16SciId)
+{
+    if (u16SciId >= (Uint16)HW_SCI_ID_MAX)
+    {
+        return 0U;
+    }
+
+    return gSciRxTotal[u16SciId];
+}
+
+Uint16 Hw_SciGetRxOverflowCnt(Uint16 u16SciId)
+{
+    if (u16SciId >= (Uint16)HW_SCI_ID_MAX)
+    {
+        return 0U;
+    }
+
+    return gSciRxRing[u16SciId].u16OverflowCnt;
+}
+
+Uint16 Hw_SciGetFrameLost(Uint16 u16SciId)
+{
+    if (u16SciId >= (Uint16)HW_SCI_ID_MAX)
+    {
+        return 0U;
+    }
+
+    return gSciFrameLost[u16SciId];
 }

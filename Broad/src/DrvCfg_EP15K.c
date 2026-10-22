@@ -11,6 +11,7 @@
 
 #include "DrvCfg_EP15K.h"
 #include "User_ClaTask.h"
+#include "CommRegTable.h"
 
 
 ST_GPIO_CFG_ITEM stGpioCfgItem[] =
@@ -130,7 +131,7 @@ ST_PWM_CFG_ITEM stPwmCfgItem[] =
         HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_FORCE_LOW, HW_PWM_FORCE_LOW, HW_PWM_FORCE_LOW,
         {AQ_NO_ACTION, AQ_NO_ACTION, AQ_SET, AQ_CLEAR, AQ_NO_ACTION, AQ_NO_ACTION}, // CAU=SET, CAD=CLEAR
         {AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION},
-        {1U, ET_CTR_ZERO, 1U, 0U, 1U} // 可以在 CTR=ZERO 触发 ADC 采样
+        {1U, ET_CTR_ZERO, 1U, 0U, 1U, 1U, ET_CTR_PRD, 1U, 0U, 1U} // SOCA 在 CTR=ZERO 采平均值，SOCB 在 CTR=PRD 采第二点
     },
 
     /* EPWM2: S相竖管S1主波形 */
@@ -346,8 +347,8 @@ const ST_ADC_CH_CFG_ITEM stAdcChCfgItem[] =
     {5, 60,  5}, {0, 0,  0}, {0, 0,  0}, {5, 30,  4},   /* SOC5  : A5 R相电网电压                                  D4 平衡电路电流 */
     {5, 60,  0}, {0, 0,  0}, {0, 0,  0}, {5, 30, 15},   /* SOC6  : A0 T相逆变电压                                  D15 PV4电流 */
     {5, 60,  1}, {0, 0,  0}, {0, 0,  0}, {0, 0,  0},   /* SOC7  : A1 S相电网电压 */
-    {0, 0,  0}, {0, 0,  0}, {0, 0,  0}, {0, 0,  0},   /* SOC8  */
-    {0, 0,  0}, {0, 0,  0}, {0, 0,  0}, {0, 0,  0},   /* SOC9  */
+    {6, 100, 2}, {0, 0,  0}, {0, 0,  0}, {6, 30,  2},   /* SOC8  : A2/D2 逆变电流第二采（PRD），A2 放慢作 ADCINT2 锚点 */
+    {0, 0,  0}, {0, 0,  0}, {0, 0,  0}, {6, 30, 14},   /* SOC9  : D14 R相逆变电流第二采（PRD） */
     {0, 0,  0}, {0, 0,  0}, {0, 0,  0}, {0, 0,  0},   /* SOC10 */
     {0, 0,  0}, {0, 0,  0}, {0, 0,  0}, {0, 0,  0},   /* SOC11 */
     {0, 0,  0}, {0, 0,  0}, {0, 0,  0}, {0, 0,  0},   /* SOC12 */
@@ -370,7 +371,7 @@ const ST_ADC_CH_CFG_ITEM stAdcChCfgItem[] =
 const ST_ADC_CFG_ITEM stAdcCfgItem[] =
 {
     /* ADC-A：12位单端，SOC15转换完成产生ADCINT1，用于触发CLA Task1 */
-    {HW_ADC_ID0, &stAdcChCfgItem[0], HW_ADC_RESOLUTION_12BIT, HW_ADC_SIGNALMODE_SINGLE, 1U, 15U},
+    {HW_ADC_ID0, &stAdcChCfgItem[0], HW_ADC_RESOLUTION_12BIT, HW_ADC_SIGNALMODE_SINGLE, 1U, 15U, 1U, 8U},
 
     /* ADC-B：12位单端，不使用ADC中断 */
     {HW_ADC_ID1, &stAdcChCfgItem[1], HW_ADC_RESOLUTION_12BIT, HW_ADC_SIGNALMODE_SINGLE, 0U, 0U},
@@ -402,7 +403,8 @@ ST_ADC_CFG stAdcCfg =
 
 const ST_CLA_CFG_ITEM stClaCfgItem[] =
 {
-    {HW_CLA_TASK1, HW_CLA_TRIG_ADCA1, Cla1Task1},
+    {HW_CLA_TASK1, HW_CLA_TRIG_ADCA1, Cla1Task1},   /* ZERO 批次结束：控制主任务 */
+    {HW_CLA_TASK2, HW_CLA_TRIG_ADCA2, Cla1Task2},   /* PRD  批次结束：搬第二采样值 */
 };
 
 ST_CLA_CFG stClaCfg =
@@ -462,9 +464,10 @@ ST_INV_CFG stInvCfg =
 /* 串口配置格式：{模块号,波特率,字符长度,停止位,校验,回环,FIFO使能,接收FIFO中断电平,接收中断使能} */
 const ST_SCI_CFG_ITEM stSciCfgItem[] =
 {
-    {HW_SCI_ID_A, 115200UL, HW_SCI_CHAR_LEN_8BIT, HW_SCI_STOP_BITS_1, HW_SCI_PARITY_NONE, 0U, 1U, 8U, 0U},
-    {HW_SCI_ID_C, 115200UL, HW_SCI_CHAR_LEN_8BIT, HW_SCI_STOP_BITS_1, HW_SCI_PARITY_NONE, 0U, 1U, 8U, 0U},
-    {HW_SCI_ID_D, 115200UL, HW_SCI_CHAR_LEN_8BIT, HW_SCI_STOP_BITS_1, HW_SCI_PARITY_NONE, 0U, 1U, 8U, 0U},
+    /* 格式：{模块, 波特率, 字符长度, 停止位, 校验, 回环, FIFO使能, 接收中断电平, 接收中断使能, 断帧门限} */
+    {HW_SCI_ID_A,  19200UL,  HW_SCI_CHAR_LEN_8BIT, HW_SCI_STOP_BITS_1, HW_SCI_PARITY_NONE, 0U, 1U, 8U, 1U, 19U},   /* SCIA：与ARM通信，3.5字符≈1.9ms→19拍 */
+    {HW_SCI_ID_C, 115200UL, HW_SCI_CHAR_LEN_8BIT, HW_SCI_STOP_BITS_1, HW_SCI_PARITY_NONE, 0U, 1U, 8U, 1U, 4U},    /* SCIC：接收TVS相位差，3.5字符≈0.3ms→4拍 */
+    {HW_SCI_ID_D,  38400UL, HW_SCI_CHAR_LEN_8BIT, HW_SCI_STOP_BITS_1, HW_SCI_PARITY_NONE, 0U, 1U, 8U, 1U, 10U},   /* SCID：上位机，3.5字符≈0.9ms→10拍 */
 };
 
 ST_SCI_CFG stSciCfg =
@@ -491,7 +494,7 @@ ST_SCI_CFG stSciCfg =
 const ST_CAN_CFG_ITEM stCanCfgItem[] =
 {
     {HW_CAN_ID_A, 500000UL, 1U, 4U, 5U, 1U, 0x00000000UL, 0x00000000UL, 0U, 0U, 1U},
-    {HW_CAN_ID_B, 500000UL, 1U, 4U, 5U, 1U, 0x00000000UL, 0x00000000UL, 0U, 0U, 1U},
+    {HW_CAN_ID_B, 1000000UL, 1U, 4U, 5U, 1U, 0x00000000UL, 0x00000000UL, 1U, 0U, 1U},
 };
 
 ST_CAN_CFG stCanCfg =
@@ -535,4 +538,21 @@ ST_ECAP_CFG stEcapCfg =
 {
     &stEcapCfgItem[0],
     sizeof(stEcapCfgItem) / sizeof(stEcapCfgItem[0])
+};
+
+/* ============ Modbus 从机：ARM(SCIA) + 上位机(SCID) + TVS(SCIC 只听) ============ */
+const ST_MB_SLAVE_CFG stMbSlaveCfgItem[] =
+{
+    /* 格式：{SCI模块, 从机地址, 点表, 有效行数, 只听不应答} */
+    {HW_SCI_ID_A, 1U, stMbRegItemArm, MB_ARM_REG_NUM, 0U},
+    {HW_SCI_ID_D, 2U, stMbRegItemPc,  MB_PC_REG_NUM,  0U},
+
+    /* TVS：SCIC 只收不发，所以配成只听不应答；从机地址待 TVS 侧协议确定 */
+    {HW_SCI_ID_C, 3U, stMbRegItemTvs, MB_TVS_REG_NUM, 1U},
+};
+
+ST_MB_CFG stMbCfg =
+{
+    stMbSlaveCfgItem,
+    (Uint16)(sizeof(stMbSlaveCfgItem) / sizeof(stMbSlaveCfgItem[0]))
 };

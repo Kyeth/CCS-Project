@@ -22,14 +22,13 @@
  *   stClaFilt    → RAMLS5         （CLA 私有滤波状态）
  *   Cla1Task1    → RAMLS0~RAMLS3  （运行时从 Flash 拷贝过来）
  ******************************************************************************/
-#pragma DATA_SECTION(Cla1ToCpuMsg, "Cla1ToCpuMsgRAM")
-#pragma DATA_SECTION(CpuToCla1Msg, "CpuToCla1MsgRAM")
 #pragma DATA_SECTION(stClaFilt, "Cla1DataRam")
 #pragma CODE_SECTION(Cla1Task1, "Cla1Prog")
+#pragma CODE_SECTION(Cla1Task2, "Cla1Prog")
 
-ST_CLA_TO_CPU Cla1ToCpuMsg;
-ST_CPU_TO_CLA CpuToCla1Msg;
-ST_CLA_FILT   stClaFilt;
+/* 消息 RAM 的两个结构体由 User_ClaTaskMsgRam.c（CPU 侧）定义并指定段，
+ * 本文件只引用；CLA 侧的私有状态 stClaFilt 仍定义在这里。 */
+ST_CLA_FILT stClaFilt;
 
 /******************************************************************************
  * @brief  一阶低通滤波（CLA 版）
@@ -45,6 +44,22 @@ static float Cla_Lpf(float fAlpha, float fPrev, float fIn)
 }
 
 /******************************************************************************
+ * @brief CLA Task2 中断服务函数（CTR=PRD 批次结束，25us 后于 Task1）
+ * @note  只做一件事：把三路逆变电流的第二个采样点搬进消息 RAM。
+ *        因为 ADC 结果寄存器按通道分配、同一拍第二次转换会覆盖第一次，
+ *        必须在 Task1（下一个 ZERO）覆盖之前把值取走。
+ ******************************************************************************/
+__interrupt void Cla1Task2(void)
+{
+    Cla1ToCpuMsg.fInvCurPeak[CLA_IDX_T] = (float)CLA_RES_INV_CUR_T;
+    Cla1ToCpuMsg.fInvCurPeak[CLA_IDX_S] = (float)CLA_RES_INV_CUR_S;
+    Cla1ToCpuMsg.fInvCurPeak[CLA_IDX_R] = (float)CLA_RES_INV_CUR_R;
+
+    /* 清 ADC-A INT2 标志，允许下一个周期再次触发 */
+    AdcaRegs.ADCINTFLGCLR.bit.ADCINT2 = 1U;
+}
+
+/******************************************************************************
  * @brief CLA Task1 中断服务函数（每 20kHz 一个周期执行一次）
  * @note  内部顺序不能随意调整：
  *        1) 先取逆变电流（控制环最需要、要求最新）
@@ -56,10 +71,16 @@ __interrupt void Cla1Task1(void)
 {
     Uint16 u16Addr;
 
-    /* ================= 1. 逆变电流（不滤波，直接送码值） ================= */
-    Cla1ToCpuMsg.fInvCur[CLA_IDX_T] = (float)CLA_RES_INV_CUR_T;
-    Cla1ToCpuMsg.fInvCur[CLA_IDX_S] = (float)CLA_RES_INV_CUR_S;
-    Cla1ToCpuMsg.fInvCur[CLA_IDX_R] = (float)CLA_RES_INV_CUR_R;
+    /* ============ 1. 逆变电流：ZERO 与 PRD 两点平均（消开关噪声） ============
+     * 两点分别是高/低电平区间的时间中点，各自都等于本周期平均电流，
+     * 因此平均后仍然无偏；换流振铃只会污染离边沿近的那一点，平均后减半。
+     * fInvCurPeak 由 CLA Task2 在 PRD 批次结束时写入。 */
+    Cla1ToCpuMsg.fInvCur[CLA_IDX_T] = 0.5f * ((float)CLA_RES_INV_CUR_T +
+                                              Cla1ToCpuMsg.fInvCurPeak[CLA_IDX_T]);
+    Cla1ToCpuMsg.fInvCur[CLA_IDX_S] = 0.5f * ((float)CLA_RES_INV_CUR_S +
+                                              Cla1ToCpuMsg.fInvCurPeak[CLA_IDX_S]);
+    Cla1ToCpuMsg.fInvCur[CLA_IDX_R] = 0.5f * ((float)CLA_RES_INV_CUR_R +
+                                              Cla1ToCpuMsg.fInvCurPeak[CLA_IDX_R]);
 
     /* ================= 2. 逆变电压：一阶低通（fc≈2kHz） ================= */
     stClaFilt.fInvVolt[CLA_IDX_R] = Cla_Lpf(CLA_LPF_ALPHA_AC,

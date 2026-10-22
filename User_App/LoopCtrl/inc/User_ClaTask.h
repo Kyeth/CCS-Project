@@ -110,7 +110,8 @@ extern "C" {
  ******************************************************************************/
 typedef struct
 {
-    float  fInvCur[CLA_PHASE_NUM];      // 逆变电流（未滤波）
+    float  fInvCur[CLA_PHASE_NUM];      // 逆变电流（ZERO 与 PRD 两点平均后，未滤波）
+    float  fInvCurPeak[CLA_PHASE_NUM];  // 逆变电流 PRD 时刻的第二采样（未滤波）
     float  fInvVolt[CLA_PHASE_NUM];     // 逆变电压（已滤波）
     float  fGridVolt[CLA_PHASE_NUM];    // 电网电压（已滤波）
     float  fPvCur[CLA_PV_NUM];          // PV1~PV4 电流（已滤波）
@@ -151,6 +152,8 @@ typedef struct
 /******************************************************************************
  * 全局实例（定义在 User_ClaTask.cla 中）
  ******************************************************************************/
+/* 消息 RAM 的段归属与定义放在 User_ClaTaskMsgRam.c（CPU 侧编译单元），
+ * .cla 只做 extern 引用——这样两侧的数据模型假设一致 */
 extern ST_CLA_TO_CPU Cla1ToCpuMsg;
 extern ST_CPU_TO_CLA CpuToCla1Msg;
 extern ST_CLA_FILT   stClaFilt;
@@ -159,6 +162,9 @@ extern ST_CLA_FILT   stClaFilt;
  * CLA 任务入口（由 Hw_ClaInit 通过配置表映射到 MVECT1）
  ******************************************************************************/
 extern __interrupt void Cla1Task1(void);
+
+/* CLA Task2：CTR=PRD 批次结束，只搬第二采样值，不做运算 */
+extern __interrupt void Cla1Task2(void);
 
 #ifdef __cplusplus
 }

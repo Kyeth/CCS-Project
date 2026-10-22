@@ -114,6 +114,13 @@ typedef struct
     Uint16 bUsePrd2;
     Uint16 u16Prd;
     Uint16 u16Prd2;
+
+    /* SOCB 事件：用于第二采样点（例如 CTR=PRD 采逆变电流峰值） */
+    Uint16 bEnableB;        /* 1: 使能 SOCB */
+    Uint16 u16SelB;         /* 见 E_HW_PWM_ET_SEL */
+    Uint16 bUsePrd2B;       /* 1: 用 SOCBPRD2 分频，0: 用 SOCBPRD */
+    Uint16 u16PrdB;
+    Uint16 u16Prd2B;
 } ST_PWM_ET_CFG;
 
 typedef struct

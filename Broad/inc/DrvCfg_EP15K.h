@@ -10,6 +10,8 @@
 #include "Hw_SciDriver.h"
 #include "Hw_CanDriver.h"
 #include "Hw_EcapDriver.h"
+#include "ModbusSlave.h"
+
 
 #ifdef __cplusplus
     extern "C" {
@@ -38,6 +40,11 @@ extern ST_SCI_CFG stSciCfg;
 
 /* CAN配置：本板两个CAN模块A/B，详见 stCanCfg */
 extern ST_CAN_CFG stCanCfg;
+
+/* Modbus 从机配置：SCIA 给 ARM、SCID 给上位机，详见 stMbCfg */
+extern ST_MB_CFG stMbCfg;
+
+/* TVS 走 Modbus（SCIC 只听不应答），其从机配置在 stMbCfg 里，点表见 stMbRegItemTvs */
 
 /* eCAP捕获配置：电网过零(R/S/T)与电网频率信号(R/S/T)，详见 stEcapCfg */
 extern ST_ECAP_CFG stEcapCfg;

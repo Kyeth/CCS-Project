@@ -14,10 +14,24 @@ ORDERED_OBJS += \
 "./Broad/src/DrvCfg_EP15K.obj" \
 "./Broad/src/DrvCfg_Protect.obj" \
 "./Drivers/src/Hw_AdcDriver.obj" \
+"./Drivers/src/Hw_CanDriver.obj" \
+"./Drivers/src/Hw_ClaDriver.obj" \
 "./Drivers/src/Hw_CpuTimerDriver.obj" \
+"./Drivers/src/Hw_EcapDriver.obj" \
 "./Drivers/src/Hw_GpioDriver.obj" \
+"./Drivers/src/Hw_InvDriver.obj" \
 "./Drivers/src/Hw_PwmDriver.obj" \
+"./Drivers/src/Hw_SciDriver.obj" \
+"./Platform/Common/src/Crc16.obj" \
+"./Platform/Common/src/RingBuff.obj" \
+"./User_App/Comm/src/CommRegTable.obj" \
+"./User_App/Comm/src/ModbusSlave.obj" \
+"./User_App/Comm/src/SoftOsc.obj" \
+"./User_App/Comm/src/TvsComm.obj" \
 "./User_App/InterruptCfg/src/InterruptCfg.obj" \
+"./User_App/LoopCtrl/src/CtrlIsr.obj" \
+"./User_App/LoopCtrl/src/User_ClaTask.obj" \
+"./User_App/LoopCtrl/src/User_ClaTaskMsgRam.obj" \
 "./User_App/Schedule/src/Schedule.obj" \
 "./User_App/WatchDog/src/Hw_WatchDog.obj" \
 "./device/common/source/F2837xS_Adc.obj" \
@@ -96,7 +110,10 @@ RMDIR := RMDIR /S/Q
 -include Broad/src/subdir_vars.mk
 -include CMD/subdir_vars.mk
 -include Drivers/src/subdir_vars.mk
+-include Platform/Common/src/subdir_vars.mk
+-include User_App/Comm/src/subdir_vars.mk
 -include User_App/InterruptCfg/src/subdir_vars.mk
+-include User_App/LoopCtrl/src/subdir_vars.mk
 -include User_App/Schedule/src/subdir_vars.mk
 -include User_App/WatchDog/src/subdir_vars.mk
 -include device/common/source/subdir_vars.mk
@@ -109,7 +126,10 @@ RMDIR := RMDIR /S/Q
 -include Broad/src/subdir_rules.mk
 -include CMD/subdir_rules.mk
 -include Drivers/src/subdir_rules.mk
+-include Platform/Common/src/subdir_rules.mk
+-include User_App/Comm/src/subdir_rules.mk
 -include User_App/InterruptCfg/src/subdir_rules.mk
+-include User_App/LoopCtrl/src/subdir_rules.mk
 -include User_App/Schedule/src/subdir_rules.mk
 -include User_App/WatchDog/src/subdir_rules.mk
 -include device/common/source/subdir_rules.mk
@@ -234,7 +254,7 @@ all: $(OBJS) $(CMD_SRCS) $(LIB_SRCS) $(GEN_CMDS)
 EP15K_2026.out: $(OBJS) $(CMD_SRCS) $(LIB_SRCS) $(GEN_CMDS)
 	@echo 'Building target: "$@"'
 	@echo 'Invoking: C2000 Linker'
-	"C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/bin/cl2000" -v28 -ml -mt --cla_support=cla1 --float_support=fpu32 --tmu_support=tmu0 --vcu_support=vcu2 --define=_FLASH --define=DEBUG --define=CPU1 --define=F2837xS -g --diag_warning=225 --diag_wrap=off --display_error_number --abi=eabi -z -m"EP15K_2026.map" --stack_size=0x200 --warn_sections -i"C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/lib" -i"C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include" --reread_libs --diag_wrap=off --display_error_number --xml_link_info="EP15K_2026_linkInfo.xml" --rom_model -o "EP15K_2026.out" $(ORDERED_OBJS)
+	"C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/bin/cl2000" -v28 -ml -mt --cla_support=cla1 --float_support=fpu32 --tmu_support=tmu0 --vcu_support=vcu2 --fp_mode=relaxed --define=_FLASH --define=DEBUG --define=CPU1 --define=F2837xS -g --diag_warning=225 --diag_wrap=off --display_error_number --abi=eabi -z -m"EP15K_2026.map" --stack_size=0x200 --warn_sections -i"C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/lib" -i"C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include" --reread_libs --diag_wrap=off --display_error_number --xml_link_info="EP15K_2026_linkInfo.xml" --rom_model -o "EP15K_2026.out" $(ORDERED_OBJS)
 	@echo 'Finished building target: "$@"'
 	@echo ' '
 
@@ -249,11 +269,13 @@ EP15K_2026.hex: $(EXE_OUTPUTS)
 # Other Targets
 clean:
 	-$(RM) $(BIN_OUTPUTS__QUOTED)$(EXE_OUTPUTS__QUOTED)
-	-$(RM) "main.obj" "Broad\src\DrvCfg_EP15K.obj" "Broad\src\DrvCfg_Protect.obj" "Drivers\src\Hw_AdcDriver.obj" "Drivers\src\Hw_CpuTimerDriver.obj" "Drivers\src\Hw_GpioDriver.obj" "Drivers\src\Hw_PwmDriver.obj" "User_App\InterruptCfg\src\InterruptCfg.obj" "User_App\Schedule\src\Schedule.obj" "User_App\WatchDog\src\Hw_WatchDog.obj" "device\common\source\F2837xS_Adc.obj" "device\common\source\F2837xS_CodeStartBranch.obj" "device\common\source\F2837xS_CpuTimers.obj" "device\common\source\F2837xS_DBGIER.obj" "device\common\source\F2837xS_DefaultISR.obj" "device\common\source\F2837xS_Dma.obj" "device\common\source\F2837xS_ECap.obj" "device\common\source\F2837xS_EPwm.obj" "device\common\source\F2837xS_EQep.obj" "device\common\source\F2837xS_Emif.obj" "device\common\source\F2837xS_Gpio.obj" "device\common\source\F2837xS_I2C.obj" "device\common\source\F2837xS_Mcbsp.obj" "device\common\source\F2837xS_PieCtrl.obj" "device\common\source\F2837xS_PieVect.obj" "device\common\source\F2837xS_Sci.obj" "device\common\source\F2837xS_Spi.obj" 
-	-$(RM) "device\common\source\F2837xS_SysCtrl.obj" "device\common\source\F2837xS_TempSensorConv.obj" "device\common\source\F2837xS_Upp.obj" "device\common\source\F2837xS_can.obj" "device\common\source\F2837xS_sci_io.obj" "device\common\source\F2837xS_sdfm_drivers.obj" "device\common\source\F2837xS_struct.obj" "device\common\source\F2837xS_usDelay.obj" "device\common\source\device.obj" "device\driverlib\adc.obj" "device\driverlib\asysctl.obj" "device\driverlib\can.obj" "device\driverlib\cla.obj" "device\driverlib\clb.obj" "device\driverlib\cmpss.obj" "device\driverlib\cputimer.obj" "device\driverlib\dac.obj" "device\driverlib\dcsm.obj" "device\driverlib\dma.obj" "device\driverlib\ecap.obj" "device\driverlib\emif.obj" "device\driverlib\epwm.obj" "device\driverlib\eqep.obj" "device\driverlib\flash.obj" "device\driverlib\gpio.obj" "device\driverlib\hrpwm.obj" "device\driverlib\i2c.obj" "device\driverlib\interrupt.obj" "device\driverlib\mcbsp.obj" "device\driverlib\memcfg.obj" "device\driverlib\sci.obj" 
-	-$(RM) "device\driverlib\sdfm.obj" "device\driverlib\spi.obj" "device\driverlib\sysctl.obj" "device\driverlib\upp.obj" "device\driverlib\usb.obj" "device\driverlib\version.obj" "device\driverlib\xbar.obj" "device\headers\source\F2837xS_GlobalVariableDefs.obj" 
-	-$(RM) "main.d" "Broad\src\DrvCfg_EP15K.d" "Broad\src\DrvCfg_Protect.d" "Drivers\src\Hw_AdcDriver.d" "Drivers\src\Hw_CpuTimerDriver.d" "Drivers\src\Hw_GpioDriver.d" "Drivers\src\Hw_PwmDriver.d" "User_App\InterruptCfg\src\InterruptCfg.d" "User_App\Schedule\src\Schedule.d" "User_App\WatchDog\src\Hw_WatchDog.d" "device\common\source\F2837xS_Adc.d" "device\common\source\F2837xS_CpuTimers.d" "device\common\source\F2837xS_DefaultISR.d" "device\common\source\F2837xS_Dma.d" "device\common\source\F2837xS_ECap.d" "device\common\source\F2837xS_EPwm.d" "device\common\source\F2837xS_EQep.d" "device\common\source\F2837xS_Emif.d" "device\common\source\F2837xS_Gpio.d" "device\common\source\F2837xS_I2C.d" "device\common\source\F2837xS_Mcbsp.d" "device\common\source\F2837xS_PieCtrl.d" "device\common\source\F2837xS_PieVect.d" "device\common\source\F2837xS_Sci.d" "device\common\source\F2837xS_Spi.d" "device\common\source\F2837xS_SysCtrl.d" "device\common\source\F2837xS_TempSensorConv.d" "device\common\source\F2837xS_Upp.d" 
-	-$(RM) "device\common\source\F2837xS_can.d" "device\common\source\F2837xS_sci_io.d" "device\common\source\F2837xS_sdfm_drivers.d" "device\common\source\F2837xS_struct.d" "device\common\source\device.d" "device\driverlib\adc.d" "device\driverlib\asysctl.d" "device\driverlib\can.d" "device\driverlib\cla.d" "device\driverlib\clb.d" "device\driverlib\cmpss.d" "device\driverlib\cputimer.d" "device\driverlib\dac.d" "device\driverlib\dcsm.d" "device\driverlib\dma.d" "device\driverlib\ecap.d" "device\driverlib\emif.d" "device\driverlib\epwm.d" "device\driverlib\eqep.d" "device\driverlib\flash.d" "device\driverlib\gpio.d" "device\driverlib\hrpwm.d" "device\driverlib\i2c.d" "device\driverlib\interrupt.d" "device\driverlib\mcbsp.d" "device\driverlib\memcfg.d" "device\driverlib\sci.d" "device\driverlib\sdfm.d" "device\driverlib\spi.d" "device\driverlib\sysctl.d" "device\driverlib\upp.d" "device\driverlib\usb.d" "device\driverlib\version.d" "device\driverlib\xbar.d" "device\headers\source\F2837xS_GlobalVariableDefs.d" 
+	-$(RM) "main.obj" "Broad\src\DrvCfg_EP15K.obj" "Broad\src\DrvCfg_Protect.obj" "Drivers\src\Hw_AdcDriver.obj" "Drivers\src\Hw_CanDriver.obj" "Drivers\src\Hw_ClaDriver.obj" "Drivers\src\Hw_CpuTimerDriver.obj" "Drivers\src\Hw_EcapDriver.obj" "Drivers\src\Hw_GpioDriver.obj" "Drivers\src\Hw_InvDriver.obj" "Drivers\src\Hw_PwmDriver.obj" "Drivers\src\Hw_SciDriver.obj" "Platform\Common\src\Crc16.obj" "Platform\Common\src\RingBuff.obj" "User_App\Comm\src\CommRegTable.obj" "User_App\Comm\src\ModbusSlave.obj" "User_App\Comm\src\SoftOsc.obj" "User_App\Comm\src\TvsComm.obj" "User_App\InterruptCfg\src\InterruptCfg.obj" "User_App\LoopCtrl\src\CtrlIsr.obj" "User_App\LoopCtrl\src\User_ClaTask.obj" "User_App\LoopCtrl\src\User_ClaTaskMsgRam.obj" "User_App\Schedule\src\Schedule.obj" "User_App\WatchDog\src\Hw_WatchDog.obj" "device\common\source\F2837xS_Adc.obj" "device\common\source\F2837xS_CodeStartBranch.obj" "device\common\source\F2837xS_CpuTimers.obj" "device\common\source\F2837xS_DBGIER.obj" "device\common\source\F2837xS_DefaultISR.obj" 
+	-$(RM) "device\common\source\F2837xS_Dma.obj" "device\common\source\F2837xS_ECap.obj" "device\common\source\F2837xS_EPwm.obj" "device\common\source\F2837xS_EQep.obj" "device\common\source\F2837xS_Emif.obj" "device\common\source\F2837xS_Gpio.obj" "device\common\source\F2837xS_I2C.obj" "device\common\source\F2837xS_Mcbsp.obj" "device\common\source\F2837xS_PieCtrl.obj" "device\common\source\F2837xS_PieVect.obj" "device\common\source\F2837xS_Sci.obj" "device\common\source\F2837xS_Spi.obj" "device\common\source\F2837xS_SysCtrl.obj" "device\common\source\F2837xS_TempSensorConv.obj" "device\common\source\F2837xS_Upp.obj" "device\common\source\F2837xS_can.obj" "device\common\source\F2837xS_sci_io.obj" "device\common\source\F2837xS_sdfm_drivers.obj" "device\common\source\F2837xS_struct.obj" "device\common\source\F2837xS_usDelay.obj" "device\common\source\device.obj" "device\driverlib\adc.obj" "device\driverlib\asysctl.obj" "device\driverlib\can.obj" "device\driverlib\cla.obj" "device\driverlib\clb.obj" 
+	-$(RM) "device\driverlib\cmpss.obj" "device\driverlib\cputimer.obj" "device\driverlib\dac.obj" "device\driverlib\dcsm.obj" "device\driverlib\dma.obj" "device\driverlib\ecap.obj" "device\driverlib\emif.obj" "device\driverlib\epwm.obj" "device\driverlib\eqep.obj" "device\driverlib\flash.obj" "device\driverlib\gpio.obj" "device\driverlib\hrpwm.obj" "device\driverlib\i2c.obj" "device\driverlib\interrupt.obj" "device\driverlib\mcbsp.obj" "device\driverlib\memcfg.obj" "device\driverlib\sci.obj" "device\driverlib\sdfm.obj" "device\driverlib\spi.obj" "device\driverlib\sysctl.obj" "device\driverlib\upp.obj" "device\driverlib\usb.obj" "device\driverlib\version.obj" "device\driverlib\xbar.obj" "device\headers\source\F2837xS_GlobalVariableDefs.obj" 
+	-$(RM) "main.d" "Broad\src\DrvCfg_EP15K.d" "Broad\src\DrvCfg_Protect.d" "Drivers\src\Hw_AdcDriver.d" "Drivers\src\Hw_CanDriver.d" "Drivers\src\Hw_ClaDriver.d" "Drivers\src\Hw_CpuTimerDriver.d" "Drivers\src\Hw_EcapDriver.d" "Drivers\src\Hw_GpioDriver.d" "Drivers\src\Hw_InvDriver.d" "Drivers\src\Hw_PwmDriver.d" "Drivers\src\Hw_SciDriver.d" "Platform\Common\src\Crc16.d" "Platform\Common\src\RingBuff.d" "User_App\Comm\src\CommRegTable.d" "User_App\Comm\src\ModbusSlave.d" "User_App\Comm\src\SoftOsc.d" "User_App\Comm\src\TvsComm.d" "User_App\InterruptCfg\src\InterruptCfg.d" "User_App\LoopCtrl\src\CtrlIsr.d" "User_App\LoopCtrl\src\User_ClaTaskMsgRam.d" "User_App\Schedule\src\Schedule.d" "User_App\WatchDog\src\Hw_WatchDog.d" "device\common\source\F2837xS_Adc.d" "device\common\source\F2837xS_CpuTimers.d" "device\common\source\F2837xS_DefaultISR.d" "device\common\source\F2837xS_Dma.d" "device\common\source\F2837xS_ECap.d" "device\common\source\F2837xS_EPwm.d" "device\common\source\F2837xS_EQep.d" "device\common\source\F2837xS_Emif.d" 
+	-$(RM) "device\common\source\F2837xS_Gpio.d" "device\common\source\F2837xS_I2C.d" "device\common\source\F2837xS_Mcbsp.d" "device\common\source\F2837xS_PieCtrl.d" "device\common\source\F2837xS_PieVect.d" "device\common\source\F2837xS_Sci.d" "device\common\source\F2837xS_Spi.d" "device\common\source\F2837xS_SysCtrl.d" "device\common\source\F2837xS_TempSensorConv.d" "device\common\source\F2837xS_Upp.d" "device\common\source\F2837xS_can.d" "device\common\source\F2837xS_sci_io.d" "device\common\source\F2837xS_sdfm_drivers.d" "device\common\source\F2837xS_struct.d" "device\common\source\device.d" "device\driverlib\adc.d" "device\driverlib\asysctl.d" "device\driverlib\can.d" "device\driverlib\cla.d" "device\driverlib\clb.d" "device\driverlib\cmpss.d" "device\driverlib\cputimer.d" "device\driverlib\dac.d" "device\driverlib\dcsm.d" "device\driverlib\dma.d" "device\driverlib\ecap.d" "device\driverlib\emif.d" "device\driverlib\epwm.d" "device\driverlib\eqep.d" "device\driverlib\flash.d" "device\driverlib\gpio.d" 
+	-$(RM) "device\driverlib\hrpwm.d" "device\driverlib\i2c.d" "device\driverlib\interrupt.d" "device\driverlib\mcbsp.d" "device\driverlib\memcfg.d" "device\driverlib\sci.d" "device\driverlib\sdfm.d" "device\driverlib\spi.d" "device\driverlib\sysctl.d" "device\driverlib\upp.d" "device\driverlib\usb.d" "device\driverlib\version.d" "device\driverlib\xbar.d" "device\headers\source\F2837xS_GlobalVariableDefs.d" 
+	-$(RM) "User_App\LoopCtrl\src\User_ClaTask.d" 
 	-$(RM) "device\common\source\F2837xS_CodeStartBranch.d" "device\common\source\F2837xS_DBGIER.d" "device\common\source\F2837xS_usDelay.d" 
 	-@echo 'Finished clean'
 	-@echo ' '

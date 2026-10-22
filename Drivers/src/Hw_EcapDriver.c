@@ -48,19 +48,6 @@ static Uint16 Hw_EcapIdIsValid(Uint16 u16EcapId)
 }
 
 /**
- * @brief 取模块寄存器基址
- */
-static volatile struct ECAP_REGS *Hw_EcapGetRegs(Uint16 u16EcapId)
-{
-    if (Hw_EcapIdIsValid(u16EcapId) == 0U)
-    {
-        return (volatile struct ECAP_REGS *)0;
-    }
-
-    return gEcapRegs[u16EcapId];
-}
-
-/**
  * @brief 打开 eCAP 模块时钟
  *
  * PCLKCR3 的 bit0~bit5 分别对应 ECAP1~ECAP6，

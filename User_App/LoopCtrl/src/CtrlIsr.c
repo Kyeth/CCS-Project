@@ -48,6 +48,18 @@ static Uint16 gCtrlSeqLast;             /* 上一次看到的 CLA 序号 */
 static Uint16 gCtrlSeqStall;            /* 序号停滞计数 */
 static Uint16 gCtrlCycleCnt;            /* 已运行控制拍数 */
 
+/* 观测影子量：非 static，供软示波器直接按地址观测（只写不读） */
+volatile float  gCtrlObsThetaDeg  = 0.0F;
+volatile float  gCtrlObsGridFreq  = 0.0F;
+volatile float  gCtrlObsModIndex  = 0.0F;
+volatile Uint16 gCtrlObsFault     = 0U;
+
+/* 发波授权：0 = 只算环路不发波，1 = 允许把占空比写进 ePWM */
+volatile Uint16 gCtrlPwmEnable    = 0U;
+
+/* 上一拍的发波授权，用来只在下降沿调一次 Hw_InvStopAll */
+static Uint16 gCtrlPwmEnableLast  = 0U;
+
 /* 12位码值 -> 工程值（双极性：0~3V 对应 -满量程 ~ +满量程） */
 static float CtrlCodeToBipolar(float fCode16, float fRange)
 {
@@ -255,9 +267,23 @@ void CtrlIsrRun(void)
     fModS = gCtrlModIndex * ((-0.5f * fSinNew) - (0.86602540f * fCosNew));
     fModT = gCtrlModIndex * ((-0.5f * fSinNew) + (0.86602540f * fCosNew));
 
-    Hw_InvSetDuty((Uint16)HW_INV_PHASE_R, fabsf(fModR), (fModR >= 0.0f) ? 1U : 0U);
-    Hw_InvSetDuty((Uint16)HW_INV_PHASE_S, fabsf(fModS), (fModS >= 0.0f) ? 1U : 0U);
-    Hw_InvSetDuty((Uint16)HW_INV_PHASE_T, fabsf(fModT), (fModT >= 0.0f) ? 1U : 0U);
+    if (gCtrlPwmEnable != 0U)
+    {
+        Hw_InvSetDuty((Uint16)HW_INV_PHASE_R, fabsf(fModR), (fModR >= 0.0f) ? 1U : 0U);
+        Hw_InvSetDuty((Uint16)HW_INV_PHASE_S, fabsf(fModS), (fModS >= 0.0f) ? 1U : 0U);
+        Hw_InvSetDuty((Uint16)HW_INV_PHASE_T, fabsf(fModT), (fModT >= 0.0f) ? 1U : 0U);
+    }
+    else if (gCtrlPwmEnableLast != 0U)
+    {
+        /* 授权刚被撤销：立刻把三相拉回硬件钳位，只做一次 */
+        Hw_InvStopAll();
+    }
+    else
+    {
+        /* 未授权发波：占空比不写硬件，桥臂保持 Hw_InvInit 建立的钳位状态 */
+    }
+
+    gCtrlPwmEnableLast = gCtrlPwmEnable;
 
     /* ---------- 5. MUX 轮换（放在最后：本拍写入的地址供下一周期采样） ---------- */
     gCtrlMuxIdx++;
@@ -270,6 +296,12 @@ void CtrlIsrRun(void)
 
     CtrlMuxWrite(gCtrlMuxAddr);
     CpuToCla1Msg.u16MuxAddr = gCtrlMuxAddr;
+
+    /* ---------- 6. 刷新观测影子量（软示波器用） ---------- */
+    gCtrlObsThetaDeg = gCtrlTheta * 57.2957795F;   /* rad -> deg */
+    gCtrlObsGridFreq = gCtrlOmega * 0.15915494F;   /* rad/s -> Hz */
+    gCtrlObsModIndex = gCtrlModIndex;
+    gCtrlObsFault    = gCtrlFault;
 }
 
 /* 调制比设定 */
@@ -291,6 +323,16 @@ void CtrlSetModIndex(float fModIndex)
 float CtrlGetModIndex(void)
 {
     return gCtrlModIndex;
+}
+
+void CtrlSetPwmEnable(Uint16 u16Enable)
+{
+    gCtrlPwmEnable = (u16Enable != 0U) ? 1U : 0U;
+}
+
+Uint16 CtrlGetPwmEnable(void)
+{
+    return gCtrlPwmEnable;
 }
 
 float CtrlGetTheta(void)

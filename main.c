@@ -13,6 +13,9 @@
 #include "InterruptCfg.h"
 #include "Schedule.h"
 #include "CtrlIsr.h"
+#include "SoftOsc.h"
+#include "Hw_SciDriver.h"
+#include "ModbusSlave.h"
 /**
  * @brief 芯片外设初始化
  *
@@ -71,7 +74,9 @@ void ApplicationInit(void)
  */
 void PlatformInit(void)
 {
-    CtrlIsrInit();   /* 控制中断状态复位，并把 MUX 选通到 PV1 */
+    CtrlIsrInit();
+    ModbusInit(&stMbCfg);      /* Modbus 从机：SCIA 给 ARM、SCID 给上位机 */
+    SoftOscInit();    /* 绑定软示波器默认的 12 路观测通道 */   /* 控制中断状态复位，并把 MUX 选通到 PV1 */
 }
 
 /**
@@ -81,14 +86,42 @@ void PlatformInit(void)
  * 否则会触发看门狗复位
  */
 void TaskCreate(void)
-{}
+{
+    /* 软件示波器：基准节拍 100us，4 个节拍 = 400us 发一帧，两组通道交替 */
+    Task_Start(&SoftOscTask, NULL, 4U, 0U);
+
+    /* 通信层：100us 扫描（补发送 FIFO + 判帧），200us 解析 */
+    Task_Start(&Hw_SciScanAllTask, NULL, 1U, 1U);
+    Task_Start(&ModbusTask, NULL, 2U, 2U);
+}
 
 /**
  * @brief 启动系统
  *
+ * @note 这里只做三件事：
+ *       1. 清掉上电可能残留的 Trip Zone 标志，否则第一拍中断进不来；
+ *       2. 三相桥臂用硬件钳位（AQCSFRC 强制低），与占空比解耦；
+ *       3. 放出 ePWM 时基：CTR 起跑 -> EPWM1 SOCA -> ADC -> ADCINT1 -> CLA Task1
+ *          -> CLA1_1 中断 -> CtrlIsrRun()，发波授权保持 0。
+ *
+ *       要真正发波，需同时满足两个条件：
+ *         CtrlSetPwmEnable(1U);        软件授权
+ *         gCtrlModIndex > 0            调制比非 0（CtrlSetModIndex() 设置）
  */
 void StartSystem(void)
-{}
+{
+    /* 1. 清 Trip Zone 残留标志，避免 OST 一直封着导致 SOC/中断不正常 */
+    Hw_PwmClearAllTripZone();
+
+    /* 2. 三相桥臂回到硬件钳位状态（这一步与上电初始化幂等） */
+    Hw_InvStopAll();
+
+    /* 3. 放出全部 ePWM 时基，开始产生 SOC 触发链 */
+    Hw_EnableAllPwmCLKSync();
+
+    /* 4. 发波授权默认关闭：控制中断会跑、环路会算，但占空比不下发 */
+    CtrlSetPwmEnable(0U);
+}
 
 
 void main(void)

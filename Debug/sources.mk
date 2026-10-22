@@ -115,7 +115,10 @@ SUBDIRS := \
 Broad/src \
 CMD \
 Drivers/src \
+Platform/Common/src \
+User_App/Comm/src \
 User_App/InterruptCfg/src \
+User_App/LoopCtrl/src \
 User_App/Schedule/src \
 User_App/WatchDog/src \
 device/common/source \

@@ -30,6 +30,15 @@
 /* PIE 组 11 中 CLA1 Task1 完成中断的通道号 */
 #define ISR_PIE_CH_CLA1_1           (1U)
 
+/* PIE 组 8：SCIC/SCID 收发中断 */
+#define ISR_PIE_GROUP8_MASK         (M_INT8)
+#define ISR_PIE_CH_SCIC_RX          (5U)
+#define ISR_PIE_CH_SCID_RX          (7U)
+
+/* PIE 组 9：SCIA 收发中断 */
+#define ISR_PIE_GROUP9_MASK         (M_INT9)
+#define ISR_PIE_CH_SCIA_RX          (1U)
+
 void InterruptVectTableInit(void)
 {
     /* --- 中断系统初始化 --- */
@@ -44,18 +53,30 @@ void InterruptVectTableInit(void)
     PieVectTable.TIMER1_INT = &Isr_CpuTimer1;
     PieVectTable.TIMER2_INT = &Isr_CpuTimer2;
     PieVectTable.CLA1_1_INT = &Isr_Cla1Task1;
+    PieVectTable.SCIA_RX_INT = &Isr_SciaRx;
+    PieVectTable.SCIC_RX_INT = &Isr_ScicRx;
+    PieVectTable.SCID_RX_INT = &Isr_ScidRx;
     EDIS;
 
     /* --- 使能 PIE 组内通道，并开放对应的 CPU 级中断 --- */
     PieCtrlRegs.PIEIER1.bit.INTx13 = 1U;    /* CPU Timer1 */
     PieCtrlRegs.PIEIER1.bit.INTx14 = 1U;    /* CPU Timer2 */
     PieCtrlRegs.PIEIER11.bit.INTx1 = 1U;    /* CLA1 Task1 完成 */
+    PieCtrlRegs.PIEIER9.bit.INTx1 = 1U;     /* SCIA 接收 */
+    PieCtrlRegs.PIEIER8.bit.INTx5 = 1U;     /* SCIC 接收 */
+    PieCtrlRegs.PIEIER8.bit.INTx7 = 1U;     /* SCID 接收 */
     PieCtrlRegs.PIEACK.all = PIEACK_GROUP1; /* 应答组 1，允许同组后续中断进入 */
     IER |= ISR_PIE_GROUP1_MASK;
 
     /* --- 同样开放 CLA1_1（PIE 组 11），20kHz 控制中断 --- */
     PieCtrlRegs.PIEACK.all = PIEACK_GROUP11; /* 应答组 11，允许同组后续中断进入 */
     IER |= ISR_PIE_GROUP11_MASK;
+
+    /* --- 开放 SCIA（组 9）与 SCIC/SCID（组 8）的接收中断 --- */
+    PieCtrlRegs.PIEACK.all = PIEACK_GROUP9;
+    PieCtrlRegs.PIEACK.all = PIEACK_GROUP8;
+    IER |= ISR_PIE_GROUP9_MASK;
+    IER |= ISR_PIE_GROUP8_MASK;
 }
 
 __interrupt void Isr_CpuTimer1(void)
@@ -93,4 +114,31 @@ __interrupt void Isr_Cla1Task1(void)
 
     /* 应答 PIE 组 11，允许下一拍 CLA1_1 中断进入 */
     PieCtrlRegs.PIEACK.all = PIEACK_GROUP11;
+}
+
+/* SCI-A 接收中断：只把字节搬进环形缓存，解析交给任务 */
+__interrupt void Isr_SciaRx(void)
+{
+    Hw_SciRxIsr((Uint16)HW_SCI_ID_A);
+
+    /* 应答 PIE 组 9 */
+    PieCtrlRegs.PIEACK.all = PIEACK_GROUP9;
+}
+
+/* SCI-C 接收中断：TVS 相位差数据 */
+__interrupt void Isr_ScicRx(void)
+{
+    Hw_SciRxIsr((Uint16)HW_SCI_ID_C);
+
+    /* 应答 PIE 组 8 */
+    PieCtrlRegs.PIEACK.all = PIEACK_GROUP8;
+}
+
+/* SCI-D 接收中断：上位机点表读写 */
+__interrupt void Isr_ScidRx(void)
+{
+    Hw_SciRxIsr((Uint16)HW_SCI_ID_D);
+
+    /* 应答 PIE 组 8 */
+    PieCtrlRegs.PIEACK.all = PIEACK_GROUP8;
 }

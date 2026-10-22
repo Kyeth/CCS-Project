@@ -235,6 +235,11 @@ void Hw_AdcSingleInit(const ST_ADC_CFG_ITEM *pstAdcCfgItem)
         pstRegs->ADCINTSEL1N2.bit.INT1E = 0U;
     }
 
+    /* 5b. 配置ADCINT2：第二采样批次（CTR=PRD）结束时触发 CLA Task2 */
+    pstRegs->ADCINTSEL1N2.bit.INT2SEL = (pstAdcCfgItem->u16Int2Sel & 0x000FU);
+    pstRegs->ADCINTSEL1N2.bit.INT2CONT = 0U;
+    pstRegs->ADCINTSEL1N2.bit.INT2E = (pstAdcCfgItem->bAdcInt2Enable != 0U) ? 1U : 0U;
+
     /* 6. 清中断标志，避免复位后残留标志误触发CLA或CPU中断 */
     pstRegs->ADCINTFLGCLR.all = HW_ADC_INTFLG_CLR_MASK;
 

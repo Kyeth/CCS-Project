@@ -83,6 +83,21 @@ extern Uint16 CtrlGetFault(void);
 extern Uint16 CtrlGetMuxAddr(void);
 extern Uint16 CtrlGetCycleCnt(void);
 
+/* 发波授权：0 = 只跑环路不发波（三相桥臂硬件钳位），1 = 允许调制输出。
+ * 上电默认 0，必须显式调用 CtrlSetPwmEnable(1U) 才可能开通功率级。 */
+extern void   CtrlSetPwmEnable(Uint16 u16Enable);
+extern Uint16 CtrlGetPwmEnable(void);
+
+/* 发波授权状态量：非 static，便于以后挂到 Modbus 点表里做软件互锁 */
+extern volatile Uint16 gCtrlPwmEnable;
+
+/* 观测影子量：控制中断每拍刷新，供软示波器（SoftOsc）按地址观测。
+ * 控制环内部状态量本身是文件内 static，这里只做只读镜像。 */
+extern volatile float  gCtrlObsThetaDeg;
+extern volatile float  gCtrlObsGridFreq;
+extern volatile float  gCtrlObsModIndex;
+extern volatile Uint16 gCtrlObsFault;
+
 #ifdef __cplusplus
 }
 #endif

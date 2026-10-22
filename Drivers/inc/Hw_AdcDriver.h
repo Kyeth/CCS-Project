@@ -97,6 +97,8 @@ typedef struct
     Uint16 u16SignalMode;   /* 信号模式，见HW_ADC_SIGNALMODE_xxx */
     Uint16 bAdcIntEnable;   /* 1: 使能ADCINT1；0: 不使能 */
     Uint16 u16IntSel;       /* ADCINT1的触发SOC编号，bAdcIntEnable为1时有效 */
+    Uint16 bAdcInt2Enable;  /* 1: 使能ADCINT2（第二采样批次用）；0: 不使能 */
+    Uint16 u16Int2Sel;      /* ADCINT2的触发SOC编号 */
 } ST_ADC_CFG_ITEM;
 
 /**

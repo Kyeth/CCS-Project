@@ -70,9 +70,18 @@ main.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_GpioDriver.h
 main.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_PwmDriver.h
 main.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_CpuTimerDriver.h
 main.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_AdcDriver.h
+main.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_ClaDriver.h
+main.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_InvDriver.h
+main.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_SciDriver.h
+main.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_CanDriver.h
+main.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_EcapDriver.h
+main.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/Comm/inc/ModbusSlave.h
+main.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/Comm/inc/TvsComm.h
 main.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/WatchDog/inc/Hw_WatchDog.h
 main.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/InterruptCfg/inc/InterruptCfg.h
 main.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/Schedule/inc/Schedule.h
+main.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/CtrlIsr.h
+main.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/Comm/inc/SoftOsc.h
 
 ../main.c:
 
@@ -214,9 +223,27 @@ D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_CpuTimerDriver.h:
 
 D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_AdcDriver.h:
 
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_ClaDriver.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_InvDriver.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_SciDriver.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_CanDriver.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_EcapDriver.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/Comm/inc/ModbusSlave.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/Comm/inc/TvsComm.h:
+
 D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/WatchDog/inc/Hw_WatchDog.h:
 
 D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/InterruptCfg/inc/InterruptCfg.h:
 
 D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/Schedule/inc/Schedule.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/CtrlIsr.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/Comm/inc/SoftOsc.h:
 

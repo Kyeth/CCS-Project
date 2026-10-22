@@ -105,6 +105,31 @@ static void Hw_PwmConfigSoca(volatile struct EPWM_REGS *pstPwmRegs, const ST_PWM
     pstPwmRegs->ETSEL.bit.SOCAEN = 1U;
 }
 
+/* 配置 SOCB 事件（第二采样点）。 */
+static void Hw_PwmConfigSocb(volatile struct EPWM_REGS *pstPwmRegs, const ST_PWM_ET_CFG *pstEtCfg)
+{
+    pstPwmRegs->ETSEL.bit.SOCBEN = 0U;
+
+    if (pstEtCfg->bEnableB == 0U)
+    {
+        return;
+    }
+
+    pstPwmRegs->ETSEL.bit.SOCBSEL = pstEtCfg->u16SelB;
+    pstPwmRegs->ETPS.bit.SOCPSSEL = pstEtCfg->bUsePrd2B;
+
+    if (pstEtCfg->bUsePrd2B != 0U)
+    {
+        pstPwmRegs->ETSOCPS.bit.SOCBPRD2 = pstEtCfg->u16Prd2B;
+    }
+    else
+    {
+        pstPwmRegs->ETPS.bit.SOCBPRD = pstEtCfg->u16PrdB;
+    }
+
+    pstPwmRegs->ETSEL.bit.SOCBEN = 1U;
+}
+
 /* 配置全局加载。 */
 static void Hw_PwmConfigGlobalLoad(volatile struct EPWM_REGS *pstPwmRegs, const ST_PWM_CFG_ITEM *pstPwmCfgItem)
 {
@@ -204,8 +229,9 @@ void Hw_SinglePwmInit(ST_PWM_CFG_ITEM *pstPwmCfgItem)
     /* 7. 配置死区模块。 */
     Hw_PwmConfigDeadBand(pstPwmRegs, pstPwmCfgItem);
 
-    /* 8. 配置SOCA事件触发。 */
+    /* 8. 配置SOCA/SOCB事件触发。 */
     Hw_PwmConfigSoca(pstPwmRegs, &pstPwmCfgItem->stEtSoca);
+    Hw_PwmConfigSocb(pstPwmRegs, &pstPwmCfgItem->stEtSoca);
 
     /* 9. 配置全局加载。 */
     Hw_PwmConfigGlobalLoad(pstPwmRegs, pstPwmCfgItem);

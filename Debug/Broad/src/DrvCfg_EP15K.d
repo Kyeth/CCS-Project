@@ -55,6 +55,15 @@ Broad/src/DrvCfg_EP15K.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/i
 Broad/src/DrvCfg_EP15K.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_EPwm_defines.h
 Broad/src/DrvCfg_EP15K.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_CpuTimerDriver.h
 Broad/src/DrvCfg_EP15K.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_AdcDriver.h
+Broad/src/DrvCfg_EP15K.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_ClaDriver.h
+Broad/src/DrvCfg_EP15K.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_InvDriver.h
+Broad/src/DrvCfg_EP15K.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_SciDriver.h
+Broad/src/DrvCfg_EP15K.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_CanDriver.h
+Broad/src/DrvCfg_EP15K.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_EcapDriver.h
+Broad/src/DrvCfg_EP15K.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/Comm/inc/ModbusSlave.h
+Broad/src/DrvCfg_EP15K.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/Comm/inc/TvsComm.h
+Broad/src/DrvCfg_EP15K.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/User_ClaTask.h
+Broad/src/DrvCfg_EP15K.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/Comm/inc/CommRegTable.h
 
 ../Broad/src/DrvCfg_EP15K.c:
 
@@ -165,4 +174,22 @@ D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_EPwm_de
 D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_CpuTimerDriver.h:
 
 D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_AdcDriver.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_ClaDriver.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_InvDriver.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_SciDriver.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_CanDriver.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_EcapDriver.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/Comm/inc/ModbusSlave.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/Comm/inc/TvsComm.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/User_ClaTask.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/Comm/inc/CommRegTable.h:
 

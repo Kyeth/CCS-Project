@@ -15,6 +15,9 @@
  * | CPU Timer2      | INT1.14     | Isr_CpuTimer2     | 已完成 |
  * | ePWM TZ / ADC   | 待定        | 待定              | 待实现 |
  * | SCI / CAN / ECAP| 待定        | 待定              | 待实现 |
+ * | SCI-A 接收      | INT9.1      | Isr_SciaRx        | 已完成 |
+ * | SCI-C 接收      | INT8.5      | Isr_ScicRx        | 已完成 |
+ * | SCI-D 接收      | INT8.7      | Isr_ScidRx        | 已完成 |
  * | XINT1/2 (外部)  | 待定        | 待定              | 待实现 |
  */
 
@@ -29,6 +32,15 @@ extern __interrupt void Isr_CpuTimer2(void);
 
 /* CLA1 Task1 完成中断：20kHz 控制中断，PLL/环路/封波，内部调用 CtrlIsrRun() */
 extern __interrupt void Isr_Cla1Task1(void);
+
+/* SCI-A 接收中断：把 ARM 发来的字节搬进环形缓存 */
+extern __interrupt void Isr_SciaRx(void);
+
+/* SCI-C 接收中断：把 TVS 发来的字节搬进环形缓存 */
+extern __interrupt void Isr_ScicRx(void);
+
+/* SCI-D 接收中断：把上位机发来的字节搬进环形缓存 */
+extern __interrupt void Isr_ScidRx(void);
 
 #ifdef __cplusplus
     }

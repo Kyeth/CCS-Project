@@ -51,6 +51,10 @@ typedef enum
 /* FIFO深度，F2837xS的SCI收发FIFO各16级 */
 #define HW_SCI_FIFO_DEPTH               (16U)
 
+/* 收发环形缓存容量，必须是 2 的幂（RingBuff 用掩码代替取模） */
+#define HW_SCI_RX_BUF_SIZE              (256U)
+#define HW_SCI_TX_BUF_SIZE              (256U)
+
 /* 一个SCI模块的配置项
  * u32Baudrate  目标波特率，驱动按LSPCLK自动算BRR，超出误差范围会返回失败
  * u16RxFifoLevel 接收FIFO触发中断的电平（1~16），只在bRxIntEnable=1时有效 */
@@ -65,6 +69,7 @@ typedef struct
     Uint16 bFifoEnable;             /* 1:使能16级FIFO 0:单字节缓冲模式 */
     Uint16 u16RxFifoLevel;          /* 接收FIFO中断电平 */
     Uint16 bRxIntEnable;            /* 1:使能接收FIFO中断 */
+    Uint16 u16IdleTh;               /* 断帧门限，单位=扫描周期(100us)，见 Hw_SciScan */
 } ST_SCI_CFG_ITEM;
 
 /* 全部SCI模块的配置表 */
@@ -103,6 +108,34 @@ Uint16 Hw_SciGetRxOverflow(Uint16 u16SciId);
 
 /* 查询接收错误标志（PE/OE/FE/BRKDT任一置位即返回1），读SCIRXST会自动清标志 */
 Uint16 Hw_SciGetRxError(Uint16 u16SciId);
+
+/* ==================== 环形缓存 + 判帧接口 ==================== */
+
+/* 接收中断入口：把硬件 FIFO 里的字节搬进接收环形缓存（只搬，不解析） */
+void Hw_SciRxIsr(Uint16 u16SciId);
+
+/* 100us 扫描：把发送环形缓存补进硬件 FIFO，并按空闲时间判帧 */
+void Hw_SciScan(Uint16 u16SciId);
+
+/* 调度任务：扫描全部已初始化的 SCI，注册为 Task_Start(&Hw_SciScanAllTask, NULL, 1U, x) */
+void Hw_SciScanAllTask(void *pArgV);
+
+/* 本帧是否就绪；就绪后必须调用 Hw_SciFrameRead 取走 */
+Uint16 Hw_SciFrameIsReady(Uint16 u16SciId);
+
+/* 取走一整帧，返回实际长度；取完自动清就绪标志 */
+Uint16 Hw_SciFrameRead(Uint16 u16SciId, Uint16 *pu16Dst, Uint16 u16MaxLen);
+
+/* 把数据压进发送环形缓存（非阻塞），返回实际压入的字节数 */
+Uint16 Hw_SciTxWrite(Uint16 u16SciId, const Uint16 *pu16Data, Uint16 u16Len);
+
+/* 发送是否还在排队（缓存非空或 FIFO 未空） */
+Uint16 Hw_SciTxBusy(Uint16 u16SciId);
+
+/* 统计：累计接收字节数 / 缓存丢弃数 / 因未及时取走而丢掉的帧数 */
+Uint16 Hw_SciGetRxTotal(Uint16 u16SciId);
+Uint16 Hw_SciGetRxOverflowCnt(Uint16 u16SciId);
+Uint16 Hw_SciGetFrameLost(Uint16 u16SciId);
 
 #ifdef __cplusplus
 }
