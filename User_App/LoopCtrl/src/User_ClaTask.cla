@@ -1,0 +1,188 @@
+/******************************************************************************
+ * @file    User_ClaTask.cla
+ * @author  yetingheng (004182)
+ * @brief   CLA Task1：20kHz 采样滤波 + 多路选择器归档
+ * @version 0.1
+ * @date    2026-10-23
+ *
+ * @note    触发：ADC-A SOC15 转换完成 → ADCINT1 → 硬件触发 CLA Task1
+ * @note    完成：Task1 结束 → CLA1_1 中断 → CPU 控制中断（发波）
+ * @note    本文件在 CLA 上运行，不能调用 CPU 侧的库函数
+ *
+ * @copyright Copyright (c) 2026
+ ******************************************************************************/
+
+#include "F2837xS_device.h"
+#include "User_ClaTask.h"
+
+/******************************************************************************
+ * 段分配
+ *   Cla1ToCpuMsg → CLA1_MSGRAMHIGH（CLA 写、CPU 读）
+ *   CpuToCla1Msg → CLA1_MSGRAMLOW （CPU 写、CLA 读）
+ *   stClaFilt    → RAMLS5         （CLA 私有滤波状态）
+ *   Cla1Task1    → RAMLS0~RAMLS3  （运行时从 Flash 拷贝过来）
+ ******************************************************************************/
+#pragma DATA_SECTION(Cla1ToCpuMsg, "Cla1ToCpuMsgRAM")
+#pragma DATA_SECTION(CpuToCla1Msg, "CpuToCla1MsgRAM")
+#pragma DATA_SECTION(stClaFilt, "Cla1DataRam")
+#pragma CODE_SECTION(Cla1Task1, "Cla1Prog")
+
+ST_CLA_TO_CPU Cla1ToCpuMsg;
+ST_CPU_TO_CLA CpuToCla1Msg;
+ST_CLA_FILT   stClaFilt;
+
+/******************************************************************************
+ * @brief  一阶低通滤波（CLA 版）
+ * @param  fAlpha 滤波系数
+ * @param  fPrev  上一次滤波输出
+ * @param  fIn    本次输入
+ * @return 本次滤波输出
+ * @note   用 fPrev + alpha*(fIn-fPrev) 形式，比直接加权乘法少一次长常量运算
+ ******************************************************************************/
+static float Cla_Lpf(float fAlpha, float fPrev, float fIn)
+{
+    return fPrev + (fAlpha * (fIn - fPrev));
+}
+
+/******************************************************************************
+ * @brief CLA Task1 中断服务函数（每 20kHz 一个周期执行一次）
+ * @note  内部顺序不能随意调整：
+ *        1) 先取逆变电流（控制环最需要、要求最新）
+ *        2) 再取各路电压/PV电流做滤波
+ *        3) 最后按当前选通地址归档 B3/D3
+ *        4) 清 ADCINT1，允许下一个周期再次触发
+ ******************************************************************************/
+__interrupt void Cla1Task1(void)
+{
+    Uint16 u16Addr;
+
+    /* ================= 1. 逆变电流（不滤波，直接送码值） ================= */
+    Cla1ToCpuMsg.fInvCur[CLA_IDX_T] = (float)CLA_RES_INV_CUR_T;
+    Cla1ToCpuMsg.fInvCur[CLA_IDX_S] = (float)CLA_RES_INV_CUR_S;
+    Cla1ToCpuMsg.fInvCur[CLA_IDX_R] = (float)CLA_RES_INV_CUR_R;
+
+    /* ================= 2. 逆变电压：一阶低通（fc≈2kHz） ================= */
+    stClaFilt.fInvVolt[CLA_IDX_R] = Cla_Lpf(CLA_LPF_ALPHA_AC,
+                                            stClaFilt.fInvVolt[CLA_IDX_R],
+                                            (float)CLA_RES_INV_VOLT_R);
+    stClaFilt.fInvVolt[CLA_IDX_S] = Cla_Lpf(CLA_LPF_ALPHA_AC,
+                                            stClaFilt.fInvVolt[CLA_IDX_S],
+                                            (float)CLA_RES_INV_VOLT_S);
+    stClaFilt.fInvVolt[CLA_IDX_T] = Cla_Lpf(CLA_LPF_ALPHA_AC,
+                                            stClaFilt.fInvVolt[CLA_IDX_T],
+                                            (float)CLA_RES_INV_VOLT_T);
+
+    Cla1ToCpuMsg.fInvVolt[CLA_IDX_R] = stClaFilt.fInvVolt[CLA_IDX_R];
+    Cla1ToCpuMsg.fInvVolt[CLA_IDX_S] = stClaFilt.fInvVolt[CLA_IDX_S];
+    Cla1ToCpuMsg.fInvVolt[CLA_IDX_T] = stClaFilt.fInvVolt[CLA_IDX_T];
+
+    /* ================= 3. 电网电压：一阶低通（fc≈2kHz） ================= */
+    stClaFilt.fGridVolt[CLA_IDX_R] = Cla_Lpf(CLA_LPF_ALPHA_AC,
+                                             stClaFilt.fGridVolt[CLA_IDX_R],
+                                             (float)CLA_RES_GRID_VOLT_R);
+    stClaFilt.fGridVolt[CLA_IDX_S] = Cla_Lpf(CLA_LPF_ALPHA_AC,
+                                             stClaFilt.fGridVolt[CLA_IDX_S],
+                                             (float)CLA_RES_GRID_VOLT_S);
+    stClaFilt.fGridVolt[CLA_IDX_T] = Cla_Lpf(CLA_LPF_ALPHA_AC,
+                                             stClaFilt.fGridVolt[CLA_IDX_T],
+                                             (float)CLA_RES_GRID_VOLT_T);
+
+    Cla1ToCpuMsg.fGridVolt[CLA_IDX_R] = stClaFilt.fGridVolt[CLA_IDX_R];
+    Cla1ToCpuMsg.fGridVolt[CLA_IDX_S] = stClaFilt.fGridVolt[CLA_IDX_S];
+    Cla1ToCpuMsg.fGridVolt[CLA_IDX_T] = stClaFilt.fGridVolt[CLA_IDX_T];
+
+    /* ================= 4. PV电流：一阶低通（fc≈500Hz） ================= */
+    stClaFilt.fPvCur[CLA_IDX_PV1] = Cla_Lpf(CLA_LPF_ALPHA_PVCUR,
+                                            stClaFilt.fPvCur[CLA_IDX_PV1],
+                                            (float)CLA_RES_PV1_CUR);
+    stClaFilt.fPvCur[CLA_IDX_PV2] = Cla_Lpf(CLA_LPF_ALPHA_PVCUR,
+                                            stClaFilt.fPvCur[CLA_IDX_PV2],
+                                            (float)CLA_RES_PV2_CUR);
+    stClaFilt.fPvCur[CLA_IDX_PV3] = Cla_Lpf(CLA_LPF_ALPHA_PVCUR,
+                                            stClaFilt.fPvCur[CLA_IDX_PV3],
+                                            (float)CLA_RES_PV3_CUR);
+    stClaFilt.fPvCur[CLA_IDX_PV4] = Cla_Lpf(CLA_LPF_ALPHA_PVCUR,
+                                            stClaFilt.fPvCur[CLA_IDX_PV4],
+                                            (float)CLA_RES_PV4_CUR);
+
+    Cla1ToCpuMsg.fPvCur[CLA_IDX_PV1] = stClaFilt.fPvCur[CLA_IDX_PV1];
+    Cla1ToCpuMsg.fPvCur[CLA_IDX_PV2] = stClaFilt.fPvCur[CLA_IDX_PV2];
+    Cla1ToCpuMsg.fPvCur[CLA_IDX_PV3] = stClaFilt.fPvCur[CLA_IDX_PV3];
+    Cla1ToCpuMsg.fPvCur[CLA_IDX_PV4] = stClaFilt.fPvCur[CLA_IDX_PV4];
+
+    /* ================= 5. 多路选择器：按当前地址归档 ================= */
+    u16Addr = CpuToCla1Msg.u16MuxAddr;
+    if (u16Addr >= CLA_MUX_ADDR_MAX)
+    {
+        u16Addr = CLA_MUX_ADDR_PV1;
+    }
+
+    Cla1ToCpuMsg.u16MuxAddr = u16Addr;
+    Cla1ToCpuMsg.fMuxB3 = (float)CLA_RES_MUX2;      /* 调试用：本周期的原始码值 */
+    Cla1ToCpuMsg.fMuxD3 = (float)CLA_RES_MUX1;
+
+    switch (u16Addr)
+    {
+        case CLA_MUX_ADDR_PV1:
+            stClaFilt.fMuxValue[CLA_IDX_PV1] = Cla_Lpf(CLA_LPF_ALPHA_MUX,
+                                                       stClaFilt.fMuxValue[CLA_IDX_PV1],
+                                                       (float)CLA_RES_MUX2);
+            Cla1ToCpuMsg.fPvVolt[CLA_IDX_PV1] = stClaFilt.fMuxValue[CLA_IDX_PV1];
+            break;
+
+        case CLA_MUX_ADDR_PV2:
+            stClaFilt.fMuxValue[CLA_IDX_PV2] = Cla_Lpf(CLA_LPF_ALPHA_MUX,
+                                                       stClaFilt.fMuxValue[CLA_IDX_PV2],
+                                                       (float)CLA_RES_MUX2);
+            Cla1ToCpuMsg.fPvVolt[CLA_IDX_PV2] = stClaFilt.fMuxValue[CLA_IDX_PV2];
+            break;
+
+        case CLA_MUX_ADDR_PV3:
+            stClaFilt.fMuxValue[CLA_IDX_PV3] = Cla_Lpf(CLA_LPF_ALPHA_MUX,
+                                                       stClaFilt.fMuxValue[CLA_IDX_PV3],
+                                                       (float)CLA_RES_MUX2);
+            Cla1ToCpuMsg.fPvVolt[CLA_IDX_PV3] = stClaFilt.fMuxValue[CLA_IDX_PV3];
+            break;
+
+        case CLA_MUX_ADDR_PV4:
+            stClaFilt.fMuxValue[CLA_IDX_PV4] = Cla_Lpf(CLA_LPF_ALPHA_MUX,
+                                                       stClaFilt.fMuxValue[CLA_IDX_PV4],
+                                                       (float)CLA_RES_MUX2);
+            Cla1ToCpuMsg.fPvVolt[CLA_IDX_PV4] = stClaFilt.fMuxValue[CLA_IDX_PV4];
+            break;
+
+        case CLA_MUX_ADDR_BUSL:
+            stClaFilt.fMuxValue[4] = Cla_Lpf(CLA_LPF_ALPHA_MUX,
+                                             stClaFilt.fMuxValue[4],
+                                             (float)CLA_RES_MUX1);
+            Cla1ToCpuMsg.fBusVoltL = stClaFilt.fMuxValue[4];
+            break;
+
+        case CLA_MUX_ADDR_BUSH:
+            stClaFilt.fMuxValue[5] = Cla_Lpf(CLA_LPF_ALPHA_MUX,
+                                             stClaFilt.fMuxValue[5],
+                                             (float)CLA_RES_MUX1);
+            Cla1ToCpuMsg.fBusVoltH = stClaFilt.fMuxValue[5];
+            break;
+
+        default:
+            /* VISO(4) 与无效地址(5)：不归档，由 CPU 在初始化阶段软件触发单独采 */
+            break;
+    }
+
+    /* ================= 6. 采样序号 +1 ================= */
+    Cla1ToCpuMsg.u16Seq++;
+
+    /* ================= 7. 清 ADCINT1，允许下一周期触发 ================= */
+    AdcaRegs.ADCINTFLGCLR.bit.ADCINT1 = 1U;
+}
+
+/******************************************************************************
+ * 说明：其余 CLA 任务（Task2~Task8）暂未使用。
+ *      若后续需要，把任务函数写在本文件内，并在 Broad/DrvCfg_EP15K.c 的
+ *      stClaCfgItem[] 中增加对应配置项即可（Hw_ClaInit 会自动映射）。
+ ******************************************************************************/
+
+//===========================================================================
+// No more.
+//===========================================================================
