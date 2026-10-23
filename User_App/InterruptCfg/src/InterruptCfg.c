@@ -56,6 +56,8 @@ void InterruptVectTableInit(void)
     PieVectTable.SCIA_RX_INT = &Isr_SciaRx;
     PieVectTable.SCIC_RX_INT = &Isr_ScicRx;
     PieVectTable.SCID_RX_INT = &Isr_ScidRx;
+    PieVectTable.XINT1_INT = &Isr_Xint1;
+    PieVectTable.XINT2_INT = &Isr_Xint2;
     EDIS;
 
     /* --- 使能 PIE 组内通道，并开放对应的 CPU 级中断 --- */
@@ -65,6 +67,8 @@ void InterruptVectTableInit(void)
     PieCtrlRegs.PIEIER9.bit.INTx1 = 1U;     /* SCIA 接收 */
     PieCtrlRegs.PIEIER8.bit.INTx5 = 1U;     /* SCIC 接收 */
     PieCtrlRegs.PIEIER8.bit.INTx7 = 1U;     /* SCID 接收 */
+    PieCtrlRegs.PIEIER1.bit.INTx4 = 1U;     /* XINT1：逆变过流比较器 */
+    PieCtrlRegs.PIEIER1.bit.INTx5 = 1U;     /* XINT2：硬件短路比较器 */
     PieCtrlRegs.PIEACK.all = PIEACK_GROUP1; /* 应答组 1，允许同组后续中断进入 */
     IER |= ISR_PIE_GROUP1_MASK;
 
@@ -141,4 +145,22 @@ __interrupt void Isr_ScidRx(void)
 
     /* 应答 PIE 组 8 */
     PieCtrlRegs.PIEACK.all = PIEACK_GROUP8;
+}
+
+/* XINT1：逆变过流比较器，中断里只计数，判定放 10kHz 保护任务 */
+__interrupt void Isr_Xint1(void)
+{
+    Hw_ExitIsr((Uint16)HW_XINT_ID1);
+
+    /* 应答 PIE 组 1 */
+    PieCtrlRegs.PIEACK.all = PIEACK_GROUP1;
+}
+
+/* XINT2：硬件短路比较器 */
+__interrupt void Isr_Xint2(void)
+{
+    Hw_ExitIsr((Uint16)HW_XINT_ID2);
+
+    /* 应答 PIE 组 1 */
+    PieCtrlRegs.PIEACK.all = PIEACK_GROUP1;
 }

@@ -63,8 +63,12 @@ extern void Hw_InvSetDuty(Uint16 u16Phase, float fDuty, Uint16 u16Positive);
 /* 单相封波：两路都压到中点钳位，占空比清零。 */
 extern void Hw_InvStop(Uint16 u16Phase);
 
-/* 三相封波。 */
+/* 三相封波（软件强制）。 */
 extern void Hw_InvStopAll(void);
+
+/* 三相硬件封波：对六路逆变模块触发 TZFRC.OST，硬件锁存，需显式清除才能解除。
+ * 保护任务判出故障时在 Hw_InvStopAll 之后再调一次。 */
+extern void Hw_InvTripAll(void);
 
 /* 读回当前斩波模块编号，供互锁与调试观察。 */
 extern Uint16 Hw_InvGetChopPwm(Uint16 u16Phase);

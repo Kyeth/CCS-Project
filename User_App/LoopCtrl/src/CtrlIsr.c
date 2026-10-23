@@ -359,3 +359,27 @@ Uint16 CtrlGetCycleCnt(void)
 {
     return gCtrlCycleCnt;
 }
+
+/* 外部保护任务置故障码：只允许“无故障 -> 有故障”方向升级，避免覆盖已锁存的故障。 */
+void CtrlSetFault(Uint16 u16Fault)
+{
+    if (u16Fault == (Uint16)CTRL_FAULT_NONE)
+    {
+        return;
+    }
+
+    if (gCtrlFault == (Uint16)CTRL_FAULT_NONE)
+    {
+        gCtrlFault = u16Fault;
+        gCtrlObsFault = gCtrlFault;
+    }
+}
+
+/* 清故障码：同时把调制比清零，要求重新给授权才可能再发波。 */
+void CtrlClearFault(void)
+{
+    gCtrlFault = (Uint16)CTRL_FAULT_NONE;
+    gCtrlObsFault = gCtrlFault;
+    gCtrlModIndex = 0.0f;
+    gCtrlPwmEnable = 0U;
+}

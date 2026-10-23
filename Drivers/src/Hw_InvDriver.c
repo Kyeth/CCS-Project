@@ -193,6 +193,31 @@ void Hw_InvStopAll(void)
     }
 }
 
+/* 三相硬件封波：对六路逆变模块强制 TZFRC.OST。
+ *
+ * 与 Hw_InvStopAll 的分工：
+ *   Hw_InvStopAll 走 AQCSFRC 软件强制，输出钳到中点，可被后续写回覆盖；
+ *   本函数走 ePWM TZ 硬件锁存，动作取 TZCTL.TZA/TZB（INV 配的是 FORCE_LOW），
+ *   一旦触发就一直保持，只有 Hw_PwmClearAllTripZone / Hw_PwmStart 能解除。
+ * 保护任务判出故障后要两个都调：先钳位，再上锁。 */
+void Hw_InvTripAll(void)
+{
+    Uint16 i;
+    const ST_INV_PHASE_CFG *pstPhaseCfg;
+
+    for (i = 0U; i < HW_INV_PHASE_MAX; i++)
+    {
+        pstPhaseCfg = Hw_InvGetPhaseCfg(i);
+        if (pstPhaseCfg == (const ST_INV_PHASE_CFG *)0)
+        {
+            continue;
+        }
+
+        Hw_PwmStop(pstPhaseCfg->u16PosPwmId);
+        Hw_PwmStop(pstPhaseCfg->u16NegPwmId);
+    }
+}
+
 /* 读回当前斩波模块。 */
 Uint16 Hw_InvGetChopPwm(Uint16 u16Phase)
 {

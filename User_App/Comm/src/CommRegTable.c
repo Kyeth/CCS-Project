@@ -26,6 +26,8 @@
 
 #include "CommRegTable.h"
 #include "SoftOsc.h"
+#include "EepromParam.h"   /* 保存层诊断量的 Modbus 镜像 */
+#include "ProtectTask.h"   /* 硬件保护任务状态量 */
 
 /* ===================== 上位机调试用的演示变量 ===================== */
 
@@ -34,6 +36,11 @@ Uint16 gMbPcDemoWord = 0U;
 
 /* 一行 32 位浮点参考：地址 102（占 102~103） */
 float32 gMbPcDemoFloat = 0.0F;
+
+/* 掉电保存示范变量：地址 31 / 32，写属性带 SAVE 位。
+ * 这两个变量只是示范，正式点表里任何一个变量都可以照此标记。 */
+Uint16  gMbSavedDemoWord  = 1234U;
+float32 gMbSavedDemoFloat = 1.5F;
 
 /* ============================ ARM 点表 ============================ */
 
@@ -100,6 +107,22 @@ const ST_MB_REG_ITEM stMbRegItemPc[MB_PC_REG_MAX] =
     {24U, MB_TYPE_U16, MB_ATTR_RW, (void *)&gSoftOscMode,       0, 1U},
     {25U, MB_TYPE_U16, MB_ATTR_RW, (void *)&gSoftOscGroupSel,   0, 1U},
     {26U, MB_TYPE_U16, MB_ATTR_RO, (void *)&gSoftOscFrameCnt,   0, 65535U},
+
+    /* ---------- 27~30：掉电保存层诊断（只读镜像）---------- */
+    {27U, MB_TYPE_U16, MB_ATTR_RO, (void *)&gEepromParamStatus,     0, 65535U},
+    {28U, MB_TYPE_U16, MB_ATTR_RO, (void *)&gEepromParamItemNum,    0, 65535U},
+    {29U, MB_TYPE_U16, MB_ATTR_RO, (void *)&gEepromParamWriteCntLo, 0, 65535U},
+    {30U, MB_TYPE_U16, MB_ATTR_RO, (void *)&gEepromParamErrCnt,     0, 65535U},
+
+    /* ---------- 31~33：掉电保存示范变量（MB_ATTR_RW_SAVE）---------- */
+    {31U, MB_TYPE_U16, MB_ATTR_RW_SAVE, (void *)&gMbSavedDemoWord,   0, 65535U},
+    {32U, MB_TYPE_F32, MB_ATTR_RW_SAVE, (void *)&gMbSavedDemoFloat, -10000, 10000U},
+
+    /* ---------- 33~36：硬件保护任务状态（10kHz 漏桶判定）---------- */
+    {33U, MB_TYPE_U16, MB_ATTR_RO, (void *)&gProtectInvOcCnt,    0, 65535U},
+    {34U, MB_TYPE_U16, MB_ATTR_RO, (void *)&gProtectShortCnt,    0, 65535U},
+    {35U, MB_TYPE_U16, MB_ATTR_RO, (void *)&gProtectFaultFlags,  0, 65535U},
+    {36U, MB_TYPE_U16, MB_ATTR_RO, (void *)&gProtectTick,        0, 65535U},
 
     /* ---------- 100 以后：调试变量区，按需往下加 ---------- */
     {100U, MB_TYPE_U16, MB_ATTR_RW, (void *)&gMbPcDemoWord,   0, 65535U},

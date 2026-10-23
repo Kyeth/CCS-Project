@@ -63,6 +63,8 @@ typedef enum
     CTRL_FAULT_NONE = 0U,
     CTRL_FAULT_CLA_TIMEOUT = 1U,
     CTRL_FAULT_OVERCURRENT = 2U,
+    CTRL_FAULT_HW_OC = 3U,                  /* 硬件逆变过流（XINT1 漏桶判定） */
+    CTRL_FAULT_SHORT = 4U,                  /* 硬件短路（XINT2 窗口判定） */
     CTRL_FAULT_MAX
 } E_CTRL_FAULT;
 
@@ -81,6 +83,10 @@ extern float  CtrlGetTheta(void);
 extern float  CtrlGetGridFreq(void);
 extern Uint16 CtrlGetFault(void);
 extern Uint16 CtrlGetMuxAddr(void);
+
+/* 外部保护模块（10kHz 保护任务）置位/清除故障码：置位后控制中断下一拍立即封波。 */
+extern void CtrlSetFault(Uint16 u16Fault);
+extern void CtrlClearFault(void);
 extern Uint16 CtrlGetCycleCnt(void);
 
 /* 发波授权：0 = 只跑环路不发波（三相桥臂硬件钳位），1 = 允许调制输出。

@@ -10,6 +10,12 @@
 #include "Hw_SciDriver.h"
 #include "Hw_CanDriver.h"
 #include "Hw_EcapDriver.h"
+#include "Hw_I2cDriver.h"
+#include "Hw_SpiDriver.h"
+#include "Hw_XbarDriver.h"
+#include "Hw_ExitDriver.h"
+#include "Fm24c128d.h"
+#include "EepromParam.h"
 #include "ModbusSlave.h"
 
 
@@ -48,6 +54,27 @@ extern ST_MB_CFG stMbCfg;
 
 /* eCAP捕获配置：电网过零(R/S/T)与电网频率信号(R/S/T)，详见 stEcapCfg */
 extern ST_ECAP_CFG stEcapCfg;
+
+/* 软件I2C配置：GPIO91 SDA / GPIO92 SCL，本板挂 FM24C128D，详见 stI2cCfg */
+extern ST_I2C_CFG stI2cCfg;
+
+/* FM24C128D 器件配置：写保护脚 GPIO99、自检保留区，详见 stFm24c128dCfg */
+extern ST_FM24C128D_CFG stFm24c128dCfg;
+
+/* 掉电保存参数配置：扫描哪几张点表、合并窗口与落盘限速，详见 stEepromParamCfg */
+extern ST_EEPROM_PARAM_CFG stEepromParamCfg;
+
+/* SPI主机配置：SPI-A 接 ARM 芯片 STM32F103VET6，详见 stSpiCfg */
+extern ST_SPI_CFG stSpiCfg;
+
+/* ePWM TZ 故障源：把 ePWM X-BAR 的 TRIP 接进各模块 DCAH/DCBH 做逐波限流，详见 stPwmTzCfg */
+extern ST_PWM_TZ_CFG stPwmTzCfg;
+
+/* X-BAR 配置：GPIO -> INPUTx -> TRIPn，故障信号汇聚路径，详见 stXbarCfg */
+extern ST_XBAR_CFG stXbarCfg;
+
+/* 外部中断配置：XINT1 <- INPUT4(逆变过流) / XINT2 <- INPUT5(硬件短路) */
+extern ST_EXIT_CFG stExitCfg;
 
 #ifdef __cplusplus
     }

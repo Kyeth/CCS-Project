@@ -16,6 +16,11 @@
 #include "SoftOsc.h"
 #include "Hw_SciDriver.h"
 #include "ModbusSlave.h"
+#include "EepromParam.h"
+#include "Fm24c128d.h"
+#include "Hw_I2cDriver.h"
+#include "Hw_SpiDriver.h"
+#include "ProtectTask.h"
 /**
  * @brief 芯片外设初始化
  *
@@ -42,14 +47,20 @@ void PeripheralsInit(void)
 
     // 初始化外设
     Hw_GpioInit(&stGpioCfg);    /* GPIO复用是外设引脚的前提 */
+    Hw_XbarInit(&stXbarCfg);    /* GPIO -> INPUTx -> TRIPn：过流/短路信号的汇聚路径 */
     Hw_PwmInit(&stPwmCfg);      /* PWM提供ADC的SOC触发源 */
+    Hw_PwmInitTripZone(&stPwmTzCfg);  /* 硬件过流/短路 -> DCAH/DCBH 逐波限流(CBC)，必须在 Xbar 之后 */
     Hw_InvInit(&stInvCfg);      /* 逆变驱动绑定 R/S/T 相与正负半周模块，必须在 Hw_PwmInit 之后 */
     Hw_AdcInit(&stAdcCfg);      /* ADC依赖PWM的SOC */
     Hw_ClaInit(&stClaCfg);      /* CLA由ADC INT触发，内部完成程序搬运 */
     Hw_EcapInit(&stEcapCfg);    /* eCAP1~6：电网过零与电网频率信号捕获 */
     Hw_SciInit(&stSciCfg);      /* SCI-A/C/D 串口，SCIC 与外部TVS通信 */
     Hw_CanInit(&stCanCfg);      /* CAN-A / CAN-B */
-//    Hw_ExitInit(&stExitCfg);    /* 外部中断最后，依赖PIE已配置 */
+
+    Hw_I2cInit(&stI2cCfg);          /* 软件I2C（GPIO91/92）：FM24C128D 的物理层 */
+    Fm24c128dInit(&stFm24c128dCfg); /* FM24C128D：写保护脚 GPIO99，上电做一次自检 */
+    Hw_SpiInit(&stSpiCfg);          /* SPI-A（GPIO54~57）：与 ARM 芯片 STM32F103VET6 通信 */
+    Hw_ExitInit(&stExitCfg);    /* 外部中断最后，依赖PIE已配置 */
 
 
     // 开启定时器
@@ -76,6 +87,8 @@ void PlatformInit(void)
 {
     CtrlIsrInit();
     ModbusInit(&stMbCfg);      /* Modbus 从机：SCIA 给 ARM、SCID 给上位机 */
+    EepromParamInit(&stEepromParamCfg);  /* 掉电保存：扫点表 -> 读芯片 -> 校验 -> 回填变量 */
+    ProtectTaskInit();                    /* 硬件保护：清漏桶与故障锁存 */
     SoftOscInit();    /* 绑定软示波器默认的 12 路观测通道 */   /* 控制中断状态复位，并把 MUX 选通到 PV1 */
 }
 
@@ -93,6 +106,14 @@ void TaskCreate(void)
     /* 通信层：100us 扫描（补发送 FIFO + 判帧），200us 解析 */
     Task_Start(&Hw_SciScanAllTask, NULL, 1U, 1U);
     Task_Start(&ModbusTask, NULL, 2U, 2U);
+
+    /* 掉电保存：调度节拍 100us，10 个节拍 = 1ms 检查一次合并窗口，
+     * 真正写芯片的频率由 stEepromParamCfg 限速，不在这里控制 */
+    Task_Start(&EepromParamTask, NULL, 10U, 9U);
+
+    /* 硬件保护：调度节拍 100us，1 个节拍跑一次 = 10kHz，
+     * 与 EP5K 的 HandleProtect 同频，漏桶门限（400 次 / 5ms 静默）直接沿用 */
+    Task_Start(&ProtectTask, NULL, 1U, 3U);
 }
 
 /**

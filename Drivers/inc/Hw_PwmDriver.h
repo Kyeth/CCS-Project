@@ -205,6 +205,55 @@ extern void Hw_PwmSetForce(Uint16 u16PwmId, Uint16 u16ForceA, Uint16 u16ForceB);
 /* 释放A/B通道强制，回到动作限定器 + 死区产生的波形。 */
 extern void Hw_PwmReleaseForce(Uint16 u16PwmId);
 
+/* ============ 数字比较（DC）故障源配置 ============
+ * 硬件机制（F2837xS ePWM 的 TZ 子模块）：
+ *   - DCAH/DCBH 各是一个“或门”，输入取自 ePWM X-BAR 的 TRIP4~TRIP12，
+ *     用 DCAHTRIPSEL/DCBHTRIPSEL 的 TRIPINPUTn 位选择哪几路进来，
+ *     再由 DCTRIPSEL.DCAHCOMPSEL/DCBHCOMPSEL 指定比较的是哪一路；
+ *   - 比较结果按 TZDCSEL 的编码形成 4 个事件：
+ *       DCAEVT1 -> 只能 OSHT（一次性封波），动作在 TZCTL.DCAEVT1，作用 EPWMxA
+ *       DCAEVT2 -> 可 CBC（逐波限流），  动作在 TZCTL.DCAEVT2，作用 EPWMxA
+ *       DCBEVT1 -> 只能 OSHT，           动作在 TZCTL.DCBEVT1，作用 EPWMxB
+ *       DCBEVT2 -> 可 CBC，              动作在 TZCTL.DCBEVT2，作用 EPWMxB
+ *     A 侧事件只作用 A 引脚、B 侧事件只作用 B 引脚，TZCTL 里没有交叉选择；
+ *   - 本工程统一用 EVT2 + CBC：过流尖峰只逐波压缩占空比，不永久封波；
+ *     永久封波仍由软件判故障后走 TZFRC.OST（Hw_PwmStop / Hw_InvStop）。
+ *     逆变模块的 B 由死区模块从 A 取反产生，只砍 A 挡不住下管，故 A/B 两套都要配。
+ */
+
+/* TRIP 号：填 4/5/7/8/9 这类硬件 TRIPn 编号（0 表示该侧不接） */
+#define HW_PWM_TRIP_NONE        (0U)
+#define HW_PWM_TRIP_4           (4U)
+#define HW_PWM_TRIP_5           (5U)
+#define HW_PWM_TRIP_7           (7U)
+#define HW_PWM_TRIP_8           (8U)
+#define HW_PWM_TRIP_9           (9U)
+#define HW_PWM_TRIP_10          (10U)
+#define HW_PWM_TRIP_11          (11U)
+#define HW_PWM_TRIP_12          (12U)
+
+/* 一个 ePWM 模块的 DC 故障源配置 */
+typedef struct
+{
+    Uint16 u16PwmId;
+    Uint16 u16DcaTrip;      /* DCAH 的 TRIP 源，见 HW_PWM_TRIP_x，0 = A 侧不接 */
+    Uint16 u16DcbTrip;      /* DCBH 的 TRIP 源，0 = B 侧不接（PV 模块只有 A 通道） */
+    Uint16 u16DcaEvent;     /* TZDCSEL.DCAEVT2：TZ_DCAH_LOW / TZ_DCAH_HI，0 = 禁用 */
+    Uint16 u16DcbEvent;     /* TZDCSEL.DCBEVT2：TZ_DCBH_LOW / TZ_DCBH_HI，0 = 禁用 */
+    Uint16 u16DcaAction;    /* TZCTL.DCAEVT2：HW_PWM_TZ_FORCE_LOW 等，见 HW_PWM_TZ_xxx */
+    Uint16 u16DcbAction;    /* TZCTL.DCBEVT2 */
+} ST_PWM_TZ_CFG_ITEM;
+
+typedef struct
+{
+    const ST_PWM_TZ_CFG_ITEM *pstPwmTzCfgItem;
+    Uint16 u16ItemNum;
+} ST_PWM_TZ_CFG;
+
+/* 按配置表把 ePWM X-BAR 的 TRIP 接进各模块的 DCAH/DCBH，并配置 CBC 事件与动作。
+ * 必须在 Hw_XbarInit 之后调用（TRIP 得先有源）。 */
+extern void Hw_PwmInitTripZone(const ST_PWM_TZ_CFG *pstPwmTzCfg);
+
 #ifdef __cplusplus
 }
 #endif

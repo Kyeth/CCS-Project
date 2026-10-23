@@ -18,7 +18,8 @@
  * | SCI-A 接收      | INT9.1      | Isr_SciaRx        | 已完成 |
  * | SCI-C 接收      | INT8.5      | Isr_ScicRx        | 已完成 |
  * | SCI-D 接收      | INT8.7      | Isr_ScidRx        | 已完成 |
- * | XINT1/2 (外部)  | 待定        | 待定              | 待实现 |
+ * | XINT1 (外部)    | INT1.4      | Isr_Xint1         | 已完成 |
+ * | XINT2 (外部)    | INT1.5      | Isr_Xint2         | 已完成 |
  */
 
 /* 初始化 PIE 中断控制器、复位中断向量表并注册本工程使用的中断 */
@@ -41,6 +42,12 @@ extern __interrupt void Isr_ScicRx(void);
 
 /* SCI-D 接收中断：把上位机发来的字节搬进环形缓存 */
 extern __interrupt void Isr_ScidRx(void);
+
+/* XINT1：逆变过流比较器（GPIO81）下降沿，只累加事件计数，判定在 10kHz 保护任务 */
+extern __interrupt void Isr_Xint1(void);
+
+/* XINT2：硬件短路比较器（GPIO82）下降沿 */
+extern __interrupt void Isr_Xint2(void);
 
 #ifdef __cplusplus
     }

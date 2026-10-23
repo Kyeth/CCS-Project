@@ -11,10 +11,14 @@ C_SRCS += \
 ../Drivers/src/Hw_ClaDriver.c \
 ../Drivers/src/Hw_CpuTimerDriver.c \
 ../Drivers/src/Hw_EcapDriver.c \
+../Drivers/src/Hw_ExitDriver.c \
 ../Drivers/src/Hw_GpioDriver.c \
+../Drivers/src/Hw_I2cDriver.c \
 ../Drivers/src/Hw_InvDriver.c \
 ../Drivers/src/Hw_PwmDriver.c \
-../Drivers/src/Hw_SciDriver.c 
+../Drivers/src/Hw_SciDriver.c \
+../Drivers/src/Hw_SpiDriver.c \
+../Drivers/src/Hw_XbarDriver.c 
 
 C_DEPS += \
 ./Drivers/src/Hw_AdcDriver.d \
@@ -22,10 +26,14 @@ C_DEPS += \
 ./Drivers/src/Hw_ClaDriver.d \
 ./Drivers/src/Hw_CpuTimerDriver.d \
 ./Drivers/src/Hw_EcapDriver.d \
+./Drivers/src/Hw_ExitDriver.d \
 ./Drivers/src/Hw_GpioDriver.d \
+./Drivers/src/Hw_I2cDriver.d \
 ./Drivers/src/Hw_InvDriver.d \
 ./Drivers/src/Hw_PwmDriver.d \
-./Drivers/src/Hw_SciDriver.d 
+./Drivers/src/Hw_SciDriver.d \
+./Drivers/src/Hw_SpiDriver.d \
+./Drivers/src/Hw_XbarDriver.d 
 
 OBJS += \
 ./Drivers/src/Hw_AdcDriver.obj \
@@ -33,10 +41,14 @@ OBJS += \
 ./Drivers/src/Hw_ClaDriver.obj \
 ./Drivers/src/Hw_CpuTimerDriver.obj \
 ./Drivers/src/Hw_EcapDriver.obj \
+./Drivers/src/Hw_ExitDriver.obj \
 ./Drivers/src/Hw_GpioDriver.obj \
+./Drivers/src/Hw_I2cDriver.obj \
 ./Drivers/src/Hw_InvDriver.obj \
 ./Drivers/src/Hw_PwmDriver.obj \
-./Drivers/src/Hw_SciDriver.obj 
+./Drivers/src/Hw_SciDriver.obj \
+./Drivers/src/Hw_SpiDriver.obj \
+./Drivers/src/Hw_XbarDriver.obj 
 
 OBJS__QUOTED += \
 "Drivers\src\Hw_AdcDriver.obj" \
@@ -44,10 +56,14 @@ OBJS__QUOTED += \
 "Drivers\src\Hw_ClaDriver.obj" \
 "Drivers\src\Hw_CpuTimerDriver.obj" \
 "Drivers\src\Hw_EcapDriver.obj" \
+"Drivers\src\Hw_ExitDriver.obj" \
 "Drivers\src\Hw_GpioDriver.obj" \
+"Drivers\src\Hw_I2cDriver.obj" \
 "Drivers\src\Hw_InvDriver.obj" \
 "Drivers\src\Hw_PwmDriver.obj" \
-"Drivers\src\Hw_SciDriver.obj" 
+"Drivers\src\Hw_SciDriver.obj" \
+"Drivers\src\Hw_SpiDriver.obj" \
+"Drivers\src\Hw_XbarDriver.obj" 
 
 C_DEPS__QUOTED += \
 "Drivers\src\Hw_AdcDriver.d" \
@@ -55,10 +71,14 @@ C_DEPS__QUOTED += \
 "Drivers\src\Hw_ClaDriver.d" \
 "Drivers\src\Hw_CpuTimerDriver.d" \
 "Drivers\src\Hw_EcapDriver.d" \
+"Drivers\src\Hw_ExitDriver.d" \
 "Drivers\src\Hw_GpioDriver.d" \
+"Drivers\src\Hw_I2cDriver.d" \
 "Drivers\src\Hw_InvDriver.d" \
 "Drivers\src\Hw_PwmDriver.d" \
-"Drivers\src\Hw_SciDriver.d" 
+"Drivers\src\Hw_SciDriver.d" \
+"Drivers\src\Hw_SpiDriver.d" \
+"Drivers\src\Hw_XbarDriver.d" 
 
 C_SRCS__QUOTED += \
 "../Drivers/src/Hw_AdcDriver.c" \
@@ -66,9 +86,13 @@ C_SRCS__QUOTED += \
 "../Drivers/src/Hw_ClaDriver.c" \
 "../Drivers/src/Hw_CpuTimerDriver.c" \
 "../Drivers/src/Hw_EcapDriver.c" \
+"../Drivers/src/Hw_ExitDriver.c" \
 "../Drivers/src/Hw_GpioDriver.c" \
+"../Drivers/src/Hw_I2cDriver.c" \
 "../Drivers/src/Hw_InvDriver.c" \
 "../Drivers/src/Hw_PwmDriver.c" \
-"../Drivers/src/Hw_SciDriver.c" 
+"../Drivers/src/Hw_SciDriver.c" \
+"../Drivers/src/Hw_SpiDriver.c" \
+"../Drivers/src/Hw_XbarDriver.c" 
 
 

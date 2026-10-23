@@ -8,6 +8,7 @@
  */
 
 #include "ModbusSlave.h"
+#include "EepromParam.h"   /* 写属性带 SAVE 位时，写入成功后标脏 */
 #include "Hw_SciDriver.h"
 #include "Crc16.h"
 
@@ -151,7 +152,7 @@ static int32 MbClampI32(const ST_MB_REG_ITEM *pstItem, int32 i32Val)
  * @brief 写表项的第 u16Offset 个寄存器
  * @return 0 表示成功，否则为异常码
  */
-static Uint16 MbWriteWord(const ST_MB_REG_ITEM *pstItem, Uint16 u16Offset, Uint16 u16Val)
+static Uint16 MbWriteWordRaw(const ST_MB_REG_ITEM *pstItem, Uint16 u16Offset, Uint16 u16Val)
 {
     U_MB_F32 unVal;
     volatile Uint32 *pu32Ptr;
@@ -163,7 +164,7 @@ static Uint16 MbWriteWord(const ST_MB_REG_ITEM *pstItem, Uint16 u16Offset, Uint1
         return MB_EX_SLAVE_FAIL;
     }
 
-    if (pstItem->u16Attr != MB_ATTR_RW)
+    if ((pstItem->u16Attr & MB_ATTR_RW) == 0U)
     {
         /* 只读寄存器按"非法数据地址"处理，与多数从机实现一致 */
         return MB_EX_ILLEGAL_ADDR;
@@ -253,6 +254,27 @@ static Uint16 MbWriteWord(const ST_MB_REG_ITEM *pstItem, Uint16 u16Offset, Uint1
         default:
             return MB_EX_SLAVE_FAIL;
     }
+}
+
+
+/**
+ * @brief 写表项的第 u16Offset 个寄存器（带掉电保存挂钩）
+ *
+ * @note 真正落地的是 MbWriteWordRaw()，这一层只负责"写成功了就把这个变量标脏"，
+ *       这样协议层不需要认识 EepromParam，点表属性是唯一的开关。
+ */
+static Uint16 MbWriteWord(const ST_MB_REG_ITEM *pstItem, Uint16 u16Offset, Uint16 u16Val)
+{
+    Uint16 u16Ex;
+
+    u16Ex = MbWriteWordRaw(pstItem, u16Offset, u16Val);
+
+    if ((u16Ex == MB_EX_NONE) && ((pstItem->u16Attr & MB_ATTR_SAVE) != 0U))
+    {
+        (void)EepromParamMarkDirty(pstItem->pvData);
+    }
+
+    return u16Ex;
 }
 
 /* 发送异常应答：[addr][func|0x80][exCode][crc] */
@@ -437,7 +459,7 @@ static void MbWriteMulti(Uint16 u16SlaveIdx, Uint16 u16Len)
             return;
         }
 
-        if (pstItem->u16Attr != MB_ATTR_RW)
+        if ((pstItem->u16Attr & MB_ATTR_RW) == 0U)
         {
             MbSendException(u16SlaveIdx, MB_FUNC_WRITE_MULTI, MB_EX_ILLEGAL_ADDR);
             return;

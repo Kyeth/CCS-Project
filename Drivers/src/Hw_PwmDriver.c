@@ -430,3 +430,75 @@ void Hw_PwmReleaseForce(Uint16 u16PwmId)
 {
     Hw_PwmSetForce(u16PwmId, HW_PWM_FORCE_NONE, HW_PWM_FORCE_NONE);
 }
+
+/* ============ 数字比较（DC）故障源 ============ */
+/* 把指定 TRIP 接进 DCAH：TRIPINPUTn 选路，COMPSEL 选比较通道（n = TRIPn - 1）。 */
+static void Hw_PwmConfigDcaTrip(volatile struct EPWM_REGS *pstPwmRegs, Uint16 u16Trip)
+{
+    pstPwmRegs->DCAHTRIPSEL.all = 0U;
+
+    if ((u16Trip >= 1U) && (u16Trip <= 15U))
+    {
+        pstPwmRegs->DCAHTRIPSEL.all = (Uint16)(1U << (u16Trip - 1U));
+        pstPwmRegs->DCTRIPSEL.bit.DCAHCOMPSEL = (Uint16)(u16Trip - 1U);
+    }
+}
+
+/* 把指定 TRIP 接进 DCBH。 */
+static void Hw_PwmConfigDcbTrip(volatile struct EPWM_REGS *pstPwmRegs, Uint16 u16Trip)
+{
+    pstPwmRegs->DCBHTRIPSEL.all = 0U;
+
+    if ((u16Trip >= 1U) && (u16Trip <= 15U))
+    {
+        pstPwmRegs->DCBHTRIPSEL.all = (Uint16)(1U << (u16Trip - 1U));
+        pstPwmRegs->DCTRIPSEL.bit.DCBHCOMPSEL = (Uint16)(u16Trip - 1U);
+    }
+}
+
+/* 按配置表配置各模块的 DC 事件（统一走 EVT2 + CBC）。 */
+void Hw_PwmInitTripZone(const ST_PWM_TZ_CFG *pstPwmTzCfg)
+{
+    Uint16 i;
+    const ST_PWM_TZ_CFG_ITEM *pstItem;
+    volatile struct EPWM_REGS *pstPwmRegs;
+
+    if (pstPwmTzCfg == (const ST_PWM_TZ_CFG *)0)
+    {
+        return;
+    }
+
+    for (i = 0U; i < pstPwmTzCfg->u16ItemNum; i++)
+    {
+        pstItem = &pstPwmTzCfg->pstPwmTzCfgItem[i];
+
+        if (Hw_PwmIdIsValid(pstItem->u16PwmId) == 0U)
+        {
+            continue;
+        }
+
+        pstPwmRegs = gPwmRegs[pstItem->u16PwmId];
+
+        EALLOW;
+
+        /* 1. 选 TRIP 源 */
+        Hw_PwmConfigDcaTrip(pstPwmRegs, pstItem->u16DcaTrip);
+        Hw_PwmConfigDcbTrip(pstPwmRegs, pstItem->u16DcbTrip);
+
+        /* 2. 触发条件（TZDCSEL）与动作（TZCTL），都走 EVT2 */
+        pstPwmRegs->TZDCSEL.bit.DCAEVT2 = pstItem->u16DcaEvent;
+        pstPwmRegs->TZDCSEL.bit.DCBEVT2 = pstItem->u16DcbEvent;
+        pstPwmRegs->TZCTL.bit.DCAEVT2   = pstItem->u16DcaAction;
+        pstPwmRegs->TZCTL.bit.DCBEVT2   = pstItem->u16DcbAction;
+
+        /* 3. CBC 选源：只把配了触发条件的那一侧放进 CBC */
+        pstPwmRegs->TZSEL.bit.DCAEVT2 = (pstItem->u16DcaEvent != 0U) ? 1U : 0U;
+        pstPwmRegs->TZSEL.bit.DCBEVT2 = (pstItem->u16DcbEvent != 0U) ? 1U : 0U;
+
+        /* 4. 不开 TZ 中断（判定放软件任务里），清掉配置过程中可能残留的 CBC 标志 */
+        pstPwmRegs->TZEINT.bit.CBC = 0U;
+        pstPwmRegs->TZCLR.bit.CBC  = 1U;
+
+        EDIS;
+    }
+}

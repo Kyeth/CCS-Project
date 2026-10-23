@@ -55,6 +55,10 @@ ST_GPIO_CFG_ITEM stGpioCfgItem[] =
     {75, HW_GPIO_MUX_GPIO, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_OD_DISABLE, HW_GPIO_PUD_DISABLE, HW_GPIO_QUAL_SYNC},  // LED灯（1:开 0:关）。
     {87, HW_GPIO_MUX_GPIO, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_OD_DISABLE, HW_GPIO_PUD_DISABLE, HW_GPIO_QUAL_SYNC},  // 电池激活信号（1:高 0:低）。
     {88, HW_GPIO_MUX_GPIO, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_OD_DISABLE, HW_GPIO_PUD_DISABLE, HW_GPIO_QUAL_SYNC},  // 芯片驱动使能（1:开 0:关）。
+    /* ========== I2C / EEPROM 引脚 ========== */
+    {91, HW_GPIO_MUX_GPIO, HW_DIR_DO, HW_GPIO_HIGH, HW_GPIO_OD_ENABLE, HW_GPIO_PUD_DISABLE, HW_GPIO_QUAL_SYNC},  // I2C SDA — FM24C128D，开漏，初始释放为高。
+    {92, HW_GPIO_MUX_GPIO, HW_DIR_DO, HW_GPIO_HIGH, HW_GPIO_OD_ENABLE, HW_GPIO_PUD_DISABLE, HW_GPIO_QUAL_SYNC},  // I2C SCL — FM24C128D，开漏，初始释放为高。
+    {99, HW_GPIO_MUX_GPIO, HW_DIR_DO, HW_GPIO_LOW,  HW_GPIO_OD_DISABLE, HW_GPIO_PUD_DISABLE, HW_GPIO_QUAL_SYNC},  // FM24C128D 写保护 WP（1:保护高半区 0:全片可写）。
     /* ========== ECAP / InputXbar 输入 ========== */
     {25, HW_GPIO_MUX_GPIO, HW_DIR_DI, HW_GPIO_LOW, HW_GPIO_OD_DISABLE, HW_GPIO_PUD_DISABLE, HW_GPIO_QUAL_ASYNC},  // eCAP1 — R相电网过零信号（INPUT7）。
     {27, HW_GPIO_MUX_GPIO, HW_DIR_DI, HW_GPIO_LOW, HW_GPIO_OD_DISABLE, HW_GPIO_PUD_DISABLE, HW_GPIO_QUAL_ASYNC},  // eCAP2 — S相电网过零信号（INPUT8）。
@@ -98,7 +102,7 @@ ST_GPIO_CFG_ITEM stGpioCfgItem[] =
     {54, HW_GPIO_MUX_SPI, HW_DIR_DO, HW_GPIO_LOW,  HW_GPIO_OD_DISABLE, HW_GPIO_PUD_DISABLE, HW_GPIO_QUAL_ASYNC},  // SPI-A主出从入信号SPISIMOA。
     {55, HW_GPIO_MUX_SPI, HW_DIR_DI, HW_GPIO_LOW,  HW_GPIO_OD_ENABLE,  HW_GPIO_PUD_DISABLE, HW_GPIO_QUAL_ASYNC},  // SPI-A主入从出信号SPISOMIA。
     {56, HW_GPIO_MUX_SPI, HW_DIR_DO, HW_GPIO_LOW,  HW_GPIO_OD_DISABLE, HW_GPIO_PUD_DISABLE, HW_GPIO_QUAL_ASYNC},  // SPI-A时钟信号SPICLKA。
-    {57, HW_GPIO_MUX_SPI, HW_DIR_DO, HW_GPIO_HIGH, HW_GPIO_OD_DISABLE, HW_GPIO_PUD_DISABLE, HW_GPIO_QUAL_ASYNC},  // SPI-A片选信号SPISTEA。
+    {57, HW_GPIO_MUX_GPIO, HW_DIR_DO, HW_GPIO_HIGH, HW_GPIO_OD_DISABLE, HW_GPIO_PUD_DISABLE, HW_GPIO_QUAL_SYNC},  // SPI-A片选SPISTE，改软件片选：主机模式下SPISTE每字符自动翻转，多字节帧会误释放从机。
 };
 
 ST_GPIO_CFG stGpioCfg =
@@ -555,4 +559,187 @@ ST_MB_CFG stMbCfg =
 {
     stMbSlaveCfgItem,
     (Uint16)(sizeof(stMbSlaveCfgItem) / sizeof(stMbSlaveCfgItem[0]))
+};
+
+
+/* ============ 软件 I2C：FM24C128D 的物理层 ============ */
+/* 速率取 400kHz：FM24C128D 在 2.5V~5.5V 下支持 1MHz，本板 3.3V 供电，
+ * 400kHz 留足余量；u16LoopPerUs = 30 是 200MHz、-O2 下实测标定值，
+ * 换优化等级或改主频要重新标（标定方法：把 SCL 拉高拉低各一次，
+ * 用示波器量半个周期，调这个数直到 400kHz 对应的 1.25us 对得上）。 */
+ST_I2C_CFG stI2cCfg =
+{
+    91U,                        /* SDA：GPIO91 */
+    92U,                        /* SCL：GPIO92 */
+    HW_I2C_SPEED_400K,          /* 400kHz */
+    HW_I2C_LOOP_PER_US_DEFAULT  /* 1us 空循环次数，0 则用缺省 */
+};
+
+/* ============ FM24C128D 器件配置 ============ */
+/* 自检保留区放在低半区 0x1F00~0x1F0F：低半区不受 WP 保护，
+ * 拉高 WP 时自检照样能跑；参数区在 0x0000~0x041F，两边不重叠。 */
+ST_FM24C128D_CFG stFm24c128dCfg =
+{
+    FM24C128D_DEV_ADDR_7BIT,    /* 7 位设备地址 0x50（A2A1A0 接地） */
+    FM24C128D_SIZE_BYTES,       /* 16KB */
+    99U,                        /* 写保护脚 GPIO99 */
+    1U,                         /* WP 高电平有效 */
+    0x1F00U,                    /* 自检保留区首地址 */
+    1U                          /* 上电做一次写读自检 */
+};
+
+/* ============ 掉电保存参数 ============ */
+/* 三张点表全部参与扫描，属性里带 MB_ATTR_SAVE 的行才进保存清单。
+ * 窗口参数的含义见 EepromParam.h 头注释：
+ *   500ms   最后一次写之后静默多久落盘（合并窗口）
+ *   5000ms  一直有写也要在 5s 内落盘（最长等待）
+ *   1000ms  两次落盘最小间隔（EEPROM 寿命保护，最坏 1 次/秒） */
+static const ST_EEPROM_PARAM_TABLE stEepromParamTable[] =
+{
+    {stMbRegItemArm, MB_ARM_REG_NUM},
+    {stMbRegItemPc,  MB_PC_REG_NUM },
+    {stMbRegItemTvs, MB_TVS_REG_NUM},
+};
+
+ST_EEPROM_PARAM_CFG stEepromParamCfg =
+{
+    stEepromParamTable,
+    (Uint16)(sizeof(stEepromParamTable) / sizeof(stEepromParamTable[0])),
+    500U,       /* u16FlushDelayMs：合并窗口 */
+    5000U,      /* u16MaxDelayMs：最长等待 */
+    1000U,      /* u16MinFlushIntervalMs：落盘限速 */
+    1U,         /* u16TaskPeriodMs：1ms，对应 Task_Start(&EepromParamTask, NULL, 10U, ...) */
+    1U,         /* bEnable：1 打开掉电保存 */
+    0U          /* bFactoryReset：1 则上电忽略芯片内容，用代码初值重写 */
+};
+
+/* ============ SPI 主机：SPI-A 接 ARM 芯片 STM32F103VET6 ============ */
+/* 字符宽度先用 8 位（STM32 侧按字节组帧最省事），模式 0（CPOL=0/CPHA=0），
+ * 1MHz 起步：STM32F103 的 SPI 从机在 72MHz 主频下能稳接 18MHz，
+ * 这里先压低是为了让第一次联调先看波形对不对，跑通后再往上提。
+ * 片选走 GPIO57 软件控制，原因见 Hw_SpiDriver.h 头注释。 */
+const ST_SPI_CFG_ITEM stSpiCfgItem[] =
+{
+    /* 格式：{模块号, 字符宽度, 空闲电平, 采样边沿, 目标波特率, 片选引脚, 片选有效电平, 超时us} */
+    {HW_SPI_ID_A, 8U, 0U, 0U, 1000000UL, 57U, 0U, 2000U},
+};
+
+ST_SPI_CFG stSpiCfg =
+{
+    &stSpiCfgItem[0],
+    (Uint16)(sizeof(stSpiCfgItem) / sizeof(stSpiCfgItem[0]))
+};
+
+
+/******************************************************************************
+ * @brief ePWM TZ 故障源：硬件过流/短路先做逐波限流（CBC）
+ *
+ * 信号链：GPIO -> InputXbar INPUTx -> ePWM X-BAR TRIPn -> ePWM DCAH/DCBH
+ *          -> TZDCSEL 形成 DCAEVT2/DCBEVT2 -> CBC 动作（占空比被逐波压到零）
+ *
+ * 为什么 PV 只配 A、逆变要配 A+B：
+ * - PV 模块只有 EPWMxA 引出（GPIO 表里只有 EPWM5A/6A/7A/9A），死区模块关闭，
+ *   A 通道就是全部输出，所以只配 DCAEVT2；
+ * - 逆变 6 个模块 A/B 互补（B 由死区模块从 A 取反产生），如果只砍 A，
+ *   下管（横管 S2/S3）仍在斩波，半桥没有真正封波，所以 A/B 两套事件都要配。
+ *
+ * 逆变过流(GPIO81)与硬件短路(GPIO82)在 ePWM X-BAR 里先“或”成 TRIP9，
+ * 再同时接 DCAH 与 DCBH，这样一次触发就能同时压住 A、B 两侧。
+ * 逐波限流不是永久封波：永久封波由 10kHz 保护任务判故障后走 TZFRC.OST。
+ ******************************************************************************/
+
+/* 格式：{PWM号, DCAH的TRIP源, DCBH的TRIP源, DCA触发条件, DCB触发条件, DCA动作, DCB动作} */
+const ST_PWM_TZ_CFG_ITEM stPwmTzCfgItem[] =
+{
+    /* ---------- 逆变：EPWM1/2/3/4/10/11，两路故障信号低有效 ---------- */
+    {HW_PWM_ID0,  HW_PWM_TRIP_9, HW_PWM_TRIP_9, TZ_DCAH_LOW, TZ_DCBH_LOW, HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_FORCE_LOW},   /* R相 正半周 */
+    {HW_PWM_ID3,  HW_PWM_TRIP_9, HW_PWM_TRIP_9, TZ_DCAH_LOW, TZ_DCBH_LOW, HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_FORCE_LOW},   /* R相 负半周 */
+    {HW_PWM_ID1,  HW_PWM_TRIP_9, HW_PWM_TRIP_9, TZ_DCAH_LOW, TZ_DCBH_LOW, HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_FORCE_LOW},   /* S相 正半周 */
+    {HW_PWM_ID9,  HW_PWM_TRIP_9, HW_PWM_TRIP_9, TZ_DCAH_LOW, TZ_DCBH_LOW, HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_FORCE_LOW},   /* S相 负半周 */
+    {HW_PWM_ID2,  HW_PWM_TRIP_9, HW_PWM_TRIP_9, TZ_DCAH_LOW, TZ_DCBH_LOW, HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_FORCE_LOW},   /* T相 正半周 */
+    {HW_PWM_ID10, HW_PWM_TRIP_9, HW_PWM_TRIP_9, TZ_DCAH_LOW, TZ_DCBH_LOW, HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_FORCE_LOW},   /* T相 负半周 */
+    /* ---------- 光伏：EPWM7(PV1)/9(PV2)/5(PV3)/6(PV4)，只有 A 通道 ---------- */
+    {HW_PWM_ID6,  HW_PWM_TRIP_4, HW_PWM_TRIP_NONE, TZ_DCAH_LOW, 0U, HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_DO_NOTHING},       /* PV1 */
+    {HW_PWM_ID8,  HW_PWM_TRIP_5, HW_PWM_TRIP_NONE, TZ_DCAH_LOW, 0U, HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_DO_NOTHING},       /* PV2 */
+    {HW_PWM_ID4,  HW_PWM_TRIP_7, HW_PWM_TRIP_NONE, TZ_DCAH_LOW, 0U, HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_DO_NOTHING},       /* PV3 */
+    {HW_PWM_ID5,  HW_PWM_TRIP_8, HW_PWM_TRIP_NONE, TZ_DCAH_LOW, 0U, HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_DO_NOTHING},       /* PV4 */
+};
+
+ST_PWM_TZ_CFG stPwmTzCfg =
+{
+    &stPwmTzCfgItem[0],
+    (Uint16)(sizeof(stPwmTzCfgItem) / sizeof(stPwmTzCfgItem[0]))
+};
+
+/******************************************************************************
+ * @brief X-BAR 配置：把 6 路比较器信号接到 INPUTx，再汇聚成 5 个 TRIP
+ *
+ * 分配原则：
+ * - 每路光伏过流占一个独立 INPUT + 独立 TRIP，互不牵连（PV1 触发不该影响 PV2）；
+ * - 逆变过流与短路共用 TRIP9（ePWM X-BAR 的 MUX 是或关系），
+ *   但事件计数分开：INPUT4 -> XINT1、INPUT5 -> XINT2，软件能分辨是哪一路；
+ * - INPUT4/INPUT5 同时被 XINT 和 ePWM X-BAR 取用，这是允许的（一个 INPUT 多播）。
+ ******************************************************************************/
+
+/* 引脚映射格式：{INPUT通道, GPIO号} */
+const ST_XBAR_INPUT_CFG_ITEM stXbarInputCfgItem[] =
+{
+    {HW_XBAR_INPUT1, 13U},      /* PV1 硬件过流 */
+    {HW_XBAR_INPUT2, 17U},      /* PV2 硬件过流 */
+    {HW_XBAR_INPUT3, 41U},      /* PV3 硬件过流 */
+    {HW_XBAR_INPUT4, 81U},      /* 硬件逆变过流：同时给 XINT1 计数 */
+    {HW_XBAR_INPUT5, 82U},      /* 硬件短路：同时给 XINT2 计数 */
+    {HW_XBAR_INPUT6, 40U},      /* PV4 硬件过流 */
+};
+
+/* TRIP 汇聚格式：{TRIP号, MUX号, MUX方式}；MUXn 对应 INPUT(n+1) */
+const ST_XBAR_TRIP_MUX_CFG_ITEM stXbarTripMuxCfgItem[] =
+{
+    {HW_XBAR_TRIP4,  0U, HW_XBAR_MUX_ENABLE},   /* INPUT1(PV1) -> TRIP4  -> EPWM7  */
+    {HW_XBAR_TRIP5,  1U, HW_XBAR_MUX_ENABLE},   /* INPUT2(PV2) -> TRIP5  -> EPWM9  */
+    {HW_XBAR_TRIP7,  2U, HW_XBAR_MUX_ENABLE},   /* INPUT3(PV3) -> TRIP7  -> EPWM5  */
+    {HW_XBAR_TRIP8,  5U, HW_XBAR_MUX_ENABLE},   /* INPUT6(PV4) -> TRIP8  -> EPWM6  */
+    {HW_XBAR_TRIP9,  3U, HW_XBAR_MUX_ENABLE},   /* INPUT4(逆变过流) -> TRIP9         */
+    {HW_XBAR_TRIP9,  4U, HW_XBAR_MUX_ENABLE},   /* INPUT5(短路)     -> TRIP9（或）    */
+};
+
+/* TRIP 输出极性：比较器输出低有效，TRIP 原样送给 DCAH/DCBH，不取反 */
+const ST_XBAR_TRIP_OUT_CFG_ITEM stXbarTripOutCfgItem[] =
+{
+    {HW_XBAR_TRIP4, 0U},
+    {HW_XBAR_TRIP5, 0U},
+    {HW_XBAR_TRIP7, 0U},
+    {HW_XBAR_TRIP8, 0U},
+    {HW_XBAR_TRIP9, 0U},
+};
+
+ST_XBAR_CFG stXbarCfg =
+{
+    stXbarInputCfgItem,
+    (Uint16)(sizeof(stXbarInputCfgItem) / sizeof(stXbarInputCfgItem[0])),
+    stXbarTripMuxCfgItem,
+    (Uint16)(sizeof(stXbarTripMuxCfgItem) / sizeof(stXbarTripMuxCfgItem[0])),
+    stXbarTripOutCfgItem,
+    (Uint16)(sizeof(stXbarTripOutCfgItem) / sizeof(stXbarTripOutCfgItem[0]))
+};
+
+/******************************************************************************
+ * @brief 外部中断配置：XINT1/XINT2 只做事件计数
+ *
+ * 信号链路：GPIO81/82 -> INPUT4/INPUT5 -> XINT1/XINT2（输入通道是硬件固定的）
+ * 比较器输出低有效，所以一律配下降沿；使能后每次下降沿进一次中断，
+ * 中断里只把计数器加一（见 Hw_ExitDriver.c），判定放在 10kHz 保护任务里做。
+ ******************************************************************************/
+
+/* 格式：{XINT号, 触发极性, 使能} */
+const ST_EXIT_CFG_ITEM stExitCfgItem[] =
+{
+    {HW_XINT_ID1, HW_XINT_FALLING, 1U},     /* GPIO81 逆变过流 */
+    {HW_XINT_ID2, HW_XINT_FALLING, 1U},     /* GPIO82 硬件短路 */
+};
+
+ST_EXIT_CFG stExitCfg =
+{
+    &stExitCfgItem[0],
+    (Uint16)(sizeof(stExitCfgItem) / sizeof(stExitCfgItem[0]))
 };

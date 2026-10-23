@@ -5,17 +5,17 @@ device/common/source/device.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/devi
 device/common/source/device.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/driverlib.h
 device/common/source/device.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/driverlib/inc/hw_memmap.h
 device/common/source/device.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/driverlib/adc.h
-device/common/source/device.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/stdbool.h
-device/common/source/device.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/_ti_config.h
-device/common/source/device.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/linkage.h
-device/common/source/device.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/stdint.h
-device/common/source/device.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/_stdint40.h
-device/common/source/device.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/sys/stdint.h
-device/common/source/device.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/sys/cdefs.h
-device/common/source/device.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/sys/_types.h
-device/common/source/device.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/machine/_types.h
-device/common/source/device.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/machine/_stdint.h
-device/common/source/device.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/sys/_stdint.h
+device/common/source/device.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/stdbool.h
+device/common/source/device.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/_ti_config.h
+device/common/source/device.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/linkage.h
+device/common/source/device.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/stdint.h
+device/common/source/device.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/_stdint40.h
+device/common/source/device.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/sys/stdint.h
+device/common/source/device.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/sys/cdefs.h
+device/common/source/device.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/sys/_types.h
+device/common/source/device.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/machine/_types.h
+device/common/source/device.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/machine/_stdint.h
+device/common/source/device.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/sys/_stdint.h
 device/common/source/device.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/driverlib/inc/hw_adc.h
 device/common/source/device.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/driverlib/inc/hw_sysctl.h
 device/common/source/device.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/driverlib/inc/hw_types.h
@@ -85,7 +85,7 @@ device/common/source/device.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/devi
 device/common/source/device.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/driverlib/inc/hw_upp.h
 device/common/source/device.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/driverlib/version.h
 device/common/source/device.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/driverlib/driver_inclusive_terminology_mapping.h
-device/common/source/device.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/stddef.h
+device/common/source/device.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/stddef.h
 
 ../device/common/source/device.c:
 
@@ -97,27 +97,27 @@ D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/driverlib/inc/hw_memmap.h:
 
 D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/driverlib/adc.h:
 
-C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/stdbool.h:
+D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/stdbool.h:
 
-C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/_ti_config.h:
+D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/_ti_config.h:
 
-C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/linkage.h:
+D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/linkage.h:
 
-C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/stdint.h:
+D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/stdint.h:
 
-C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/_stdint40.h:
+D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/_stdint40.h:
 
-C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/sys/stdint.h:
+D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/sys/stdint.h:
 
-C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/sys/cdefs.h:
+D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/sys/cdefs.h:
 
-C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/sys/_types.h:
+D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/sys/_types.h:
 
-C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/machine/_types.h:
+D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/machine/_types.h:
 
-C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/machine/_stdint.h:
+D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/machine/_stdint.h:
 
-C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/sys/_stdint.h:
+D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/sys/_stdint.h:
 
 D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/driverlib/inc/hw_adc.h:
 
@@ -257,5 +257,5 @@ D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/driverlib/version.h:
 
 D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/driverlib/driver_inclusive_terminology_mapping.h:
 
-C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/stddef.h:
+D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/stddef.h:
 

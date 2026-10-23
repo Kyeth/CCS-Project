@@ -50,6 +50,10 @@ extern "C" {
 /* 读写属性 */
 #define MB_ATTR_RO                  (0U)
 #define MB_ATTR_RW                  (1U)
+/* 掉电保存标记位：与读写属性按位组合，独立一位，
+ * 这样"可写"和"要保存"是两个正交的语义，互不稀释。 */
+#define MB_ATTR_SAVE                (2U)
+#define MB_ATTR_RW_SAVE             (MB_ATTR_RW | MB_ATTR_SAVE)
 
 /* 32 位量的高低字顺序：0 = 低字在前（Modbus 惯例），1 = 高字在前 */
 /* 32 位量（U32/I32/F32）占两个保持寄存器，字序选择：
@@ -63,7 +67,7 @@ typedef struct
 {
     Uint16 u16RegAddr;              /* 起始寄存器地址 */
     Uint16 u16ValType;              /* MB_TYPE_xxx */
-    Uint16 u16Attr;                 /* MB_ATTR_RO / MB_ATTR_RW */
+    Uint16 u16Attr;                 /* MB_ATTR_RO / MB_ATTR_RW / MB_ATTR_RW_SAVE（按位组合） */
     void  *pvData;                  /* 直接指向业务变量 */
     int32  i32Min;                  /* 写下限（浮点类型按取整后比较） */
     Uint32 u32Max;                  /* 写上限 */
