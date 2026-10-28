@@ -13,6 +13,8 @@
 #include "InterruptCfg.h"
 #include "Schedule.h"
 #include "CtrlIsr.h"
+#include "AdcCalib.h"
+#include "AdcSample.h"
 #include "SoftOsc.h"
 #include "Hw_SciDriver.h"
 #include "ModbusSlave.h"
@@ -21,6 +23,11 @@
 #include "Hw_I2cDriver.h"
 #include "Hw_SpiDriver.h"
 #include "ProtectTask.h"
+#include "AtsCtl.h"
+#include "RelayCtl.h"
+#include "InvStateMachine.h"
+#include "SystemStateMachine.h"
+#include "PvStateMachine.h"
 /**
  * @brief 芯片外设初始化
  *
@@ -85,6 +92,14 @@ void ApplicationInit(void)
  */
 void PlatformInit(void)
 {
+    AdcCalibInit();            /* ADC 标定：系数/零点回标称值，并启动上电零漂检测 */
+    AdcSampleInit();           /* 采样两层封装：瞬时值与对外值清零 */
+    AtsProtoInit(&stAtsProtoCfg);
+    AtsCtlInit();              /* ATS 干接点：读 53 状态、52 归零 */
+    RelayCtlInit();            /* 继电器统一控制层：全部断开 */
+    InvSmInit();               /* 逆变状态机：封锁 + 继电器断开 */
+    SysSmInit();               /* 系统总状态机：进入上电流程 */
+    PvSmInit();                /* PV 状态机 + MPPT：四路 Boost 全部封波待命 */
     CtrlIsrInit();
     ModbusInit(&stMbCfg);      /* Modbus 从机：SCIA 给 ARM、SCID 给上位机 */
     EepromParamInit(&stEepromParamCfg);  /* 掉电保存：扫点表 -> 读芯片 -> 校验 -> 回填变量 */
@@ -113,7 +128,27 @@ void TaskCreate(void)
 
     /* 硬件保护：调度节拍 100us，1 个节拍跑一次 = 10kHz，
      * 与 EP5K 的 HandleProtect 同频，漏桶门限（400 次 / 5ms 静默）直接沿用 */
-    Task_Start(&ProtectTask, NULL, 1U, 3U);
+    /* 台架发波模式（CTRL_TEST_PWM_MODE=1）下不调度：功率级不带电，
+     * 比较器输入悬空可能产生假跳闸，ProtectLatchFault() 会 TZFRC.OST
+     * 把六路输出永久锁低，台架就看不到驱动信号了。 */
+    if (CTRL_TEST_PWM_MODE == 0)
+    {
+        Task_Start(&ProtectTask, NULL, 1U, 3U);
+    }
+
+    /* 对外采样量：调度节拍 100us，10 个节拍 = 1kHz 刷新 gAdcPub
+     * （RMS 一个工频周期收口一次，直流量 1ms 块平均后一阶滞后） */
+    Task_Start(&AdcSampleTask, NULL, 10U, 5U);
+    Task_Start(&AtsProtoTask, NULL, 1000U, 6U);
+    Task_Start(&AtsCtlTask,    NULL,   10U, 7U);    /* 1ms：ATS 状态去抖与动作超时 */
+    /* 状态机三件套：台架发波模式（CTRL_TEST_PWM_MODE = 1）下全部不调度，
+     * 否则 InvSm 会把发波请求撤掉、PvSm 会把 PV 四路占空比写回 0。 */
+    if (CTRL_TEST_PWM_MODE == 0)
+    {
+        Task_Start(&InvSmTask,     NULL,    1U, 8U);    /* 10kHz：逆变状态机 */
+        Task_Start(&SysSmTask,     NULL,   10U, 9U);    /* 1kHz：系统总状态机 */
+        Task_Start(&PvSmTask,      NULL,    1U, 10U);   /* 10kHz：PV 状态机 + 电压环/电流环 + MPPT */
+    }
 }
 
 /**
@@ -125,9 +160,12 @@ void TaskCreate(void)
  *       3. 放出 ePWM 时基：CTR 起跑 -> EPWM1 SOCA -> ADC -> ADCINT1 -> CLA Task1
  *          -> CLA1_1 中断 -> CtrlIsrRun()，发波授权保持 0。
  *
- *       要真正发波，需同时满足两个条件：
- *         CtrlSetPwmEnable(1U);        软件授权
- *         gCtrlModIndex > 0            调制比非 0（CtrlSetModIndex() 设置）
+ *       要真正发波，走的是 CtrlIsr 内部的发波授权状态机（20kHz 裁定）：
+ *         CtrlSetPwmEnable(1U);        发波请求
+ *         gCtrlModIndex > 0            调制比请求值（CtrlSetModIndex() 设置）
+ *       状态机额外要求"无故障 + 零漂标定完成"，并等 10ms 后按 40/s 的斜率
+ *       把实际调制比爬到请求值；撤销请求时按 80/s 降回 0 再封波。
+ *       台架发波模式（CTRL_TEST_PWM_MODE = 1）跳过以上全部，直接出驱动信号。
  */
 void StartSystem(void)
 {
@@ -140,8 +178,17 @@ void StartSystem(void)
     /* 3. 放出全部 ePWM 时基，开始产生 SOC 触发链 */
     Hw_EnableAllPwmCLKSync();
 
-    /* 4. 发波授权默认关闭：控制中断会跑、环路会算，但占空比不下发 */
-    CtrlSetPwmEnable(0U);
+    /* 4. 台架发波模式：不走授权流程，直接把逆变/PV/平衡桥释放，开始出驱动信号；
+     *    正常固件保持"授权请求关闭"，等 InvSm 走到 CHK/SOFT 才申请发波。 */
+    if (CTRL_TEST_PWM_MODE != 0)
+    {
+        CtrlSetPwmEnable(1U);
+        CtrlTestPwmStart();
+    }
+    else
+    {
+        CtrlSetPwmEnable(0U);
+    }
 }
 
 

@@ -62,8 +62,8 @@ MEMORY
     RAMLS4            : origin = 0x00A000, length = 0x000800
     RAMLS5            : origin = 0x00A800, length = 0x000800
 
-    RAMGS14           : origin = 0x01A000, length = 0x001000
-    RAMGS15           : origin = 0x01B000, length = 0x000FF8
+    /* RAMGS14 : 0x01A000 已注释 —— F28374S 无此 RAM（TI: Only Available on F28377S/F28375S） */
+    /* RAMGS15 : 0x01B000 已注释 —— 同上，此片子上是空洞 */
 
     RESET             : origin = 0x3FFFC0, length = 0x000002
 
@@ -83,8 +83,8 @@ MEMORY
     RAMGS9            : origin = 0x015000, length = 0x001000
     RAMGS10           : origin = 0x016000, length = 0x001000
     RAMGS11           : origin = 0x017000, length = 0x001000
-    RAMGS12           : origin = 0x018000, length = 0x001000
-    RAMGS13           : origin = 0x019000, length = 0x001000
+    /* RAMGS12 : 0x018000 已注释 —— F28374S 的 RAM 只到 RAMGS11(0x017FFF) */
+    /* RAMGS13 : 0x019000 已注释 —— 同上 */
 
     CLA1_MSGRAMLOW    : origin = 0x001480, length = 0x000080
     CLA1_MSGRAMHIGH   : origin = 0x001500, length = 0x000080
@@ -111,14 +111,14 @@ SECTIONS
     #if __TI_COMPILER_VERSION__ >= 15009000
         #if defined(__TI_EABI__)
             .TI.ramfunc : {} LOAD = FLASH_APP,
-                             RUN = RAMGS14,
+                             RUN = RAMD0,
                              LOAD_START(RamfuncsLoadStart),
                              LOAD_SIZE(RamfuncsLoadSize),
                              RUN_START(RamfuncsRunStart),
                              PAGE = 0, ALIGN(8)
         #else
             .TI.ramfunc : {} LOAD = FLASH_APP,
-                             RUN = RAMGS14,
+                             RUN = RAMD0,
                              LOAD_START(_RamfuncsLoadStart),
                              LOAD_SIZE(_RamfuncsLoadSize),
                              RUN_START(_RamfuncsRunStart),
@@ -126,7 +126,7 @@ SECTIONS
         #endif
     #else
         ramfuncs     : LOAD = FLASH_APP,
-                       RUN = RAMGS14,
+                       RUN = RAMD0,
                        LOAD_START(_RamfuncsLoadStart),
                        LOAD_SIZE(_RamfuncsLoadSize),
                        RUN_START(_RamfuncsRunStart),

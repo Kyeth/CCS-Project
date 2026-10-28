@@ -7,12 +7,12 @@
  *
  * @copyright Copyright (c) 2026
  *
- * @note 寄存器布局说明（决定了下面两张指针表怎么算）：
+ * @note 寄存器布局说明（下面两张指针表计算说明）：
  *       - InputXbar：INPUT1SELECT~INPUT14SELECT 连续排布，每个 16 位，直接存 GPIO 号；
  *       - ePWM X-BAR：每个 TRIP 占两个 32 位寄存器，TRIPnMUX0TO15CFG 与
  *         TRIPnMUX16TO31CFG，每个 MUX 占 2 位（00 不用 / 01 使能 / 10 取反 / 11 保留）；
  *         TRIPnMUXENABLE 是 32 位，一个 MUX 一位，与 CFG 分开写。
- *       所以“配 MUX”要同时动 CFG 与 ENABLE，且第 16~31 路 MUX 落在第二个 CFG 寄存器里。
+ *       所以配 MUX要同时动 CFG 与 ENABLE，且第 16~31 路 MUX 落在第二个 CFG 寄存器里。
  */
 
 #include "Hw_XbarDriver.h"
@@ -166,7 +166,7 @@ void Hw_XbarInit(const ST_XBAR_CFG *pstXbarCfg)
                         pstXbarCfg->pstInputCfgItem[i].u16GpioNum);
     }
 
-    /* 2. INPUT -> TRIP：一个 TRIP 可以有多行，天然做“或” */
+    /* 2. INPUT -> TRIP：一个 TRIP 可以有多行，天然做或 */
     for (i = 0U; i < pstXbarCfg->u16TripMuxItemNum; i++)
     {
         Hw_XbarSetTripMux(pstXbarCfg->pstTripMuxCfgItem[i].u16TripId,

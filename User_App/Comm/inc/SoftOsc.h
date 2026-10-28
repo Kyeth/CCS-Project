@@ -97,7 +97,20 @@ extern volatile Uint16 gSoftOscGroupSel;   /* 单边模式下发哪一组：0 = 
 #define SOFT_OSC_SRC_PV_VOLT4       (26U)
 #define SOFT_OSC_SRC_BUS_VOLT_L     (27U)
 #define SOFT_OSC_SRC_BUS_VOLT_H     (28U)
-#define SOFT_OSC_SRC_MAX            (29U)
+
+/* ---- 对外稳定量（AdcSample 的 gAdcPub，1kHz 刷新，已在工频周期上平均）---- */
+#define SOFT_OSC_SRC_GRID_VOLT_RMS_R (29U)
+#define SOFT_OSC_SRC_GRID_VOLT_RMS_S (30U)
+#define SOFT_OSC_SRC_GRID_VOLT_RMS_T (31U)
+#define SOFT_OSC_SRC_INV_CUR_RMS_R   (32U)
+#define SOFT_OSC_SRC_INV_CUR_RMS_S   (33U)
+#define SOFT_OSC_SRC_INV_CUR_RMS_T   (34U)
+#define SOFT_OSC_SRC_BUS_VOLT_SLOW   (35U)
+#define SOFT_OSC_SRC_PV_VOLT1_SLOW   (36U)
+#define SOFT_OSC_SRC_ATS_PHASE_DIFF  (37U)   /* ATS 正序相位差 ° */
+#define SOFT_OSC_SRC_ATS_VOLT_DIFF   (38U)   /* ATS 正序电压差 V */
+
+#define SOFT_OSC_SRC_MAX            (39U)
 
 /* ---- 按"Modbus 寄存器地址"选源------------------------
  * 通道配置寄存器里写的不是编号，而是**点表里的寄存器地址**，示波器

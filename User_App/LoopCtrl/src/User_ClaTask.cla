@@ -131,6 +131,31 @@ __interrupt void Cla1Task1(void)
     Cla1ToCpuMsg.fPvCur[CLA_IDX_PV3] = stClaFilt.fPvCur[CLA_IDX_PV3];
     Cla1ToCpuMsg.fPvCur[CLA_IDX_PV4] = stClaFilt.fPvCur[CLA_IDX_PV4];
 
+    /* ================= 4b. 直流分量 / 平衡电流 / GFCI ================= */
+    /* 三个都是慢变量，用更重的低通；标定层用它们的平均值做上电零漂 */
+    stClaFilt.fDc[CLA_IDX_R] = Cla_Lpf(CLA_LPF_ALPHA_DC,
+                                       stClaFilt.fDc[CLA_IDX_R],
+                                       (float)CLA_RES_DC_R);
+    stClaFilt.fDc[CLA_IDX_S] = Cla_Lpf(CLA_LPF_ALPHA_DC,
+                                       stClaFilt.fDc[CLA_IDX_S],
+                                       (float)CLA_RES_DC_S);
+    stClaFilt.fDc[CLA_IDX_T] = Cla_Lpf(CLA_LPF_ALPHA_DC,
+                                       stClaFilt.fDc[CLA_IDX_T],
+                                       (float)CLA_RES_DC_T);
+    Cla1ToCpuMsg.fDc[CLA_IDX_R] = stClaFilt.fDc[CLA_IDX_R];
+    Cla1ToCpuMsg.fDc[CLA_IDX_S] = stClaFilt.fDc[CLA_IDX_S];
+    Cla1ToCpuMsg.fDc[CLA_IDX_T] = stClaFilt.fDc[CLA_IDX_T];
+
+    stClaFilt.fBalCur = Cla_Lpf(CLA_LPF_ALPHA_GFCI,
+                                stClaFilt.fBalCur,
+                                (float)CLA_RES_BAL_CUR);
+    Cla1ToCpuMsg.fBalCur = stClaFilt.fBalCur;
+
+    stClaFilt.fGfciCur = Cla_Lpf(CLA_LPF_ALPHA_GFCI,
+                                 stClaFilt.fGfciCur,
+                                 (float)CLA_RES_GFCI);
+    Cla1ToCpuMsg.fGfciCur = stClaFilt.fGfciCur;
+
     /* ================= 5. 多路选择器：按当前地址归档 ================= */
     u16Addr = CpuToCla1Msg.u16MuxAddr;
     if (u16Addr >= CLA_MUX_ADDR_MAX)

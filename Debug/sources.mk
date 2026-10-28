@@ -120,6 +120,7 @@ User_App/Comm/src \
 User_App/InterruptCfg/src \
 User_App/LoopCtrl/src \
 User_App/Schedule/src \
+User_App/StateMachine/src \
 User_App/WatchDog/src \
 device/common/source \
 device/driverlib \

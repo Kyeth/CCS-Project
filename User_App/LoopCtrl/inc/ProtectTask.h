@@ -38,6 +38,34 @@ extern "C" {
 #define PROTECT_SHORT_TRIP_CNT          (3U)
 #define PROTECT_SHORT_WINDOW_TICK       (100U)
 
+/* ---------------- 半波/直流分量自适应（移植自 EP5K Funtion.c 的 InvOcpHandle） ----------------
+ *
+ * 三相三电平带半波负载时，某一相电流会长期偏向正/负半周：交流分量正常，但存在
+ * 直流偏置。此时逐波限流（CBC）仍然每周期动作，但事件可能很稀疏，"400 次" 要
+ * 几分钟才数得满，保护形同虚设。EP5K 的思路是：一旦检测到某相直流分量超限，
+ * 就把过流判据从 400 次 / 5ms 恢复 收紧到 150 次 / 15ms 恢复，让保护对"稀疏但
+ * 持续"的过流重新变得敏感。
+ *
+ * 判据链路：CLA 每 20kHz 更新 Cla1ToCpuMsg.fInvCur[]（ADC 码值）
+ *          → AdcCalib 换算成安培（扣零漂、乘系数，20kHz 一次）
+ *          → 本任务 10kHz 做 EMA 得慢变直流分量
+ *          → 连续 400 拍（40ms）超限则进入半波模式。
+ */
+
+/* 半波门限：单相 |DC| ≥ 5A 认为出现半波/偏磁（与 EP5K 同值）
+ * 电流值由 AdcCalib 以安培给出（已扣零漂、已乘系数），这里不再用码值，
+ * 避免零漂和标定系数在两处各维护一份 */
+#define PROTECT_HALF_WAVE_DC_A          (5.0f)
+/* 退出滞回：降到门限的 80% 才认为半波消失，避免在门限附近来回抖 */
+#define PROTECT_HALF_WAVE_EXIT_A        (4.0f)
+/* 直流分量 EMA 系数：α=0.001 @10kHz → τ≈100ms，50Hz 基波残留 <3.2% */
+#define PROTECT_INV_DC_ALPHA            (0.001f)
+/* 连续多少拍超限才承认半波（10kHz 下 400 拍 = 40ms，与 EP5K 同值） */
+#define PROTECT_HALF_WAVE_JUDGE_TICK    (400U)
+/* 半波模式下的过流判据（EP5K：150 次 / 15ms 恢复） */
+#define PROTECT_INV_OC_TRIP_CNT_HW      (150U)
+#define PROTECT_INV_OC_CLEAN_TICK_HW    (150U)
+
 /* 故障位 */
 #define PROTECT_FAULT_NONE              (0x0000U)
 #define PROTECT_FAULT_INV_OC            (0x0001U)   /* bit0：逆变过流 */
@@ -60,6 +88,9 @@ extern volatile Uint16 gProtectInvOcCnt;        /* 当前漏桶计数 */
 extern volatile Uint16 gProtectShortCnt;        /* 当前窗口内短路次数 */
 extern volatile Uint16 gProtectFaultFlags;      /* 故障锁存位 */
 extern volatile Uint16 gProtectTick;            /* 已运行拍数（10kHz） */
+extern volatile Uint16 gProtectHalfWaveMode;    /* 1：半波自适应模式生效 */
+extern volatile Uint16 gProtectHalfWaveJudge;   /* 连续超限拍数（10kHz） */
+extern volatile int16  gProtectInvDc[3];        /* 三相直流分量 R/S/T，0.1A 有符号 */
 
 #ifdef __cplusplus
 }

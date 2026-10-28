@@ -67,6 +67,12 @@ ST_GPIO_CFG_ITEM stGpioCfgItem[] =
     {31, HW_GPIO_MUX_GPIO, HW_DIR_DI, HW_GPIO_LOW, HW_GPIO_OD_DISABLE, HW_GPIO_PUD_DISABLE, HW_GPIO_QUAL_ASYNC},  // eCAP5 — S相电网频率信号（INPUT11）。
     {32, HW_GPIO_MUX_GPIO, HW_DIR_DI, HW_GPIO_LOW, HW_GPIO_OD_DISABLE, HW_GPIO_PUD_DISABLE, HW_GPIO_QUAL_ASYNC},  // eCAP6 — T相电网频率信号（INPUT12）。
     /* ========== ePWM输出引脚 ========== */
+    /* 复用列号规则（按 F2837x TRM GPIO Mux Selection 表逐脚核对）：
+     *   GPIO0~GPIO15  : 列1(GMUX=00,MUX=01) = EPWM1A..EPWM8B  -> HW_GPIO_MUX_PWM
+     *   GPIO16~GPIO23 : 列5(GMUX=01,MUX=01) = EPWM9A..EPWM12B -> HW_GPIO_FUNC_PERIPH5
+     * 原因：GPIO16~23 的列1 被 SPI-A(16/17/18/19)、EQEP1(20/21/22/23) 占满，
+     *       选列1 时引脚只是静态电平，表现为「这一路 PWM 完全没有驱动」。
+     * 新增任何 ePWM 脚之前，先查表确认它落在哪一列，不要照抄邻居的宏。 */
     {0,  HW_GPIO_MUX_PWM, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_OD_DISABLE, HW_GPIO_PUD_DISABLE, HW_GPIO_QUAL_SYNC},  // EPWM1A — R竖管S1，INV主同步源。
     {1,  HW_GPIO_MUX_PWM, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_OD_DISABLE, HW_GPIO_PUD_DISABLE, HW_GPIO_QUAL_SYNC},  // EPWM1B — R横管S3，互补于EPWM1A。
     {2,  HW_GPIO_MUX_PWM, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_OD_DISABLE, HW_GPIO_PUD_DISABLE, HW_GPIO_QUAL_SYNC},  // EPWM2A — S竖管S1，同步于EPWM1A。
@@ -80,12 +86,17 @@ ST_GPIO_CFG_ITEM stGpioCfgItem[] =
     {12, HW_GPIO_MUX_PWM, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_OD_DISABLE, HW_GPIO_PUD_DISABLE, HW_GPIO_QUAL_SYNC},  // EPWM7A — PV1 Boost，PV主同步源。
     {14, HW_GPIO_MUX_PWM, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_OD_DISABLE, HW_GPIO_PUD_DISABLE, HW_GPIO_QUAL_SYNC},  // EPWM8A — BUSH，平衡电路上半母线。
     {15, HW_GPIO_MUX_PWM, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_OD_DISABLE, HW_GPIO_PUD_DISABLE, HW_GPIO_QUAL_SYNC},  // EPWM8B — BUSL，平衡电路下半母线。
-    {16, HW_GPIO_MUX_PWM, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_OD_DISABLE, HW_GPIO_PUD_DISABLE, HW_GPIO_QUAL_SYNC},  // EPWM9A — PV2 Boost，错相90°。
-    {18, HW_GPIO_MUX_PWM, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_OD_DISABLE, HW_GPIO_PUD_DISABLE, HW_GPIO_QUAL_SYNC},  // EPWM10A — S竖管S4，同步于EPWM1A。
-    {19, HW_GPIO_MUX_PWM, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_OD_DISABLE, HW_GPIO_PUD_DISABLE, HW_GPIO_QUAL_SYNC},  // EPWM10B — S横管S2，互补于EPWM10A。
-    {20, HW_GPIO_MUX_PWM, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_OD_DISABLE, HW_GPIO_PUD_DISABLE, HW_GPIO_QUAL_SYNC},  // EPWM11A — T竖管S4，同步于EPWM1A。
-    {21, HW_GPIO_MUX_PWM, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_OD_DISABLE, HW_GPIO_PUD_DISABLE, HW_GPIO_QUAL_SYNC},  // EPWM11B — T横管S2，互补于EPWM11A。
-    {23, HW_GPIO_MUX_PWM, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_OD_DISABLE, HW_GPIO_PUD_DISABLE, HW_GPIO_QUAL_SYNC},  // EPWM12B — 外置风扇PWM，四档风速。
+    /* GPIO16 这一脚不能跟全表统一的 HW_GPIO_MUX_PWM(PERIPH1)：
+     * 列1 在 GPIO16 上是 SPISIMOA（本设计的 SPI-A 已挪到 GPIO54~57），
+     * EPWM9A 落在第 5 列 (GMUX=01,MUX=01) = HW_GPIO_FUNC_PERIPH5，
+     * 选错列时该脚输出的是静态电平，表现为"这一路 PWM 完全没有驱动"。
+     * 该结论由台架复用位巡游实测确认（候选 5 出 20kHz/30% 波形）。 */
+    {16, HW_GPIO_FUNC_PERIPH5, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_OD_DISABLE, HW_GPIO_PUD_DISABLE, HW_GPIO_QUAL_SYNC},  // EPWM9A — PV2 Boost，错相90°（第5列复用）。
+    {18, HW_GPIO_FUNC_PERIPH5, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_OD_DISABLE, HW_GPIO_PUD_DISABLE, HW_GPIO_QUAL_SYNC},  // EPWM10A — S竖管S4，同步于EPWM1A。
+    {19, HW_GPIO_FUNC_PERIPH5, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_OD_DISABLE, HW_GPIO_PUD_DISABLE, HW_GPIO_QUAL_SYNC},  // EPWM10B — S横管S2，互补于EPWM10A。
+    {20, HW_GPIO_FUNC_PERIPH5, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_OD_DISABLE, HW_GPIO_PUD_DISABLE, HW_GPIO_QUAL_SYNC},  // EPWM11A — T竖管S4，同步于EPWM1A。
+    {21, HW_GPIO_FUNC_PERIPH5, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_OD_DISABLE, HW_GPIO_PUD_DISABLE, HW_GPIO_QUAL_SYNC},  // EPWM11B — T横管S2，互补于EPWM11A。
+    {23, HW_GPIO_FUNC_PERIPH5, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_OD_DISABLE, HW_GPIO_PUD_DISABLE, HW_GPIO_QUAL_SYNC},  // EPWM12B — 外置风扇PWM，四档风速。
     /* ========== CAN模块 ========== */
     {36, HW_GPIO_MUX_CAN, HW_DIR_DI, HW_GPIO_LOW,  HW_GPIO_OD_ENABLE,  HW_GPIO_PUD_DISABLE, HW_GPIO_QUAL_ASYNC},  // CAN-A接收信号CANRXA。
     {37, HW_GPIO_MUX_CAN, HW_DIR_DO, HW_GPIO_HIGH, HW_GPIO_OD_DISABLE, HW_GPIO_PUD_DISABLE, HW_GPIO_QUAL_ASYNC},  // CAN-A发送信号CANTXA。
@@ -436,13 +447,17 @@ ST_CLA_CFG stClaCfg =
  *         与静态态波形逐位相同，因此可在 d 归零的那一拍无缝换相。
  ******************************************************************************/
 
-/* 逆变相配置格式：{相号,正半周PWM编号,负半周PWM编号} */
+/* 逆变相配置格式：{正半周PWM编号, 负半周PWM编号, 载波周期TBPRD}
+ * 必须与 Hw_InvDriver.h 里 ST_INV_PHASE_CFG 的字段顺序逐一对齐：
+ *   u16PosPwmId / u16NegPwmId / u16Period
+ * 旧写法按 {相号, 正, 负} 填，导致 neg 与 pos 相同（EPWM4/10/11 永远不被驱动），
+ * period 被填成 3/9/10，占空比换算 (1-d)*period 只剩个位数（实测 CMPA=2）。 */
 
 const ST_INV_PHASE_CFG stInvPhaseCfgItem[] =
 {
-    {HW_INV_PHASE_R, HW_PWM_ID0, HW_PWM_ID3},   /* R相：正半周EPWM1A/1B，负半周EPWM4A/4B */
-    {HW_INV_PHASE_S, HW_PWM_ID1, HW_PWM_ID9},   /* S相：正半周EPWM2A/2B，负半周EPWM10A/10B */
-    {HW_INV_PHASE_T, HW_PWM_ID2, HW_PWM_ID10},  /* T相：正半周EPWM3A/3B，负半周EPWM11A/11B */
+    {HW_PWM_ID0, HW_PWM_ID3,  2500U},   /* R相：正半周EPWM1A/1B，负半周EPWM4A/4B */
+    {HW_PWM_ID1, HW_PWM_ID9,  2500U},   /* S相：正半周EPWM2A/2B，负半周EPWM10A/10B */
+    {HW_PWM_ID2, HW_PWM_ID10, 2500U},   /* T相：正半周EPWM3A/3B，负半周EPWM11A/11B */
 };
 
 ST_INV_CFG stInvCfg =
@@ -555,6 +570,15 @@ const ST_MB_SLAVE_CFG stMbSlaveCfgItem[] =
     {HW_SCI_ID_C, 3U, stMbRegItemTvs, MB_TVS_REG_NUM, 1U},
 };
 
+/* ATS 监听：SCIC 与 ARM 的 485 并接，ARM 作主站轮询，我们只听不应答。
+ * 单从机问询：主站发往 0xFB，ATS 用自身地址应答；应答地址未知，
+ * 由 AtsProto 的 pending 机制按请求帧位置还原。 */
+ST_ATS_PROTO_CFG stAtsProtoCfg =
+{
+    HW_SCI_ID_C,
+    ATS_ADDR_INQUIRY,
+};
+
 ST_MB_CFG stMbCfg =
 {
     stMbSlaveCfgItem,
@@ -637,13 +661,12 @@ ST_SPI_CFG stSpiCfg =
  * 信号链：GPIO -> InputXbar INPUTx -> ePWM X-BAR TRIPn -> ePWM DCAH/DCBH
  *          -> TZDCSEL 形成 DCAEVT2/DCBEVT2 -> CBC 动作（占空比被逐波压到零）
  *
- * 为什么 PV 只配 A、逆变要配 A+B：
  * - PV 模块只有 EPWMxA 引出（GPIO 表里只有 EPWM5A/6A/7A/9A），死区模块关闭，
  *   A 通道就是全部输出，所以只配 DCAEVT2；
  * - 逆变 6 个模块 A/B 互补（B 由死区模块从 A 取反产生），如果只砍 A，
  *   下管（横管 S2/S3）仍在斩波，半桥没有真正封波，所以 A/B 两套事件都要配。
  *
- * 逆变过流(GPIO81)与硬件短路(GPIO82)在 ePWM X-BAR 里先“或”成 TRIP9，
+ * 逆变过流(GPIO81)与硬件短路(GPIO82)在 ePWM X-BAR 里先或成 TRIP9，
  * 再同时接 DCAH 与 DCBH，这样一次触发就能同时压住 A、B 两侧。
  * 逐波限流不是永久封波：永久封波由 10kHz 保护任务判故障后走 TZFRC.OST。
  ******************************************************************************/

@@ -51,10 +51,34 @@ User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/d
 User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/headers/include/F2837xS_xint.h
 User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/headers/include/F2837xS_can.h
 User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/Comm/inc/ModbusSlave.h
+User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/StateMachine/inc/PvStateMachine.h
 User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/Comm/inc/SoftOsc.h
 User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_CanDriver.h
 User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Platform/Common/inc/EepromParam.h
 User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/ProtectTask.h
+User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/AdcCalib.h
+User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/AdcSample.h
+User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Platform/Common/inc/AtsProto.h
+User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F28x_Project.h
+User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Cla_typedefs.h
+User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Examples.h
+User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_GlobalPrototypes.h
+User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_cputimervars.h
+User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Cla_defines.h
+User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_EPwm_defines.h
+User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Adc_defines.h
+User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Emif_defines.h
+User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Gpio_defines.h
+User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_I2c_defines.h
+User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Pie_defines.h
+User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Dma_defines.h
+User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_SysCtrl_defines.h
+User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Upp_defines.h
+User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_defaultisr.h
+User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Platform/Common/inc/AtsCtl.h
+User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/StateMachine/inc/SystemStateMachine.h
+User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/StateMachine/inc/InvStateMachine.h
+User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/CtrlIsr.h
 
 ../User_App/Comm/src/CommRegTable.c:
 
@@ -158,6 +182,8 @@ D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/headers/include/F2837xS_can.h:
 
 D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/Comm/inc/ModbusSlave.h:
 
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/StateMachine/inc/PvStateMachine.h:
+
 D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/Comm/inc/SoftOsc.h:
 
 D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_CanDriver.h:
@@ -165,4 +191,50 @@ D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_CanDriver.h:
 D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Platform/Common/inc/EepromParam.h:
 
 D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/ProtectTask.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/AdcCalib.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/AdcSample.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Platform/Common/inc/AtsProto.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F28x_Project.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Cla_typedefs.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Examples.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_GlobalPrototypes.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_cputimervars.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Cla_defines.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_EPwm_defines.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Adc_defines.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Emif_defines.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Gpio_defines.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_I2c_defines.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Pie_defines.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Dma_defines.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_SysCtrl_defines.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Upp_defines.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_defaultisr.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Platform/Common/inc/AtsCtl.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/StateMachine/inc/SystemStateMachine.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/StateMachine/inc/InvStateMachine.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/CtrlIsr.h:
 

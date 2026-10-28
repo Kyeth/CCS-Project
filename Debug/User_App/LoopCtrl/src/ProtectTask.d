@@ -53,6 +53,9 @@ User_App/LoopCtrl/src/ProtectTask.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_202
 User_App/LoopCtrl/src/ProtectTask.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_ExitDriver.h
 User_App/LoopCtrl/src/ProtectTask.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_InvDriver.h
 User_App/LoopCtrl/src/ProtectTask.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/CtrlIsr.h
+User_App/LoopCtrl/src/ProtectTask.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/User_ClaTask.h
+User_App/LoopCtrl/src/ProtectTask.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/AdcCalib.h
+User_App/LoopCtrl/src/ProtectTask.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/StateMachine/inc/SmUtil.h
 
 ../User_App/LoopCtrl/src/ProtectTask.c:
 
@@ -159,4 +162,10 @@ D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_ExitDriver.h:
 D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_InvDriver.h:
 
 D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/CtrlIsr.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/User_ClaTask.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/AdcCalib.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/StateMachine/inc/SmUtil.h:
 

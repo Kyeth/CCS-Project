@@ -104,6 +104,11 @@ extern "C" {
 #define CLA_LPF_ALPHA_PVCUR     (0.15f)
 #define CLA_LPF_ALPHA_MUX       (0.20f)
 
+/* DC   ：fc≈65Hz  @20kHz    —— 相直流分量，只保留慢变偏置 */
+#define CLA_LPF_ALPHA_DC        (0.02f)
+/* GFCI ：fc≈160Hz @20kHz    —— 漏电流/平衡电流，保留工频、压制开关噪声 */
+#define CLA_LPF_ALPHA_GFCI      (0.05f)
+
 /******************************************************************************
  * CLA → CPU 消息结构（放在 Cla1ToCpuMsgRAM）
  * 所有数值均为 ADC 码值域（12位、0~4095），标定换算在 CPU 侧完成
@@ -114,12 +119,15 @@ typedef struct
     float  fInvCurPeak[CLA_PHASE_NUM];  // 逆变电流 PRD 时刻的第二采样（未滤波）
     float  fInvVolt[CLA_PHASE_NUM];     // 逆变电压（已滤波）
     float  fGridVolt[CLA_PHASE_NUM];    // 电网电压（已滤波）
+    float  fDc[CLA_PHASE_NUM];          // 相直流分量（已滤波，B0/B1/B2）
     float  fPvCur[CLA_PV_NUM];          // PV1~PV4 电流（已滤波）
     float  fPvVolt[CLA_PV_NUM];         // PV1~PV4 电压（已滤波，MUX2轮换）
     float  fBusVoltL;                   // 下半母线电压（已滤波，MUX1）
     float  fBusVoltH;                   // 上半母线电压（已滤波，MUX1）
     float  fMuxB3;                      // MUX2 原始滤波值（调试用）
     float  fMuxD3;                      // MUX1 原始滤波值（调试用）
+    float  fBalCur;                     // 平衡电路电流（已滤波，D4）
+    float  fGfciCur;                    // GFCI 漏电流（已滤波，D1）
     Uint16 u16Seq;                      // 采样序号，每周期 +1
     Uint16 u16MuxAddr;                  // 本周期的选通地址（0~7）
 } ST_CLA_TO_CPU;
@@ -146,6 +154,9 @@ typedef struct
     float  fInvVolt[CLA_PHASE_NUM];     // 逆变电压滤波状态
     float  fGridVolt[CLA_PHASE_NUM];    // 电网电压滤波状态
     float  fPvCur[CLA_PV_NUM];          // PV电流滤波状态
+    float  fDc[CLA_PHASE_NUM];          // 相直流分量滤波状态
+    float  fBalCur;                     // 平衡电路电流滤波状态
+    float  fGfciCur;                    // GFCI 漏电流滤波状态
     float  fMuxValue[6];                // 0~3:PV1~4电压  4:BUSL  5:BUSH
 } ST_CLA_FILT;
 

@@ -63,6 +63,22 @@ Broad/src/DrvCfg_EP15K.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/i
 Broad/src/DrvCfg_EP15K.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_I2cDriver.h
 Broad/src/DrvCfg_EP15K.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_SpiDriver.h
 Broad/src/DrvCfg_EP15K.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_XbarDriver.h
+Broad/src/DrvCfg_EP15K.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Platform/Common/inc/AtsProto.h
+Broad/src/DrvCfg_EP15K.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F28x_Project.h
+Broad/src/DrvCfg_EP15K.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Cla_typedefs.h
+Broad/src/DrvCfg_EP15K.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Examples.h
+Broad/src/DrvCfg_EP15K.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_GlobalPrototypes.h
+Broad/src/DrvCfg_EP15K.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_cputimervars.h
+Broad/src/DrvCfg_EP15K.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Cla_defines.h
+Broad/src/DrvCfg_EP15K.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Adc_defines.h
+Broad/src/DrvCfg_EP15K.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Emif_defines.h
+Broad/src/DrvCfg_EP15K.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Gpio_defines.h
+Broad/src/DrvCfg_EP15K.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_I2c_defines.h
+Broad/src/DrvCfg_EP15K.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Pie_defines.h
+Broad/src/DrvCfg_EP15K.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Dma_defines.h
+Broad/src/DrvCfg_EP15K.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_SysCtrl_defines.h
+Broad/src/DrvCfg_EP15K.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Upp_defines.h
+Broad/src/DrvCfg_EP15K.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_defaultisr.h
 Broad/src/DrvCfg_EP15K.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_ExitDriver.h
 Broad/src/DrvCfg_EP15K.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Platform/Common/inc/Fm24c128d.h
 Broad/src/DrvCfg_EP15K.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Platform/Common/inc/EepromParam.h
@@ -195,6 +211,38 @@ D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_I2cDriver.h:
 D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_SpiDriver.h:
 
 D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_XbarDriver.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Platform/Common/inc/AtsProto.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F28x_Project.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Cla_typedefs.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Examples.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_GlobalPrototypes.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_cputimervars.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Cla_defines.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Adc_defines.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Emif_defines.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Gpio_defines.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_I2c_defines.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Pie_defines.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Dma_defines.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_SysCtrl_defines.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Upp_defines.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_defaultisr.h:
 
 D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_ExitDriver.h:
 

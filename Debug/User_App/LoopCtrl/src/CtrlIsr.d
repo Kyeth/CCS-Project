@@ -52,6 +52,10 @@ User_App/LoopCtrl/src/CtrlIsr.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/de
 User_App/LoopCtrl/src/CtrlIsr.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/headers/include/F2837xS_can.h
 User_App/LoopCtrl/src/CtrlIsr.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/User_ClaTask.h
 User_App/LoopCtrl/src/CtrlIsr.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_InvDriver.h
+User_App/LoopCtrl/src/CtrlIsr.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_PwmDriver.h
+User_App/LoopCtrl/src/CtrlIsr.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_EPwm_defines.h
+User_App/LoopCtrl/src/CtrlIsr.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/AdcCalib.h
+User_App/LoopCtrl/src/CtrlIsr.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/AdcSample.h
 User_App/LoopCtrl/src/CtrlIsr.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/math.h
 User_App/LoopCtrl/src/CtrlIsr.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/_defs.h
 User_App/LoopCtrl/src/CtrlIsr.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/machine/_limits.h
@@ -159,6 +163,14 @@ D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/headers/include/F2837xS_can.h:
 D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/User_ClaTask.h:
 
 D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_InvDriver.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_PwmDriver.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_EPwm_defines.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/AdcCalib.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/AdcSample.h:
 
 D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/math.h:
 

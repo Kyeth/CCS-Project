@@ -68,11 +68,23 @@ static void Hw_PwmConfigDeadBand(volatile struct EPWM_REGS *pstPwmRegs, const ST
     pstPwmRegs->DBRED.all = pstPwmCfgItem->u16DeadTime;
     pstPwmRegs->DBFED.all = pstPwmCfgItem->u16DeadTime;
 
-    if (pstPwmCfgItem->u16PwmType == HW_PWM_TYPE_INV)
+    /* INV 与 BUS 都是"一路 AQ 出波、另一路由死区模块反相生成"的结构：
+     * INV 的 B 是桥臂另一只管子，BUS(EPWM8) 的 B 是平衡桥另一半。
+     * 死区模块一关（OUT_MODE=DB_DISABLE），B 就只受 AQCTLB 控制，
+     * 而配置表里 AQCTLB 全是 NO_ACTION => B 恒为低，示波器上看不到波形
+     * （实测 EPWM8A 有 20kHz/50%、EPWM8B 完全没有）。 */
+    if ((pstPwmCfgItem->u16PwmType == HW_PWM_TYPE_INV) ||
+        (pstPwmCfgItem->u16PwmType == HW_PWM_TYPE_BUS))
     {
         pstPwmRegs->DBCTL.bit.OUT_MODE = DB_FULL_ENABLE;
         pstPwmRegs->DBCTL.bit.POLSEL = DB_ACTV_HIC;
-        pstPwmRegs->DBCTL.bit.IN_MODE = DBA_RED_DBB_FED;
+        /* IN_MODE 必须是 DBA_ALL(0x0)：EPWMxA 与 EPWMxB 都取 AQ A 的输出，
+         * 然后 POLSEL=DB_ACTV_HIC 把 B 反相、DBRED/DBFED 插入死区，
+         * 得到标准互补对称 PWM。
+         * 原来写 DBA_RED_DBB_FED(0x2)，B 的输入是 DBB = AQCTLB，
+         * 而本工程所有 AQCTLB 都是 AQ_NO_ACTION => B 输出恒定，
+         * 示波器上 EPWM1B/2B/3B/4B/10B/11B/8B 全部没有波形（A 正常）。 */
+        pstPwmRegs->DBCTL.bit.IN_MODE = DBA_ALL;
     }
     else
     {
@@ -133,6 +145,12 @@ static void Hw_PwmConfigSocb(volatile struct EPWM_REGS *pstPwmRegs, const ST_PWM
 /* 配置全局加载。 */
 static void Hw_PwmConfigGlobalLoad(volatile struct EPWM_REGS *pstPwmRegs, const ST_PWM_CFG_ITEM *pstPwmCfgItem)
 {
+    /* EPWMXLINK 复位值 0 指向 EPWM1：不清掉的话，任何模块写 CMPA 都会同时
+     * 写进 EPWM1 的 CMPA，EPWM1 的占空比被别的模块反复覆盖。
+     * 这里把 CMPA/CMPB 链都指回自己，等于关闭跨模块镜像。 */
+    pstPwmRegs->EPWMXLINK.bit.CMPALINK = pstPwmCfgItem->u16PwmId;
+    pstPwmRegs->EPWMXLINK.bit.CMPBLINK = pstPwmCfgItem->u16PwmId;
+
     if (pstPwmCfgItem->bGload == 0U)
     {
         pstPwmRegs->GLDCTL.bit.GLD = 0U;
@@ -149,9 +167,19 @@ static void Hw_PwmConfigGlobalLoad(volatile struct EPWM_REGS *pstPwmRegs, const 
 
     pstPwmRegs->EPWMXLINK.bit.GLDCTL2LINK = pstPwmCfgItem->u16LinkPwm;
 
-    pstPwmRegs->GLDCTL.bit.OSHTMODE = 1U;
+    /* OSHTMODE=0：连续模式；GLDMODE=1：每个 PWM 周期 CTR=0 自动装载一次。
+     * 原写法 GLDMODE=0 是"不选任何装载脉冲"，影子寄存器永不自动装载，
+     * 只能靠 GLDCTL2.OSHTLD 的一次性事件，组内从模块经常漏装载。 */
+    /* 台架阶段关闭全局装载（GLD）：CMPA/AQCSFRC 一律直写，写入立即生效、
+     * 读回就是真实值。GLD 影子 + 组主/组员链接在本板上反复出现
+     * "写了不生效、读回是旧值、只有个别模块出波"，先退回直写路径
+     * 保证驱动能出来；代价是丢失六路 CMPA 的严格同步装载，
+     * 等控制环路稳定后再按 TI 方式重新启用。 */
+    pstPwmRegs->GLDCTL.bit.OSHTMODE = 0U;
     pstPwmRegs->GLDCTL.bit.GLDMODE = 0U;
-    pstPwmRegs->GLDCTL.bit.GLD = 1U;
+    pstPwmRegs->GLDCTL.bit.GLD = 0U;
+    pstPwmRegs->GLDCTL2.bit.OSHTLD = 0U;
+    pstPwmRegs->EPWMXLINK.bit.GLDCTL2LINK = 0U;
 }
 
 /* 初始化单个ePWM模块。 */
@@ -355,6 +383,11 @@ void Hw_PwmClearAllTripZone(void)
     for (i = 0U; i < HW_PWM_ID_MAX; i++)
     {
         gPwmRegs[i]->TZCLR.bit.OST = 1U;
+        /* CBC 是锁存型：上电初期故障脚还没稳定就会误锁存，
+         * 不清掉的话即使故障已消失，输出也会一直被压在低电平
+         * （实测 EPWM7 上电后 TZFLG 恒为 0x0012，PV 四路全无驱动）。 */
+        gPwmRegs[i]->TZCLR.bit.CBC = 1U;
+        gPwmRegs[i]->TZCLR.bit.INT = 1U;
     }
     EDIS;
 }
@@ -363,29 +396,41 @@ void Hw_PwmClearAllTripZone(void)
 void Hw_TrigGlobalLoad(void)
 {
     Uint16 i;
-    Uint16 u16PwmId = HW_PWM_ID_NULL;
+    Uint16 u16PwmId;
 
     if (gPwmCfg == (ST_PWM_CFG *)0)
     {
         return;
     }
 
+    EALLOW;
+
+    /* 逐个触发“全局加载组主”：判据是 bGload != 0 且 GLDCTL2LINK 指向自己。
+     * 本工程有两组组主：逆变组 EPWM1（EPWM2/3/4/10/11 跟随）、
+     * PV 组 EPWM7（EPWM9/5/6 跟随）。旧实现只触发配置表里第一个组主，
+     * 结果 PV 组的 AQCSFRC/CMPA 永远进不了硬件，PV 四路死波。 */
     for (i = 0U; i < gPwmCfg->u16ItemNum; i++)
     {
-        if (gPwmCfg->pstPwmCfgItem[i].bGload != 0U)
+        if (gPwmCfg->pstPwmCfgItem[i].bGload == 0U)
         {
-            u16PwmId = gPwmCfg->pstPwmCfgItem[i].u16PwmId;
-            break;
+            continue;
         }
+
+        if (gPwmCfg->pstPwmCfgItem[i].u16LinkPwm != gPwmCfg->pstPwmCfgItem[i].u16PwmId)
+        {
+            continue;
+        }
+
+        u16PwmId = gPwmCfg->pstPwmCfgItem[i].u16PwmId;
+
+        if (Hw_PwmIdIsValid(u16PwmId) == 0U)
+        {
+            continue;
+        }
+
+        gPwmRegs[u16PwmId]->GLDCTL2.bit.OSHTLD = 1U;
     }
 
-    if (Hw_PwmIdIsValid(u16PwmId) == 0U)
-    {
-        return;
-    }
-
-    EALLOW;
-    gPwmRegs[u16PwmId]->GLDCTL2.bit.OSHTLD = 1U;
     EDIS;
 }
 

@@ -53,6 +53,23 @@ User_App/Comm/src/ModbusSlave.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/de
 User_App/Comm/src/ModbusSlave.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Platform/Common/inc/EepromParam.h
 User_App/Comm/src/ModbusSlave.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_SciDriver.h
 User_App/Comm/src/ModbusSlave.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Platform/Common/inc/Crc16.h
+User_App/Comm/src/ModbusSlave.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Platform/Common/inc/AtsProto.h
+User_App/Comm/src/ModbusSlave.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F28x_Project.h
+User_App/Comm/src/ModbusSlave.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Cla_typedefs.h
+User_App/Comm/src/ModbusSlave.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Examples.h
+User_App/Comm/src/ModbusSlave.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_GlobalPrototypes.h
+User_App/Comm/src/ModbusSlave.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_cputimervars.h
+User_App/Comm/src/ModbusSlave.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Cla_defines.h
+User_App/Comm/src/ModbusSlave.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_EPwm_defines.h
+User_App/Comm/src/ModbusSlave.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Adc_defines.h
+User_App/Comm/src/ModbusSlave.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Emif_defines.h
+User_App/Comm/src/ModbusSlave.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Gpio_defines.h
+User_App/Comm/src/ModbusSlave.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_I2c_defines.h
+User_App/Comm/src/ModbusSlave.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Pie_defines.h
+User_App/Comm/src/ModbusSlave.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Dma_defines.h
+User_App/Comm/src/ModbusSlave.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_SysCtrl_defines.h
+User_App/Comm/src/ModbusSlave.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Upp_defines.h
+User_App/Comm/src/ModbusSlave.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_defaultisr.h
 
 ../User_App/Comm/src/ModbusSlave.c:
 
@@ -159,4 +176,38 @@ D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Platform/Common/inc/EepromParam.h:
 D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_SciDriver.h:
 
 D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Platform/Common/inc/Crc16.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Platform/Common/inc/AtsProto.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F28x_Project.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Cla_typedefs.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Examples.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_GlobalPrototypes.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_cputimervars.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Cla_defines.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_EPwm_defines.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Adc_defines.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Emif_defines.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Gpio_defines.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_I2c_defines.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Pie_defines.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Dma_defines.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_SysCtrl_defines.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Upp_defines.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_defaultisr.h:
 

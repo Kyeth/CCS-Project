@@ -46,8 +46,8 @@ extern Uint16 gMbArmDemoWord;
 extern const ST_MB_REG_ITEM stMbRegItemArm[MB_ARM_REG_MAX];
 
 /* ---- 上位机点表（SCI-D，GPIO93/94）：0~26 控制块 + 100 以后调试变量 ---- */
-#define MB_PC_REG_MAX               (64U)
-#define MB_PC_REG_NUM               (39U)
+#define MB_PC_REG_MAX               (96U)
+#define MB_PC_REG_NUM               (84U)
 extern Uint16  gMbPcDemoWord;
 /* 掉电保存示范变量：属性带 MB_ATTR_SAVE，上电自动回填 */
 extern Uint16  gMbSavedDemoWord;

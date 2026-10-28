@@ -53,6 +53,7 @@
 									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/User_App/LoopCtrl/inc"/>
 <listOptionValue builtIn="false" value="${PROJECT_ROOT}/Platform/Common/inc"/>
 					<listOptionValue builtIn="false" value="${PROJECT_ROOT}/User_App/Comm/inc"/>
+<listOptionValue builtIn="false" value="${PROJECT_ROOT}/User_App/StateMachine/inc"/>
 									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/device/common/include"/>
 									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/device/driverlib/inc"/>
 									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/device/headers/include"/>

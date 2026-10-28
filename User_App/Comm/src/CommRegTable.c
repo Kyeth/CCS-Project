@@ -25,9 +25,17 @@
  */
 
 #include "CommRegTable.h"
+#include "PvStateMachine.h"
 #include "SoftOsc.h"
 #include "EepromParam.h"   /* 保存层诊断量的 Modbus 镜像 */
 #include "ProtectTask.h"   /* 硬件保护任务状态量 */
+#include "AdcCalib.h"      /* ADC 标定状态量 */
+#include "AdcSample.h"     /* 对外采样量 */
+#include "AtsProto.h"      /* ATS 旁听镜像 */
+#include "AtsCtl.h"        /* ATS 干接点状态 */
+#include "SystemStateMachine.h" /* 系统/逆变状态机 */
+#include "InvStateMachine.h"
+#include "CtrlIsr.h"           /* 发波授权状态机的观测镜像 */
 
 /* ===================== 上位机调试用的演示变量 ===================== */
 
@@ -123,6 +131,67 @@ const ST_MB_REG_ITEM stMbRegItemPc[MB_PC_REG_MAX] =
     {34U, MB_TYPE_U16, MB_ATTR_RO, (void *)&gProtectShortCnt,    0, 65535U},
     {35U, MB_TYPE_U16, MB_ATTR_RO, (void *)&gProtectFaultFlags,  0, 65535U},
     {36U, MB_TYPE_U16, MB_ATTR_RO, (void *)&gProtectTick,        0, 65535U},
+
+    /* ---------- 37~41：半波自适应诊断（只读）---------- */
+    {37U, MB_TYPE_U16, MB_ATTR_RO, (void *)&gProtectHalfWaveMode,   0, 1U},
+    {38U, MB_TYPE_U16, MB_ATTR_RO, (void *)&gProtectHalfWaveJudge,  0, 65535U},
+    {39U, MB_TYPE_I16, MB_ATTR_RO, (void *)&gProtectInvDc[0], -30000, 30000U},  /* R 相，0.1A */
+    {40U, MB_TYPE_I16, MB_ATTR_RO, (void *)&gProtectInvDc[1], -30000, 30000U},  /* S 相，0.1A */
+    {41U, MB_TYPE_I16, MB_ATTR_RO, (void *)&gProtectInvDc[2], -30000, 30000U},  /* T 相，0.1A */
+
+    /* ---------- 42~45：ADC 标定状态（只读）---------- */
+    {42U, MB_TYPE_U16, MB_ATTR_RO, (void *)&gAdcCalZeroState,   0, 65535U},          /* 0待测/1累加/2完成/3超差/4冻结 */
+    {43U, MB_TYPE_U16, MB_ATTR_RO, (void *)&gAdcCalTrackCnt,    0, 65535U},          /* 已累加拍数 */
+    {44U, MB_TYPE_I16, MB_ATTR_RO, (void *)&gAdcCalObsGfciMa, -30000, 30000U},       /* GFCI 电流，mA */
+    {45U, MB_TYPE_I16, MB_ATTR_RO, (void *)&gAdcCalObsBalCur, -30000, 30000U},       /* 平衡电路电流，0.1A */
+
+    /* ---------- 46~49：对外采样量示例（AdcSample，只读，F32）---------- */
+    {46U, MB_TYPE_F32, MB_ATTR_RO, (void *)&gAdcPub.fGridVoltRmsR, 0, 10000U},   /* 电网 R 相电压有效值 V */
+    {47U, MB_TYPE_F32, MB_ATTR_RO, (void *)&gAdcPub.fInvCurRmsR, -10000, 10000U}, /* 逆变 R 相电流有效值 A */
+    {48U, MB_TYPE_F32, MB_ATTR_RO, (void *)&gAdcPub.fBusVoltSlow, 0, 10000U},    /* 母线电压 V */
+    {49U, MB_TYPE_F32, MB_ATTR_RO, (void *)&gAdcPub.fPvVolt1Slow, 0, 10000U},    /* PV1 电压 V */
+
+    /* ---------- ATS 旁听镜像（50~57）：ARM<->ATS 链路上的实时量 ---------- */
+    {50U, MB_TYPE_F32, MB_ATTR_RO, (void *)&gAtsInfo.fInFreq, 0, 100U},          /* 输入正序频率 Hz */
+    {51U, MB_TYPE_F32, MB_ATTR_RO, (void *)&gAtsInfo.fOutFreq, 0, 100U},         /* 输出正序频率 Hz */
+    {52U, MB_TYPE_F32, MB_ATTR_RO, (void *)&gAtsInfo.fVoltDiff, -1000, 1000U},   /* 正序电压差 V */
+    {53U, MB_TYPE_F32, MB_ATTR_RO, (void *)&gAtsInfo.fPhaseDiff, -360, 360U},    /* 正序相位差 ° */
+    {54U, MB_TYPE_F32, MB_ATTR_RO, (void *)&gAtsInfo.fInVoltA, 0, 1000U},        /* 输入 A 相电压 V */
+    {55U, MB_TYPE_F32, MB_ATTR_RO, (void *)&gAtsInfo.fOutVoltA, 0, 1000U},       /* 输出 A 相电压 V */
+    {56U, MB_TYPE_U16, MB_ATTR_RO, (void *)&gAtsInfo.u16FrameCnt, 0, 65535U},    /* ATS 应答帧计数 */
+    {57U, MB_TYPE_U16, MB_ATTR_RO, (void *)&gAtsInfo.u16Online, 0, 1U},          /* ATS 在线标志 */
+    {58U, MB_TYPE_U16, MB_ATTR_RO, (void *)&gAtsCtl.u16State, 0, 1U},            /* ATS 状态 1:闭合 */
+    {59U, MB_TYPE_U16, MB_ATTR_RO, (void *)&gAtsCtl.u16Request, 0, 1U},          /* ATS 期望状态 */
+    {60U, MB_TYPE_U16, MB_ATTR_RO, (void *)&gAtsCtl.eActState, 0, 2U},           /* ATS 动作状态 0空闲 1等待 2超时 */
+    {61U, MB_TYPE_U16, MB_ATTR_RO, (void *)&gAtsCtl.u16ActCnt, 0, 65535U},       /* ATS 成功动作次数 */
+
+    /* ---------- 状态机（62~67） ---------- */
+    {62U, MB_TYPE_U16, MB_ATTR_RO, (void *)&gSysSm.u16State, 0, 9U},             /* 系统状态 0~8 */
+    {63U, MB_TYPE_U16, MB_ATTR_RO, (void *)&gSysSm.u16Fault, 0, 127U},           /* 系统故障位 */
+    {64U, MB_TYPE_U16, MB_ATTR_RO, (void *)&gInvSm.u16State, 0, 7U},             /* 逆变状态 0~7 */
+    {65U, MB_TYPE_U16, MB_ATTR_RO, (void *)&gInvSm.u16Fault, 0, 31U},            /* 逆变故障位 */
+    {66U, MB_TYPE_U16, MB_ATTR_RW, (void *)&gSysSm.u16StartCmd, 0, 1U},          /* 开机命令 1=开机 */
+    {67U, MB_TYPE_U16, MB_ATTR_RW, (void *)&gSysSm.u16ResetCmd, 0, 1U},          /* 复位命令 1=复位 */
+    {68U, MB_TYPE_U16, MB_ATTR_RO, (void *)&gPvSm.u16RunMask, 0, 15U},          /* PV 运行通道掩码 */
+    {69U, MB_TYPE_U16, MB_ATTR_RO, (void *)&gPvSm.u16MpptMask, 0, 15U},         /* PV MPPT 通道掩码 */
+    {70U, MB_TYPE_U16, MB_ATTR_RO, (void *)&gPvSm.stCh[0].u16DutyPermil, 0, 1000U},  /* PV1 占空比‰ */
+    {71U, MB_TYPE_U16, MB_ATTR_RO, (void *)&gPvSm.stCh[1].u16DutyPermil, 0, 1000U},  /* PV2 占空比‰ */
+    {72U, MB_TYPE_U16, MB_ATTR_RO, (void *)&gPvSm.stCh[2].u16DutyPermil, 0, 1000U},  /* PV3 占空比‰ */
+    {73U, MB_TYPE_U16, MB_ATTR_RO, (void *)&gPvSm.stCh[3].u16DutyPermil, 0, 1000U},  /* PV4 占空比‰ */
+
+    /* ---------- PV 电压指令与功率（74~81，10kHz 环路的观测量） ---------- */
+    {74U, MB_TYPE_F32, MB_ATTR_RO, (void *)&gPvSm.stCh[0].fVset, 0, 450U},   /* PV1 电压指令 V */
+    {75U, MB_TYPE_F32, MB_ATTR_RO, (void *)&gPvSm.stCh[1].fVset, 0, 450U},   /* PV2 电压指令 V */
+    {76U, MB_TYPE_F32, MB_ATTR_RO, (void *)&gPvSm.stCh[2].fVset, 0, 450U},   /* PV3 电压指令 V */
+    {77U, MB_TYPE_F32, MB_ATTR_RO, (void *)&gPvSm.stCh[3].fVset, 0, 450U},   /* PV4 电压指令 V */
+    {78U, MB_TYPE_F32, MB_ATTR_RO, (void *)&gPvSm.stCh[0].fPower, 0, 15000U}, /* PV1 功率 W */
+    {79U, MB_TYPE_F32, MB_ATTR_RO, (void *)&gPvSm.stCh[1].fPower, 0, 15000U}, /* PV2 功率 W */
+    {80U, MB_TYPE_F32, MB_ATTR_RO, (void *)&gPvSm.stCh[2].fPower, 0, 15000U}, /* PV3 功率 W */
+    {81U, MB_TYPE_F32, MB_ATTR_RO, (void *)&gPvSm.stCh[3].fPower, 0, 15000U}, /* PV4 功率 W */
+
+    /* ---------- 发波授权观测（82~84，20kHz 控制中断裁定） ---------- */
+    {82U, MB_TYPE_U16, MB_ATTR_RO, (void *)&gCtrlObsAuthState, 0, 3U},        /* 0=OFF 1=WAIT 2=ON 3=SOFT_OFF */
+    {83U, MB_TYPE_F32, MB_ATTR_RO, (void *)&gCtrlObsModActual, 0, 1U},        /* 实际下发调制比 */
 
     /* ---------- 100 以后：调试变量区，按需往下加 ---------- */
     {100U, MB_TYPE_U16, MB_ATTR_RW, (void *)&gMbPcDemoWord,   0, 65535U},

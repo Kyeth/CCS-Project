@@ -55,6 +55,25 @@ User_App/Comm/src/SoftOsc.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_A
 User_App/Comm/src/SoftOsc.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/User_ClaTask.h
 User_App/Comm/src/SoftOsc.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/Comm/inc/CommRegTable.h
 User_App/Comm/src/SoftOsc.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/Comm/inc/ModbusSlave.h
+User_App/Comm/src/SoftOsc.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/AdcCalib.h
+User_App/Comm/src/SoftOsc.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/AdcSample.h
+User_App/Comm/src/SoftOsc.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Platform/Common/inc/AtsProto.h
+User_App/Comm/src/SoftOsc.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F28x_Project.h
+User_App/Comm/src/SoftOsc.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Cla_typedefs.h
+User_App/Comm/src/SoftOsc.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Examples.h
+User_App/Comm/src/SoftOsc.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_GlobalPrototypes.h
+User_App/Comm/src/SoftOsc.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_cputimervars.h
+User_App/Comm/src/SoftOsc.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Cla_defines.h
+User_App/Comm/src/SoftOsc.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_EPwm_defines.h
+User_App/Comm/src/SoftOsc.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Adc_defines.h
+User_App/Comm/src/SoftOsc.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Emif_defines.h
+User_App/Comm/src/SoftOsc.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Gpio_defines.h
+User_App/Comm/src/SoftOsc.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_I2c_defines.h
+User_App/Comm/src/SoftOsc.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Pie_defines.h
+User_App/Comm/src/SoftOsc.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Dma_defines.h
+User_App/Comm/src/SoftOsc.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_SysCtrl_defines.h
+User_App/Comm/src/SoftOsc.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Upp_defines.h
+User_App/Comm/src/SoftOsc.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_defaultisr.h
 
 ../User_App/Comm/src/SoftOsc.c:
 
@@ -165,4 +184,42 @@ D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/User_ClaTask.h:
 D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/Comm/inc/CommRegTable.h:
 
 D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/Comm/inc/ModbusSlave.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/AdcCalib.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/AdcSample.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Platform/Common/inc/AtsProto.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F28x_Project.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Cla_typedefs.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Examples.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_GlobalPrototypes.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_cputimervars.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Cla_defines.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_EPwm_defines.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Adc_defines.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Emif_defines.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Gpio_defines.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_I2c_defines.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Pie_defines.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Dma_defines.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_SysCtrl_defines.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Upp_defines.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_defaultisr.h:
 

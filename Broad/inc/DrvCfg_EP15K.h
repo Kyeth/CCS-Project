@@ -13,6 +13,7 @@
 #include "Hw_I2cDriver.h"
 #include "Hw_SpiDriver.h"
 #include "Hw_XbarDriver.h"
+#include "AtsProto.h"
 #include "Hw_ExitDriver.h"
 #include "Fm24c128d.h"
 #include "EepromParam.h"
@@ -49,6 +50,9 @@ extern ST_CAN_CFG stCanCfg;
 
 /* Modbus 从机配置：SCIA 给 ARM、SCID 给上位机，详见 stMbCfg */
 extern ST_MB_CFG stMbCfg;
+
+/* ATS（断路器）Modbus 通道监听配置：与 ARM 共用同一条 RS485 */
+extern ST_ATS_PROTO_CFG stAtsProtoCfg;
 
 /* TVS 走 Modbus（SCIC 只听不应答），其从机配置在 stMbCfg 里，点表见 stMbRegItemTvs */
 

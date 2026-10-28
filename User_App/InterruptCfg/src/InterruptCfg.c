@@ -17,12 +17,12 @@
 #include "Schedule.h"
 #include "CtrlIsr.h"
 
-/* 本工程使用的中断源之一：PIE 组 1（CPU Timer1 / Timer2） */
+/* PIE 组 1：XINT1（1.4）/ XINT2（1.5） */
 #define ISR_PIE_GROUP1_MASK         (M_INT1)
 
-/* PIE 组 1 中 CPU Timer1 / Timer2 对应的通道号 */
-#define ISR_PIE_CH_TINT1            (13U)
-#define ISR_PIE_CH_TINT2            (14U)
+/* CPU Timer1 / Timer2 是核心中断 INT13 / INT14（PIE_VECT_TABLE 索引 13/14），
+ * 不占 PIE 组 1 的通道，只能通过 IER 的 M_INT13 / M_INT14 开放。 */
+#define ISR_CPUINT_TIMER_MASK       (M_INT13 | M_INT14)
 
 /* 本工程使用的另一个中断源：PIE 组 11（CLA1 中断） */
 #define ISR_PIE_GROUP11_MASK        (M_INT11)
@@ -61,8 +61,7 @@ void InterruptVectTableInit(void)
     EDIS;
 
     /* --- 使能 PIE 组内通道，并开放对应的 CPU 级中断 --- */
-    PieCtrlRegs.PIEIER1.bit.INTx13 = 1U;    /* CPU Timer1 */
-    PieCtrlRegs.PIEIER1.bit.INTx14 = 1U;    /* CPU Timer2 */
+    /* CPU Timer1 / Timer2 不在 PIE 通道里，见下方 IER 置位 */
     PieCtrlRegs.PIEIER11.bit.INTx1 = 1U;    /* CLA1 Task1 完成 */
     PieCtrlRegs.PIEIER9.bit.INTx1 = 1U;     /* SCIA 接收 */
     PieCtrlRegs.PIEIER8.bit.INTx5 = 1U;     /* SCIC 接收 */
@@ -71,6 +70,9 @@ void InterruptVectTableInit(void)
     PieCtrlRegs.PIEIER1.bit.INTx5 = 1U;     /* XINT2：硬件短路比较器 */
     PieCtrlRegs.PIEACK.all = PIEACK_GROUP1; /* 应答组 1，允许同组后续中断进入 */
     IER |= ISR_PIE_GROUP1_MASK;
+
+    /* --- 开放 CPU Timer1 / Timer2：核心中断 INT13 / INT14，不经 PIE --- */
+    IER |= ISR_CPUINT_TIMER_MASK;
 
     /* --- 同样开放 CLA1_1（PIE 组 11），20kHz 控制中断 --- */
     PieCtrlRegs.PIEACK.all = PIEACK_GROUP11; /* 应答组 11，允许同组后续中断进入 */
@@ -94,8 +96,15 @@ __interrupt void Isr_CpuTimer1(void)
         SYS_TICK();
     }
 
-    /* 应答 PIE 组 1 */
-    PieCtrlRegs.PIEACK.all = PIEACK_GROUP1;
+    /* 台架模式存活计数：定时器中断真进来了这个值就会持续增长。
+     * 注意：控制主体只能由 CLA1_1（20 kHz）单点驱动，这里绝不能再调 CtrlIsrRun()，
+     * 否则 10 kHz 与 20 kHz 两个 ISR 会互相覆盖 Hw_InvSetDuty 的换相状态。 */
+    if (CTRL_TEST_PWM_MODE != 0)
+    {
+        gCtrlTestTmrCnt++;
+    }
+
+    /* 核心中断 INT13 不经 PIE，这里不写 PIEACK */
 }
 
 __interrupt void Isr_CpuTimer2(void)
@@ -106,15 +115,27 @@ __interrupt void Isr_CpuTimer2(void)
     /* 1ms 软件心跳：目前只累加心跳计数，毫秒级任务后续挂在这里 */
     (void)Hw_CpuTimerIsrTick((ST_SYS_TIMER *)&stSysCpuTimer2);
 
-    /* 应答 PIE 组 1 */
-    PieCtrlRegs.PIEACK.all = PIEACK_GROUP1;
+    /* 核心中断 INT14 不经 PIE，这里不写 PIEACK */
 }
 
 /* CLA1 Task1 完成中断：20kHz 控制中断 */
 __interrupt void Isr_Cla1Task1(void)
 {
-    /* 控制主体：PLL 锁相、环路占空比下发、过流与 CLA 心跳封波检测 */
+    /* 台架调试计数：ADC->CLA 触发链通了的话这个数会一直涨 */
+    gCtrlTestClaCnt++;
+
+    /* CPU Timer1 现场快照：CLA1_1 以 20 kHz 在跑，借它采样组 1 的状态 */
+    gCtrlDiagPieIfr1 = PieCtrlRegs.PIEIFR1.all;
+    gCtrlDiagPieAck  = PieCtrlRegs.PIEACK.all;
+    gCtrlDiagT1Tcr   = CpuTimer1Regs.TCR.all;
+    gCtrlDiagT1Tim   = CpuTimer1Regs.TIM.all;
+    gCtrlDiagIer     = IER;
+
+    /* 控制主体：ADC->CLA 触发链已实测为通，20 kHz 主体就挂在这里 */
     CtrlIsrRun();
+
+    /* 清 CLA 的 MIFR.INT1：CLA1_1 是电平式请求，不清标志会在 PIEACK 后立刻重入 */
+    Cla1Regs.MICLR.bit.INT1 = 1U;
 
     /* 应答 PIE 组 11，允许下一拍 CLA1_1 中断进入 */
     PieCtrlRegs.PIEACK.all = PIEACK_GROUP11;
@@ -152,6 +173,9 @@ __interrupt void Isr_Xint1(void)
 {
     Hw_ExitIsr((Uint16)HW_XINT_ID1);
 
+    /* 诊断：XINT1 触发次数，涨得飞快说明组 1 被它淹没，Timer1 会被饿死 */
+    gCtrlDiagXint1Cnt++;
+
     /* 应答 PIE 组 1 */
     PieCtrlRegs.PIEACK.all = PIEACK_GROUP1;
 }
@@ -160,6 +184,9 @@ __interrupt void Isr_Xint1(void)
 __interrupt void Isr_Xint2(void)
 {
     Hw_ExitIsr((Uint16)HW_XINT_ID2);
+
+    /* 诊断：XINT2 触发次数 */
+    gCtrlDiagXint2Cnt++;
 
     /* 应答 PIE 组 1 */
     PieCtrlRegs.PIEACK.all = PIEACK_GROUP1;

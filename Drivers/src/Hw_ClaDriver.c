@@ -33,6 +33,9 @@ extern Uint32 Cla1ConstLoadSize;
 /* CLA 任务数量上限 */
 #define HW_CLA_TASK_MAX         ((Uint16)HW_CLA_TASK_MAX)
 
+/* 消息 RAM 初始化等待的超时上限（计数循环，约几十微秒 @200MHz 以上） */
+#define HW_CLA_MSG_INIT_WAIT_MAX    (100000UL)
+
 /******************************************************************************
  * @brief  判断任务号是否合法
  * @param  u16TaskNo 任务号
@@ -101,16 +104,33 @@ static void Hw_ClaCopyToRam(void)
  ******************************************************************************/
 static void Hw_ClaMsgRamInit(void)
 {
+    Uint32 u32Wait;
+
+    /* MSGxINIT 属于 MemCfg 寄存器组，受 EALLOW 保护：
+     * 不在 EALLOW 区内写入会被硬件直接忽略，MSGxINITDONE 永远不置位，
+     * 下面的等待就会永久阻塞（曾导致整机卡死在 Hw_ClaInit()，
+     * 后续外设、中断与 StartSystem 全不执行，所有 ePWM 停在强制低）。
+     * 等待另外加超时上限，避免任何驱动问题把整机卡死。 */
+    EALLOW;
     MemCfgRegs.MSGxINIT.bit.INIT_CLA1TOCPU = 1U;
-    while (MemCfgRegs.MSGxINITDONE.bit.INITDONE_CLA1TOCPU != 1U)
+    EDIS;
+
+    u32Wait = HW_CLA_MSG_INIT_WAIT_MAX;
+
+    while ((MemCfgRegs.MSGxINITDONE.bit.INITDONE_CLA1TOCPU != 1U) && (u32Wait > 0UL))
     {
-        ;
+        u32Wait--;
     }
 
+    EALLOW;
     MemCfgRegs.MSGxINIT.bit.INIT_CPUTOCLA1 = 1U;
-    while (MemCfgRegs.MSGxINITDONE.bit.INITDONE_CPUTOCLA1 != 1U)
+    EDIS;
+
+    u32Wait = HW_CLA_MSG_INIT_WAIT_MAX;
+
+    while ((MemCfgRegs.MSGxINITDONE.bit.INITDONE_CPUTOCLA1 != 1U) && (u32Wait > 0UL))
     {
-        ;
+        u32Wait--;
     }
 }
 
@@ -195,11 +215,14 @@ void Hw_ClaInit(const ST_CLA_CFG *pstClaCfg)
         return;
     }
 
-    /* 1. LS 存储器归属：LS0~LS3 程序、LS4~LS5 数据 */
-    Hw_ClaMemConfig();
-
-    /* 2. 程序与常量拷贝到 RAM 运行区 */
+    /* 1. 先把程序与常量拷贝到 RAM 运行区：
+     *    LSxMSEL 置 1 后该块由 CLA 做主，CPU 写不进去（拷贝会变成空操作），
+     *    因此必须按 TI 官方 CLA_configClaMemory() 的顺序，先把代码搬进
+     *    RAM（此时 LS 仍归 CPU），再把 LS 划给 CLA。 */
     Hw_ClaCopyToRam();
+
+    /* 2. LS 存储器归属：LS0~LS3 程序、LS4~LS5 数据 */
+    Hw_ClaMemConfig();
 
     /* 3. 消息 RAM 清零 */
     Hw_ClaMsgRamInit();

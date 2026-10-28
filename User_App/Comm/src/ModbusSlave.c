@@ -11,6 +11,7 @@
 #include "EepromParam.h"   /* 写属性带 SAVE 位时，写入成功后标脏 */
 #include "Hw_SciDriver.h"
 #include "Crc16.h"
+#include "AtsProto.h"   /* ATS 旁听：抓 ARM<->ATS 的 Modbus 应答 */
 
 /* 从机数量上限 */
 #define MB_SLAVE_MAX                (4U)
@@ -510,6 +511,10 @@ static void MbHandleFrame(Uint16 u16SlaveIdx, Uint16 u16Len)
     {
         return;
     }
+
+    /* ATS 旁听：本串口若与 ARM 共用，凡 ATS 地址的报文都要过一遍解析器；
+     * 必须在下面的“不是本机地址就丢弃”之前调用，否则永远看不到 */
+    AtsProtoOnFrame(pstSlave->u16SciId, gMbFrame, u16Len);
 
     u16Addr = (Uint16)(gMbFrame[0] & 0x00FFU);
 

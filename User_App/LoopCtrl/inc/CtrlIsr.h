@@ -37,18 +37,9 @@ extern "C" {
 #define CTRL_PLL_FREQ_MIN       (40.0f)
 #define CTRL_PLL_FREQ_MAX       (70.0f)
 
-/* 采样标定：12位码值域 0~4095 对应 0~3V，零点 2047.5 */
-#define CTRL_ADC_FULL           (4095.0f)
-#define CTRL_ADC_MID            (2047.5f)
-#define CTRL_ADC_16BIT_SCALE    (0.0625f)       /* ADCRESULT 左对齐，右移 4 位回到 12 位 */
-
-#define CTRL_VOLT_RANGE         (462.69f)       /* 相电压/逆变电压：±462.69V <-> 0~3V */
-#define CTRL_CUR_RANGE          (100.0f)        /* 逆变电流：±100A <-> 0~3V */
-#define CTRL_CUR_RANGE_PV       (30.0f)         /* PV 电流：30A <-> 3V，零点 5/3V */
-#define CTRL_CUR_OFFSET_PV      (1136.0f)       /* PV 电流零点码值 = 4095 * (5/3) / 3 */
-#define CTRL_MUX2_VOLT_RANGE    (1033.0f)       /* MUX2（PV 电压）：1033V <-> 3V */
-#define CTRL_MUX1_VOLT_RANGE    (563.64f)       /* MUX1（上/下半母线）：563.64V <-> 3V */
-#define CTRL_VISO_VOLT_RANGE    (488.0f)        /* VISO：0~488V <-> 0~3V */
+/* 采样标定：码值 -> 工程值的换算统一由 AdcCalib 模块负责（零点、系数、
+ * 上电零漂检测都在那里）。控制环只调 AdcCalibInvCur() / AdcCalibGridVolt()
+ * 这类取值接口，不再自己算系数；换机型/改量程只改 AdcCalib.c 的三张表。 */
 
 /* 保护阈值 */
 #define CTRL_INV_CUR_LIMIT      (60.0f)         /* 逆变电流瞬时封波阈值 (A) */
@@ -57,6 +48,52 @@ extern "C" {
 
 /* CLA 心跳超时：连续 N 个控制周期 u16Seq 不变化即判定 CLA 停摆 */
 #define CTRL_CLA_TIMEOUT_NUM    (20U)
+
+/* ---------------- 发波授权状态机（在 20kHz 控制中断内裁定） ----------------
+ * CtrlSetPwmEnable() 只是一个"请求"，真正能否把占空比写进 ePWM 由这里决定：
+ *   OFF      不发波，三相桥臂由 AQCSFRC 钳在中点
+ *   WAIT     已收到请求，先等 CTRL_AUTH_WAIT_MAX 拍（10 ms）再放行
+ *   ON       发波，实际调制比按 CTRL_AUTH_SLEW_UP 的斜率爬向请求值
+ *   SOFT_OFF 请求已撤销，实际调制比按 CTRL_AUTH_SLEW_DN 降到 0 后再封波回 OFF
+ * 出现故障（gCtrlFault != NONE）或零漂标定未完成时，无条件退回 OFF。 */
+#define CTRL_AUTH_OFF               (0U)
+#define CTRL_AUTH_WAIT              (1U)
+#define CTRL_AUTH_ON                (2U)
+#define CTRL_AUTH_SOFT_OFF          (3U)
+
+#define CTRL_AUTH_WAIT_MAX          (200U)      /* 10 ms @ 20 kHz */
+#define CTRL_AUTH_SLEW_UP           (0.0020f)   /* 调制比爬升：每秒 40 */
+#define CTRL_AUTH_SLEW_DN           (0.0040f)   /* 调制比下降：每秒 80 */
+
+/* CtrlGetAuthFlags() / gCtrlObsAuthFlags 的位定义 */
+#define CTRL_AUTH_FLAG_FAULT        (0x0001U)   /* 控制故障封锁 */
+#define CTRL_AUTH_FLAG_CALIB        (0x0002U)   /* 零漂标定未完成封锁 */
+#define CTRL_AUTH_FLAG_TEST         (0x0004U)   /* 台架发波模式 */
+
+/* ---------------- 台架发波模式（只用来量驱动信号） ----------------
+ * 1 = 上电即开环发波：不看零漂、不判故障、不做自检。
+ *     INV 六路按 T 型三电平单极性发波（50 Hz，正负半周交替，正桥臂/负桥臂轮流斩波，
+ *     另一桥臂钳中点），调制比 CTRL_TEST_MOD_INDEX；
+ *     PV 四路固定 CTRL_TEST_PV_DUTY 占空比；半母线平衡桥释放。
+ * 0 = 正常固件（发波授权 + 逆变/系统/PV 状态机）。
+ * 置 1 时必须确认功率级已断开或已安全隔离。
+ *
+ * 【当前状态】台架驱动信号验证已完成，本宏 = 0，走正常固件路径：
+ *   ProtectTask + InvSm/SysSm/PvSm 全部调度、TZ 硬件保护生效、
+ *   StartSystem() 只置发波请求为 0，等状态机申请。
+ *   台架代码全部保留，改回 1 即恢复上一版台架配置（PV 50% + INV 三电平单极性 50 Hz）。 */
+#define CTRL_TEST_PWM_MODE          (0)     /* 台架验证完成，已还原为正常固件 */
+#define CTRL_TEST_FREQ_HZ           (50.0f)
+#define CTRL_TEST_MOD_INDEX         (0.30f)
+#define CTRL_TEST_PV_DUTY           (0.50f)   /* 台架固定 50%：CMPA = 0.50×5000 = 2500 */
+#define CTRL_TEST_TS_SEC            (100.0e-6f)  /* 台架模式控制周期：Timer1 10 kHz 驱动 */
+#define CTRL_TEST_PV_PERIOD         (5000U)
+/* 台架静态/动态选择：
+ *   0 = 静态（仅 CtrlTestPwmStart 里一次性写死 CMPA，控制中断不再改逆变）
+ *   1 = 动态（20 kHz 控制中断内 CtrlTestRun 开环正弦，依赖 ISR 链路）
+ * 静态先保证"寄存器配得对、引脚一定出波"，排除 ISR 反复覆盖的干扰。 */
+#define CTRL_TEST_DYNAMIC           (1)     /* 1=20kHz 中断出三电平单极性正弦（台架当前用这个） */
+#define CTRL_TEST_MUX_SWEEP         (0)     /* 引脚复用位巡游：0=关（正常固件），1=台架查列号 */
 
 typedef enum
 {
@@ -89,13 +126,89 @@ extern void CtrlSetFault(Uint16 u16Fault);
 extern void CtrlClearFault(void);
 extern Uint16 CtrlGetCycleCnt(void);
 
-/* 发波授权：0 = 只跑环路不发波（三相桥臂硬件钳位），1 = 允许调制输出。
- * 上电默认 0，必须显式调用 CtrlSetPwmEnable(1U) 才可能开通功率级。 */
+/* 发波授权请求：0 = 撤销请求（实际调制比按斜率降到 0 后封波），1 = 请求发波。
+ * 这只是"请求"：真正的放行由 20kHz 控制中断里的授权状态机裁定，它会额外要求
+ * 无故障、零漂标定完成，并等 10 ms 后才按斜率把调制比爬上去。 */
 extern void   CtrlSetPwmEnable(Uint16 u16Enable);
 extern Uint16 CtrlGetPwmEnable(void);
 
-/* 发波授权状态量：非 static，便于以后挂到 Modbus 点表里做软件互锁 */
+/* 发波授权状态机的观测：状态 0=OFF 1=WAIT 2=ON 3=SOFT_OFF、实际调制比、封锁标志位。 */
+extern Uint16 CtrlGetAuthState(void);
+extern float  CtrlGetModActual(void);
+extern Uint16 CtrlGetAuthFlags(void);
+
+/* 台架发波：把逆变六路、PV 四路、半母线平衡桥从软件钳位态释放。
+ * 只在 CTRL_TEST_PWM_MODE = 1 时由 StartSystem() 调用。 */
+extern void CtrlTestPwmStart(void);
+
+/* 发波授权请求量：非 static，便于挂到 Modbus 点表里做软件互锁 */
 extern volatile Uint16 gCtrlPwmEnable;
+
+/* 台架调试计数：判断控制主体到底由谁在驱动 */
+extern volatile Uint16 gCtrlTestClaCnt;   /* CLA1_1 中断次数，0 = ADC->CLA 触发链没通 */
+extern volatile Uint16 gCtrlTestTmrCnt;   /* 台架模式下 Timer1 驱动控制主体的次数 */
+
+/* CPU Timer1 中断不进时的现场快照：在 CLA1_1 中断里抓，等于 20 kHz 采一次样。
+ * 判读：PIEIFR1 的 bit13=1 表示定时器中断请求已经到了 PIE；
+ *       PIEACK 的 bit0=1  表示组 1 还没被应答（被同组中断堵住）。 */
+extern volatile Uint16 gCtrlDiagPieIfr1;
+extern volatile Uint16 gCtrlDiagPieAck;
+extern volatile Uint16 gCtrlDiagT1Tcr;
+extern volatile Uint32 gCtrlDiagT1Tim;
+extern volatile Uint16 gCtrlDiagIer;
+extern volatile Uint16 gCtrlDiagXint1Cnt;
+extern volatile Uint16 gCtrlDiagXint2Cnt;
+
+/* 台架静态自检快照：CtrlTestPwmStart() 末尾抓一次，
+ * 用于判定逆变载波是否在跑、AQCSFRC 强制位是否真被清掉。 */
+extern volatile Uint16 gCtrlDiagTbCtlInv;
+extern volatile Uint16 gCtrlDiagAqcsfrcInv;
+extern volatile Uint16 gCtrlDiagCmpaInv;
+extern volatile Uint16 gCtrlDiagTzflgInv;
+extern volatile Uint16 gCtrlDiagTzselInv;
+extern volatile Uint16 gCtrlDiagTbCtrA;
+extern volatile Uint16 gCtrlDiagTbCtrB;
+extern volatile Uint16 gCtrlDiagTbCtrPvA;
+extern volatile Uint16 gCtrlDiagTbCtrPvB;
+extern volatile Uint16 gCtrlDiagTbCtrC;
+extern volatile Uint16 gCtrlDiagTbCtrD;
+
+/* 逐模块静态快照：EPWM4(负半周) / EPWM7(PV1) / EPWM8(BUS) / GPIO 复用 */
+extern volatile Uint16 gCtrlDiagInv2Cmpa;
+extern volatile Uint16 gCtrlDiagInv2Aqcsfrc;
+extern volatile Uint16 gCtrlDiagInv2Tzctl;
+extern volatile Uint16 gCtrlDiagPvCmpa;
+extern volatile Uint16 gCtrlDiagPvAqcsfrc;
+extern volatile Uint16 gCtrlDiagPvAqctla;
+extern volatile Uint16 gCtrlDiagPvTzctl;
+extern volatile Uint16 gCtrlDiagPvGldctl;
+extern volatile Uint16 gCtrlDiagPvTbprd;
+extern volatile Uint16 gCtrlDiagPvXlink;
+extern volatile Uint16 gCtrlDiagBusDbctl;
+extern volatile Uint16 gCtrlDiagBusAqctlb;
+extern volatile Uint16 gCtrlDiagGpioMuxA1;
+extern volatile Uint16 gCtrlDiagGpioGmuxA1;
+extern volatile Uint16 gCtrlDiagGpioMuxA2;
+extern volatile Uint16 gCtrlDiagGpioGmuxA2;
+extern volatile Uint16 gCtrlDiagMuxCand;
+extern volatile Uint16 gCtrlDiagInvDbctl;
+
+/* PV 四路逐模块快照，下标顺序 [0]=EPWM7(PV1) [1]=EPWM9(PV2) [2]=EPWM5(PV3) [3]=EPWM6(PV4) */
+extern volatile Uint16 gCtrlDiagPvAq[4];
+
+/* 台架诊断：X-BAR 链路与 GPIO 输入通路（v10 新增） */
+extern volatile Uint16 gCtrlDiagXbarIn[6];
+extern volatile Uint16 gCtrlDiagTripCfg[4];
+extern volatile Uint16 gCtrlDiagTripEn[4];
+extern volatile Uint16 gCtrlDiagGpioADat;
+extern volatile Uint16 gCtrlDiagGpioADir;
+extern volatile Uint16 gCtrlDiagGpioBDat;
+extern volatile Uint16 gCtrlDiagGpioBDir;
+extern volatile Uint16 gCtrlDiagPvTzflg[4];
+extern volatile Uint16 gCtrlDiagPvDcsel[4];
+extern volatile Uint16 gCtrlDiagPvCmp[4];
+extern volatile Uint16 gCtrlDiagPvCtl[4];
+extern volatile Uint16 gCtrlDiagPvRun[4];
 
 /* 观测影子量：控制中断每拍刷新，供软示波器（SoftOsc）按地址观测。
  * 控制环内部状态量本身是文件内 static，这里只做只读镜像。 */
@@ -103,6 +216,9 @@ extern volatile float  gCtrlObsThetaDeg;
 extern volatile float  gCtrlObsGridFreq;
 extern volatile float  gCtrlObsModIndex;
 extern volatile Uint16 gCtrlObsFault;
+extern volatile Uint16 gCtrlObsAuthState;
+extern volatile Uint16 gCtrlObsAuthFlags;
+extern volatile float  gCtrlObsModActual;
 
 #ifdef __cplusplus
 }

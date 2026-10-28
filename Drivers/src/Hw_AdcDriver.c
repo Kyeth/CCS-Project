@@ -222,9 +222,12 @@ void Hw_AdcSingleInit(const ST_ADC_CFG_ITEM *pstAdcCfgItem)
         u16SocUsed = 1U;
     }
 
-    /* 5. 配置ADCINT1：指定由哪个SOC的转换完成触发，单次模式 */
+    /* 5. 配置ADCINT1：指定由哪个SOC的转换完成触发。
+     *    连续模式（INT1CONT=1）：标志在每个 EOC 自动更新，ADCINT1 才能
+     *    每个 PWM 周期都产生一次脉冲去触发 CLA Task1；单次模式下标志置起后
+     *    无人清除，CLA 只会被触发一次。 */
     pstRegs->ADCINTSEL1N2.bit.INT1SEL = (pstAdcCfgItem->u16IntSel & 0x000FU);
-    pstRegs->ADCINTSEL1N2.bit.INT1CONT = 0U;
+    pstRegs->ADCINTSEL1N2.bit.INT1CONT = 1U;
 
     if ((0U != pstAdcCfgItem->bAdcIntEnable) && (0U != u16SocUsed))
     {
@@ -237,7 +240,7 @@ void Hw_AdcSingleInit(const ST_ADC_CFG_ITEM *pstAdcCfgItem)
 
     /* 5b. 配置ADCINT2：第二采样批次（CTR=PRD）结束时触发 CLA Task2 */
     pstRegs->ADCINTSEL1N2.bit.INT2SEL = (pstAdcCfgItem->u16Int2Sel & 0x000FU);
-    pstRegs->ADCINTSEL1N2.bit.INT2CONT = 0U;
+    pstRegs->ADCINTSEL1N2.bit.INT2CONT = 1U;   /* 同上：连续模式，每拍触发 CLA Task2 */
     pstRegs->ADCINTSEL1N2.bit.INT2E = (pstAdcCfgItem->bAdcInt2Enable != 0U) ? 1U : 0U;
 
     /* 6. 清中断标志，避免复位后残留标志误触发CLA或CPU中断 */

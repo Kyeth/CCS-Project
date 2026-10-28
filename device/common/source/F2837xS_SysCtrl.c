@@ -175,11 +175,10 @@ void InitSysCtrl(void)
     //
     //  PLLSYSCLK = (XTAL_OSC) * (IMULT + FMULT) / (PLLSYSCLKDIV)
     //
-#ifdef _LAUNCHXL_F28377S
+    /* 本板晶振 10MHz：10 * 40 / 2 = 200MHz（EPWMCLK=100MHz，20kHz 载波所需）。
+     * 原代码按 20MHz 晶振取 IMULT_20，在 10MHz 板上只有 100MHz SYSCLK，
+     * 导致所有 PWM 频率锐减一半、死区时间加倍、调度节拍加倍。 */
     InitSysPll(XTAL_OSC,IMULT_40,FMULT_0,PLLCLK_BY_2);
-#else
-    InitSysPll(XTAL_OSC,IMULT_20,FMULT_0,PLLCLK_BY_2);
-#endif
 
     //
     // Turn on all peripherals
