@@ -83,3 +83,4 @@ Broad/src/DrvCfg_EP15K.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Platform/
 Broad/src/DrvCfg_EP15K.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/Comm/inc/ModbusSlave.h
 Broad/src/DrvCfg_EP15K.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/User_ClaTask.h
 Broad/src/DrvCfg_EP15K.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/Comm/inc/CommRegTable.h
+Broad/src/DrvCfg_EP15K.obj: D:\2026WorkPlace\EP15K_2026_0.1\EP15K_2026\User_App\Comm\inc\ArmPointTable.h

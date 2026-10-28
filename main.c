@@ -18,6 +18,7 @@
 #include "SoftOsc.h"
 #include "Hw_SciDriver.h"
 #include "ModbusSlave.h"
+#include "DataExchange.h"
 #include "EepromParam.h"
 #include "Fm24c128d.h"
 #include "Hw_I2cDriver.h"
@@ -102,7 +103,8 @@ void PlatformInit(void)
     SysSmInit();               /* 系统总状态机：进入上电流程 */
     PvSmInit();                /* PV 状态机 + MPPT：四路 Boost 全部封波待命 */
     CtrlIsrInit();
-    ModbusInit(&stMbCfg);      /* Modbus 从机：SCIA 给 ARM、SCID 给上位机 */
+    ModbusInit(&stMbCfg);          // 从机：SCIA 给 ARM、SCID 给上位机
+    DataExchangeInit();            // 协议镜像清零
     EepromParamInit(&stEepromParamCfg);  /* 掉电保存：扫点表 -> 读芯片 -> 校验 -> 回填变量 */
     ProtectTaskInit();                    /* 硬件保护：清漏桶与故障锁存 */
     SoftOscInit();    /* 绑定软示波器默认的 12 路观测通道 */   /* 控制中断状态复位，并把 MUX 选通到 PV1 */
@@ -122,6 +124,9 @@ void TaskCreate(void)
     /* 通信层：100us 扫描（补发送 FIFO + 判帧），200us 解析 */
     Task_Start(&Hw_SciScanAllTask, NULL, 1U, 1U);
     Task_Start(&ModbusTask, NULL, 2U, 2U);
+
+    /* 协议搬运：1kHz，Rx 把 ARM 命令落到内部，Tx 把内部状态刷到发布镜像 */
+    Task_Start(&DataExchangeTask, NULL, DATA_EXCHANGE_TASK_TICK, 4U);
 
     /* 掉电保存：调度节拍 100us，10 个节拍 = 1ms 检查一次合并窗口，
      * 真正写芯片的频率由 stEepromParamCfg 限速，不在这里控制 */

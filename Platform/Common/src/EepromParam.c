@@ -6,7 +6,7 @@
  * @date 2026-11-02
  * @copyright Copyright (c) 2026
  *
- * @note 参数清单只认 Modbus 点表里的 MB_ATTR_SAVE 位，不另建第二张表：
+ * @note 参数清单只认 Modbus 点表里的 MB_RW_SAVE 位，不另建第二张表：
  *       点表是"变量有哪些、地址是多少、能不能写"的唯一来源，
  *       保存清单从它派生，避免两处维护走样。
  *
@@ -121,13 +121,13 @@ static Uint16 EepromParamSizeByType(Uint16 u16ValType)
 {
     switch (u16ValType)
     {
-        case MB_TYPE_U16:
-        case MB_TYPE_I16:
+        case MB_VAL_U16:
+        case MB_VAL_I16:
             return 2U;
 
-        case MB_TYPE_U32:
-        case MB_TYPE_I32:
-        case MB_TYPE_F32:
+        case MB_VAL_U32:
+        case MB_VAL_I32:
+        case MB_VAL_F32:
             return 4U;
 
         default:
@@ -377,7 +377,7 @@ static void EepromParamScanTables(void)
 
         for (u16Row = 0U; u16Row < gCfg->pstTable[u16Table].u16RegNum; u16Row++)
         {
-            if ((pstItem[u16Row].u16Attr & MB_ATTR_SAVE) == 0U)
+            if ((pstItem[u16Row].u16RwAttr & MB_RW_SAVE) == 0U)
             {
                 continue;
             }

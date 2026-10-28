@@ -90,6 +90,7 @@ main.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/CtrlI
 main.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/AdcCalib.h
 main.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/AdcSample.h
 main.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/Comm/inc/SoftOsc.h
+main.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/Comm/inc/DataExchange.h
 main.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/ProtectTask.h
 main.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Platform/Common/inc/AtsCtl.h
 main.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/StateMachine/inc/RelayCtl.h

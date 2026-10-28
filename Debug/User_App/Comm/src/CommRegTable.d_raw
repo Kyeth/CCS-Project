@@ -49,6 +49,7 @@ User_App/Comm/src/CommRegTable.obj: D:\2026WorkPlace\EP15K_2026_0.1\EP15K_2026\d
 User_App/Comm/src/CommRegTable.obj: D:\2026WorkPlace\EP15K_2026_0.1\EP15K_2026\device\headers\include\F2837xS_xint.h
 User_App/Comm/src/CommRegTable.obj: D:\2026WorkPlace\EP15K_2026_0.1\EP15K_2026\device\headers\include\F2837xS_can.h
 User_App/Comm/src/CommRegTable.obj: D:\2026WorkPlace\EP15K_2026_0.1\EP15K_2026\User_App\Comm\inc\ModbusSlave.h
+User_App/Comm/src/CommRegTable.obj: D:\2026WorkPlace\EP15K_2026_0.1\EP15K_2026\User_App\Comm\inc\ArmPointTable.h
 User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/StateMachine/inc/PvStateMachine.h
 User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/Comm/inc/SoftOsc.h
 User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_CanDriver.h

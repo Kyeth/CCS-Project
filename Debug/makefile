@@ -311,3 +311,5 @@ secondary-outputs: $(BIN_OUTPUTS)
 
 -include ../makefile.targets
 
+ORDERED_OBJS += "./User_App/Comm/src/ArmPointTable.obj"
+ORDERED_OBJS += "./User_App/Comm/src/DataExchange.obj"

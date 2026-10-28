@@ -268,11 +268,11 @@ static Uint16 SoftOscResolveByAddr(Uint16 u16RegAddr, Uint16 *pu16Type, void **p
 
     switch (pstItem->u16ValType)
     {
-        case MB_TYPE_U16: *pu16Type = SOFT_OSC_TYPE_UINT16; break;
-        case MB_TYPE_I16: *pu16Type = SOFT_OSC_TYPE_INT16;  break;
-        case MB_TYPE_U32: *pu16Type = SOFT_OSC_TYPE_UINT32; break;
-        case MB_TYPE_I32: *pu16Type = SOFT_OSC_TYPE_INT32;  break;
-        case MB_TYPE_F32: *pu16Type = SOFT_OSC_TYPE_FLOAT;  break;
+        case MB_VAL_U16: *pu16Type = SOFT_OSC_TYPE_UINT16; break;
+        case MB_VAL_I16: *pu16Type = SOFT_OSC_TYPE_INT16;  break;
+        case MB_VAL_U32: *pu16Type = SOFT_OSC_TYPE_UINT32; break;
+        case MB_VAL_I32: *pu16Type = SOFT_OSC_TYPE_INT32;  break;
+        case MB_VAL_F32: *pu16Type = SOFT_OSC_TYPE_FLOAT;  break;
         default:          *pu16Type = SOFT_OSC_TYPE_UINT16; break;
     }
 

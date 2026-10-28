@@ -1,0 +1,109 @@
+/*
+ * DataExchange.c
+ *
+ * 批 0.7：骨架 + 已确定来源的发布项。
+ * 未接通的字段留 TODO，批 0.8 / 0.9 逐个补齐，不在这里猜数据源。
+ */
+#include "DataExchange.h"
+#include "ArmPointTable.h"
+#include "AdcSample.h"
+#include "ProtectFault.h"
+#include "InvStateMachine.h"
+
+/* 协议缩放系数 */
+#define DX_VOLT_SCALE       (10.0f)     // 0.1 V
+#define DX_CUR_SCALE        (10.0f)     // 0.1 A
+#define DX_FREQ_SCALE       (100.0f)    // 0.01 Hz
+#define DX_GFCI_SCALE       (1000.0f)   // mA
+
+static Uint16 DxSatU16(float32 fVal);   // 限幅到 0~65535
+
+/**
+ * @brief 初始化镜像
+ */
+void DataExchangeInit(void)
+{
+    Uint16 *pu16Dst = (Uint16 *)&stArmMirror;
+    Uint16 u16Idx;
+
+    for (u16Idx = 0U; u16Idx < (Uint16)(sizeof(ST_ARM_MIRROR) / sizeof(Uint16)); u16Idx++)
+    {
+        pu16Dst[u16Idx] = 0U;
+    }
+}
+
+/**
+ * @brief ARM 命令搬运，批 0.9 实现
+ */
+void DataExchangeRx(void)
+{
+    // TODO(批 0.9)：开关机、并离网、功率给定、保护定值
+}
+
+/**
+ * @brief 内部状态搬到发布镜像
+ */
+void DataExchangeTx(void)
+{
+    /* ---- 交流量 ---- */
+    stArmMirror.stStatus.u16RPhInvVolt   = DxSatU16(gAdcPub.fInvVoltRmsR * DX_VOLT_SCALE);
+    stArmMirror.stStatus.u16RPhInvCur    = DxSatU16(gAdcPub.fInvCurRmsR * DX_CUR_SCALE);
+    stArmMirror.stStatus.u16SPhInvVolt   = DxSatU16(gAdcPub.fInvVoltRmsS * DX_VOLT_SCALE);
+    stArmMirror.stStatus.u16SPhInvCur    = DxSatU16(gAdcPub.fInvCurRmsS * DX_CUR_SCALE);
+    stArmMirror.stStatus.u16RPhGridVolt  = DxSatU16(gAdcPub.fGridVoltRmsR * DX_VOLT_SCALE);
+    stArmMirror.stStatus.u16SPhGridVolt  = DxSatU16(gAdcPub.fGridVoltRmsS * DX_VOLT_SCALE);
+    stArmMirror.stStatus.u16InvFreq      = DxSatU16(gAdcPub.fGridFreq * DX_FREQ_SCALE);
+
+    /* ---- 母线 ---- */
+    stArmMirror.stStatus.u16BusVolt      = DxSatU16(gAdcPub.fBusVoltSlow * DX_VOLT_SCALE);
+    stArmMirror.stStatus.u16BusVoltP   = DxSatU16(gAdcPub.fBusVoltLSlow * DX_VOLT_SCALE);
+    stArmMirror.stStatus.u16BusVoltN   = DxSatU16(gAdcPub.fBusVoltHSlow * DX_VOLT_SCALE);
+    stArmMirror.stMeas.u16BUS1VoltPBUSVolt = DxSatU16(gAdcPub.fBusVoltLSlow * DX_VOLT_SCALE);
+    stArmMirror.stMeas.u16BUS2VoltNBUSVolt = DxSatU16(gAdcPub.fBusVoltHSlow * DX_VOLT_SCALE);
+
+    /* ---- PV ---- */
+    stArmMirror.stStatus.u16PV1VoltIn    = DxSatU16(gAdcPub.fPvVolt1Slow * DX_VOLT_SCALE);
+    stArmMirror.stMeas.u16PV1Volt        = DxSatU16(gAdcPub.fPvVolt1Slow * DX_VOLT_SCALE);
+    stArmMirror.stMeas.u16PV2Volt        = DxSatU16(gAdcPub.fPvVolt2Slow * DX_VOLT_SCALE);
+    stArmMirror.stMeas.u16PV3Volt        = DxSatU16(gAdcPub.fPvVolt3Slow * DX_VOLT_SCALE);
+    stArmMirror.stMeas.u16PV4Volt        = DxSatU16(gAdcPub.fPvVolt4Slow * DX_VOLT_SCALE);
+    stArmMirror.stMeas.u16PV1Cur         = DxSatU16(gAdcPub.fPvCur1Slow * DX_CUR_SCALE);
+    stArmMirror.stMeas.u16PV2Cur         = DxSatU16(gAdcPub.fPvCur2Slow * DX_CUR_SCALE);
+    stArmMirror.stMeas.u16PV3Cur         = DxSatU16(gAdcPub.fPvCur3Slow * DX_CUR_SCALE);
+    stArmMirror.stMeas.u16PV4Cur         = DxSatU16(gAdcPub.fPvCur4Slow * DX_CUR_SCALE);
+
+    /* ---- 保护 ---- */
+    stArmMirror.stStatus.u16GFCILeakCur  = DxSatU16(gAdcPub.fGfciRms * DX_GFCI_SCALE);
+
+    // TODO(批 0.8)：故障字 u16PCSFault1..5 接 stProtect.u16Proto[0..4] 与 u16PCSAlarm1
+    // TODO(批 0.8)：功率、并机数量、DER 段、版本号
+}
+
+/**
+ * @brief 1 kHz 任务
+ */
+void DataExchangeTask(void *pArgV)
+{
+    (void)pArgV;
+
+    DataExchangeRx();
+    DataExchangeTx();
+}
+
+/**
+ * @brief 浮点限幅到无符号 16 位
+ */
+static Uint16 DxSatU16(float32 fVal)
+{
+    if (fVal <= 0.0f)
+    {
+        return 0U;
+    }
+    if (fVal >= 65535.0f)
+    {
+        return 65535U;
+    }
+
+    return (Uint16)fVal;
+}
+

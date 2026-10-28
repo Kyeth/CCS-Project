@@ -24,50 +24,66 @@ extern "C" {
 #endif
 
 /* 功能码 */
-#define MB_FUNC_READ_HOLDING        (0x03U)
-#define MB_FUNC_WRITE_SINGLE        (0x06U)
-#define MB_FUNC_WRITE_MULTI         (0x10U)
+typedef enum
+{
+    MB_FUNC_READ_HOLDING = 0x03,            /* 读保持寄存器 */
+    MB_FUNC_WRITE_SINGLE = 0x06,            /* 写单个寄存器 */
+    MB_FUNC_WRITE_MULTI  = 0x10             /* 写多个寄存器 */
+} E_MB_FUNC_CODE;
 
 /* 异常码 */
-#define MB_EX_NONE                  (0x00U)
-#define MB_EX_ILLEGAL_FUNC          (0x01U)
-#define MB_EX_ILLEGAL_ADDR          (0x02U)
-#define MB_EX_ILLEGAL_VALUE         (0x03U)
-#define MB_EX_SLAVE_FAIL            (0x04U)
+typedef enum
+{
+    MB_EXC_NONE          = 0x00,
+    MB_EXC_ILLEGAL_FUNC  = 0x01,            /* 功能码不支持 */
+    MB_EXC_ILLEGAL_ADDR  = 0x02,            /* 地址不在表内或只读 */
+    MB_EXC_ILLEGAL_VALUE = 0x03,            /* 数量或取值越界 */
+    MB_EXC_SLAVE_FAIL    = 0x04             /* 从机内部失败 */
+} E_MB_EXCEPTION;
 
-/* 数据长度与限制 */
-#define MB_FRAME_MAX                (260U)
-#define MB_READ_REG_MAX             (125U)
-#define MB_WRITE_REG_MAX            (123U)
+/* 帧长与单帧寄存器数量上限 */
+typedef enum
+{
+    MB_LIMIT_FRAME_MAX   = 260,             /* RTU 帧最大字节数 */
+    MB_LIMIT_READ_MAX    = 125,             /* 03 每帧最多读 125 个 */
+    MB_LIMIT_WRITE_MAX   = 123              /* 10 每帧最多写 123 个 */
+} E_MB_LIMIT;
 
-/* 寄存器数据类型 */
-#define MB_TYPE_U16                 (0U)
-#define MB_TYPE_I16                 (1U)
-#define MB_TYPE_U32                 (2U)
-#define MB_TYPE_I32                 (3U)
-#define MB_TYPE_F32                 (4U)
+/* 寄存器值类型 */
+typedef enum
+{
+    MB_VAL_U16 = 0,                         /* 无符号 16 位，占 1 个寄存器 */
+    MB_VAL_I16 = 1,                         /* 有符号 16 位，占 1 个寄存器 */
+    MB_VAL_U32 = 2,                         /* 无符号 32 位，占 2 个寄存器 */
+    MB_VAL_I32 = 3,                         /* 有符号 32 位，占 2 个寄存器 */
+    MB_VAL_F32 = 4                          /* 单精度浮点，占 2 个寄存器 */
+} E_MB_VAL_TYPE;
 
-/* 读写属性 */
-#define MB_ATTR_RO                  (0U)
-#define MB_ATTR_RW                  (1U)
-/* 掉电保存标记位：与读写属性按位组合，独立一位，
- * 这样"可写"和"要保存"是两个正交的语义，互不稀释。 */
-#define MB_ATTR_SAVE                (2U)
-#define MB_ATTR_RW_SAVE             (MB_ATTR_RW | MB_ATTR_SAVE)
+/* 读写属性：低两位按位组合，SAVE 与 WRITE 正交 */
+typedef enum
+{
+    MB_RW_READ_ONLY  = 0x00,                /* 只读 */
+    MB_RW_WRITE      = 0x01,                /* 可写 */
+    MB_RW_SAVE       = 0x02,                /* 掉电保存标志 */
+    MB_RW_WRITE_SAVE = 0x03                 /* 可写且保存 */
+} E_MB_RW_ATTR;
 
-/* 32 位量的高低字顺序：0 = 低字在前（Modbus 惯例），1 = 高字在前 */
-/* 32 位量（U32/I32/F32）占两个保持寄存器，字序选择：
- *   1 = 高字在前（ABCD），与 IB800 上位机/Modbus Poll 默认浮点解码一致；
- *   0 = 低字在前（CDAB）。
- * 每个寄存器内部字节序固定为高字节在前（Modbus RTU 规定），不受本宏影响。 */
-#define MB_WORD_HIGH_FIRST          (1U)
+/* 32 位量的字序 */
+typedef enum
+{
+    MB_WORD_LOW_FIRST  = 0,                 /* 低字在前（CDAB） */
+    MB_WORD_HIGH_FIRST = 1                  /* 高字在前（ABCD） */
+} E_MB_WORD_ORDER;
+
+/* 字序选择：与上位机默认浮点解码保持一致 */
+#define MB_WORD_ORDER_SEL           MB_WORD_HIGH_FIRST
 
 /* 一个寄存器表项 */
 typedef struct
 {
     Uint16 u16RegAddr;              /* 起始寄存器地址 */
-    Uint16 u16ValType;              /* MB_TYPE_xxx */
-    Uint16 u16Attr;                 /* MB_ATTR_RO / MB_ATTR_RW / MB_ATTR_RW_SAVE（按位组合） */
+    Uint16 u16ValType;              // E_MB_VAL_TYPE
+    Uint16 u16RwAttr;               // E_MB_RW_ATTR，按位组合
     void  *pvData;                  /* 直接指向业务变量 */
     int32  i32Min;                  /* 写下限（浮点类型按取整后比较） */
     Uint32 u32Max;                  /* 写上限 */
@@ -95,6 +111,9 @@ void ModbusInit(const ST_MB_CFG *pstMbCfg);
 
 /* 调度任务：轮询各从机的"帧就绪"标志并处理，建议 200us 一次 */
 void ModbusTask(void *pArgV);
+
+/* 按从机序号与寄存器地址反查表项，供命令触发与调试读取 */
+extern const ST_MB_REG_ITEM *MbResolveByAddr(Uint16 u16SlaveIdx, Uint16 u16Addr);
 
 /* 统计量：收到并处理的帧数 / 异常帧数 / 最近一次功能码 */
 Uint16 ModbusGetFrameCnt(Uint16 u16SlaveIdx);
