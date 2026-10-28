@@ -141,9 +141,8 @@ void TaskCreate(void)
     Task_Start(&AdcSampleTask, NULL, 10U, 5U);
     Task_Start(&AtsProtoTask, NULL, 1000U, 6U);
     Task_Start(&AtsCtlTask,    NULL,   10U, 7U);    /* 1ms：ATS 状态去抖与动作超时 */
-    Task_Start(&InvSmTask,     NULL,    1U, 8U);    /* 10kHz：逆变状态机 */
-    Task_Start(&SysSmTask,     NULL,   10U, 9U);    /* 1kHz：系统总状态机 */
-    Task_Start(&PvSmTask,      NULL,    1U, 10U);   /* 10kHz：PV 状态机 + 电压环/电流环 + MPPT */
+    /* 状态机四件套（Inv / Bus / Pv / Sys）已迁入 20kHz 控制中断内部分频调用，
+     * 不再作为后台任务注册，见 CtrlIsr.c 的 CtrlSmSchedulerRun()。 */
 }
 
 /**

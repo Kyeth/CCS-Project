@@ -610,13 +610,11 @@ Uint16 PvSmGetEnable(void)
 /******************************************************************************
  * 主任务：10kHz
  ******************************************************************************/
-void PvSmTask(void *pArgV)
+void RunPvStateMachine(void)
 {
     Uint16 i;
     Uint16 u16RunMask = 0U;
     Uint16 u16MpptMask = 0U;
-
-    (void)pArgV;
 
     /* 零漂标定没完成前不升压：零点未定，功率判据不可信 */
     if (AdcCalibGetZeroState() != (Uint16)ADC_CAL_ZERO_DONE)

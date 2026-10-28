@@ -96,7 +96,7 @@ extern ST_INV_SM gInvSm;
  * API
  ******************************************************************************/
 void InvSmInit(void);
-void InvSmTask(void *pArgV);        /* 10kHz（调度 Time=1） */
+void RunInvStateMachine(void);      /* 20kHz 控制中断 ÷2 = 10kHz */
 void InvSmStart(void);
 void InvSmStop(void);
 void InvSmReset(void);              /* 清故障，需故障源已消失 */

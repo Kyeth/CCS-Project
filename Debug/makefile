@@ -48,6 +48,7 @@ ORDERED_OBJS += \
 "./User_App/StateMachine/src/RelayCtl.obj" \
 "./User_App/StateMachine/src/SmUtil.obj" \
 "./User_App/StateMachine/src/SystemStateMachine.obj" \
+"./User_App/StateMachine/src/BusStateMachine.obj" \
 "./User_App/WatchDog/src/Hw_WatchDog.obj" \
 "./device/common/source/F2837xS_Adc.obj" \
 "./device/common/source/F2837xS_CodeStartBranch.obj" \

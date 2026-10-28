@@ -157,7 +157,7 @@ extern ST_PV_SM gPvSm;
 
 /* ==================== 接口 ==================== */
 extern void PvSmInit(void);
-extern void PvSmTask(void *pArgV);              /* 10kHz 调用 */
+extern void RunPvStateMachine(void);             /* 20kHz 控制中断 ÷2 = 10kHz */
 extern void PvSmSetEnable(Uint16 u16Enable);    /* 0=全部停机 */
 extern Uint16 PvSmGetEnable(void);
 

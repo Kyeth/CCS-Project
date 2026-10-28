@@ -150,10 +150,8 @@ Uint16 InvSmGetFault(void)
 /******************************************************************************
  * 主任务：10kHz
  ******************************************************************************/
-void InvSmTask(void *pArgV)
+void RunInvStateMachine(void)
 {
-    (void)pArgV;
-
     if (gInvSm.u16Cnt < 0xFFFFU)
     {
         gInvSm.u16Cnt++;

@@ -22,6 +22,10 @@
 #include "Schedule.h"
 #include "ProtectFault.h"
 #include "ProtectInput.h"
+#include "InvStateMachine.h"
+#include "PvStateMachine.h"
+#include "SystemStateMachine.h"
+#include "BusStateMachine.h"
 
 #include <math.h>
 
@@ -117,6 +121,47 @@ static float CtrlWrapTheta(float fTheta)
     return fTheta;
 }
 
+/* ==================== 状态机分层调度 ====================
+ * 20kHz 控制中断是唯一节拍源，状态机按固定整数拍分频，抖动由硬件保证。
+ * 分频只决定状态机多久跑一次，控制环路（PLL + 调制 + 下发）仍每拍 20kHz。
+ *   Inv    ÷2  -> 10kHz（含 PV 电压/电流环，环路上限要求 10kHz）
+ *   Bus    ÷4  ->  5kHz
+ *   Pv     ÷2  -> 10kHz（与 Inv 同拍，PI 环率不变；MPPT 外层由状态内计数器分频）
+ *   Sys    ÷20 ->  1kHz
+ */
+#define CTRL_SM_DIV_INV_PV      (2U)
+#define CTRL_SM_DIV_BUS         (4U)
+#define CTRL_SM_DIV_SYS         (20U)
+
+static Uint16 gCtrlSmDivInvPv;
+static Uint16 gCtrlSmDivBus;
+static Uint16 gCtrlSmDivSys;
+
+static void CtrlSmSchedulerRun(void)
+{
+    gCtrlSmDivInvPv++;
+    if (gCtrlSmDivInvPv >= CTRL_SM_DIV_INV_PV)
+    {
+        gCtrlSmDivInvPv = 0U;
+        RunInvStateMachine();
+        RunPvStateMachine();
+    }
+
+    gCtrlSmDivBus++;
+    if (gCtrlSmDivBus >= CTRL_SM_DIV_BUS)
+    {
+        gCtrlSmDivBus = 0U;
+        RunBusStateMachine();
+    }
+
+    gCtrlSmDivSys++;
+    if (gCtrlSmDivSys >= CTRL_SM_DIV_SYS)
+    {
+        gCtrlSmDivSys = 0U;
+        RunSysStateMachine();
+    }
+}
+
 /* 初始化 */
 void CtrlIsrInit(void)
 {
@@ -148,6 +193,7 @@ void CtrlIsrInit(void)
 
     ProtectInit();
     ProtectInputInit();
+    InitBusStateMachineData();
 }
 
 /* ==================== 发波授权 ==================== */
@@ -385,6 +431,9 @@ void CtrlIsrRun(void)
         gCtrlObsFault = gCtrlFault;
         return;
     }
+
+    /* ---------- 2b. 状态机分层调度：状态机才是控制主体 ---------- */
+    CtrlSmSchedulerRun();
 
     /* ---------- 2c. 发波授权：裁定本拍能否把占空比写进硬件 ---------- */
     CtrlAuthRun();
