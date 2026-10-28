@@ -53,6 +53,9 @@ typedef enum
     PROTECT_DOMAIN_NUM
 }E_PROTECT_DOMAIN;
 
+/* 域位图：ProtectQuery 的第一个参数用它选域，可或多个 */
+#define PROTECT_DOMAIN_MASK(pDomain)   ((Uint16)(1U << (pDomain)))
+
 /* 严重度，同时用作动作等级：数值越大动作越强 */
 typedef enum
 {
