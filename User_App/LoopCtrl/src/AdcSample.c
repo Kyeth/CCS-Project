@@ -23,7 +23,7 @@
 /******************************************************************************
  * 全局实例
  ******************************************************************************/
-ST_ADC_SAMPLE_INS gAdcIns;
+volatile ST_ADC_SAMPLE_INS gAdcIns;   /* 20kHz 控制中断写，后台状态机读 */
 ST_ADC_SAMPLE_PUB gAdcPub;
 
 /******************************************************************************
@@ -152,7 +152,7 @@ static const float sSlowAlpha[SLOW_NUM] =
  ******************************************************************************/
 void AdcSampleInit(void)
 {
-    (void)memset(&gAdcIns, 0, sizeof(gAdcIns));
+    (void)memset((void *)&gAdcIns, 0, sizeof(gAdcIns));
     (void)memset(&gAdcPub, 0, sizeof(gAdcPub));
     (void)memset(sRmsAcc, 0, sizeof(sRmsAcc));
     (void)memset(sRmsRaw, 0, sizeof(sRmsRaw));

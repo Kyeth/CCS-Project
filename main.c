@@ -41,7 +41,8 @@ void PeripheralsInit(void)
     InitSysCtrl();
     // 2. 初始化 PIE 控制器、向量表并注册中断（内部已完成 InitPieCtrl/InitPieVectTable）
     InterruptVectTableInit();    // 配置中断复位函数
-//    Hw_WatchDogInit();    // 初始化看门狗
+    /* 看门狗在 StartSystem() 末尾使能：必须在 100us 定时器与 20kHz 控制链
+     * 都已运行之后，否则初始化期间的毫秒级阻塞会被 1.6384ms 上限的看门狗复位。 */
 
 
 
@@ -189,6 +190,17 @@ void StartSystem(void)
     {
         CtrlSetPwmEnable(0U);
     }
+
+    /* 5. 使能硬件看门狗。
+     *    F2837xS 看门狗由 10MHz 内部振荡器驱动，8 位计数配合最大 64 分频，
+     *    超时上限只有 1.6384ms，无法直接做 200ms 级监视，因此分两层：
+     *      硬件层：喂狗点放在 100us 定时中断里，条件是 20kHz 控制链仍在推进，
+     *              控制链停摆即停止喂狗，由复位兜底；
+     *      软件层：Task_HealthTick 以 200ms 窗口监视后台任务活性，
+     *              超时锁存 Task stall 故障，由控制中断封锁发波，不做复位。
+     *    使能点必须放在 100us 定时器与 20kHz 中断链都已运行之后。 */
+    Hw_WatchDogInit(2U);
+    Hw_EnableWatchDog();
 }
 
 
@@ -202,7 +214,7 @@ void main(void)
 
     while(1)
     {
-        Hw_FeedWatchDog(); // 喂狗
+        /* 喂狗已移到 100us 定时中断，条件与复位分工见 StartSystem() 第 5 步 */
         Task_Run();
     }
 }

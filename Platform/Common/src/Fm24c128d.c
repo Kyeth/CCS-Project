@@ -46,6 +46,13 @@ static Uint16 Fm24c128dSize(void)
     return (gFmCfg.u16SizeBytes != 0U) ? gFmCfg.u16SizeBytes : FM24C128D_SIZE_BYTES;
 }
 
+/* 异步写状态：一次多页写拆成每拍一片，避免把后台调度阻塞数十毫秒 */
+static Uint16 sAsyncAddr;
+static const Uint16 *sAsyncBuf;
+static Uint16 sAsyncLeft;
+static Uint16 sAsyncActive;
+static Uint16 sAsyncWaitCnt;
+
 /**
  * @brief 写保护脚物理电平输出
  */
@@ -171,9 +178,10 @@ Uint16 Fm24c128dWrite(Uint16 u16Addr, const Uint16 *pu16Buf, Uint16 u16Len)
     Uint16 u16Chunk;
     Uint16 u16PageLeft;
 
-    if ((gFmInited == 0U) || (pu16Buf == (const Uint16 *)0) || (u16Len == 0U))
+    if ((gFmInited == 0U) || (sAsyncActive != 0U) ||
+        (pu16Buf == (const Uint16 *)0) || (u16Len == 0U))
     {
-        return FM24C128D_ERR_PARAM;
+        return FM24C128D_ERR_PARAM;    /* 异步写进行中不允许插入同步写 */
     }
 
     if (((Uint32)u16Addr + (Uint32)u16Len) > (Uint32)Fm24c128dSize())
@@ -232,6 +240,103 @@ Uint16 Fm24c128dWrite(Uint16 u16Addr, const Uint16 *pu16Buf, Uint16 u16Len)
     Fm24c128dWriteProtect(1U);
 
     return FM24C128D_OK;
+}
+
+/**
+ * @brief 启动异步写，只送第一片
+ */
+Uint16 Fm24c128dWriteAsyncStart(Uint16 u16Addr, const Uint16 *pu16Buf, Uint16 u16Len)
+{
+    if ((gFmInited == 0U) || (sAsyncActive != 0U) ||
+        (pu16Buf == (const Uint16 *)0) || (u16Len == 0U))
+    {
+        return FM24C128D_ERR_PARAM;
+    }
+
+    if (((Uint32)u16Addr + (Uint32)u16Len) > (Uint32)Fm24c128dSize())
+    {
+        gFmErrCnt++;
+        return FM24C128D_ERR_PARAM;
+    }
+
+    sAsyncAddr = u16Addr;
+    sAsyncBuf = pu16Buf;
+    sAsyncLeft = u16Len;
+    sAsyncWaitCnt = 0U;
+    sAsyncActive = 1U;
+
+    Fm24c128dWriteProtect(0U);
+
+    return Fm24c128dWriteAsyncPoll();
+}
+
+/**
+ * @brief 异步写推进：每拍调用一次，直到返回非 BUSY
+ */
+Uint16 Fm24c128dWriteAsyncPoll(void)
+{
+    Uint16 u16Ret;
+    Uint16 u16Chunk;
+    Uint16 u16PageLeft;
+
+    if (sAsyncActive == 0U)
+    {
+        return FM24C128D_OK;
+    }
+
+    /* 上一片还没烧完就下拍再来，不在这里死等 */
+    if (gFmNeedWait != 0U)
+    {
+        if (Fm24c128dIsReady() == 0U)
+        {
+            if (++sAsyncWaitCnt >= FM24C128D_ASYNC_RETRY_MAX)
+            {
+                gFmErrCnt++;
+                sAsyncActive = 0U;
+                Fm24c128dWriteProtect(1U);
+                return FM24C128D_ERR_TIMEOUT;
+            }
+
+            return FM24C128D_ASYNC_BUSY;
+        }
+
+        gFmNeedWait = 0U;
+        sAsyncWaitCnt = 0U;
+    }
+
+    /* 数据已发完，恢复写保护并收尾 */
+    if (sAsyncLeft == 0U)
+    {
+        sAsyncActive = 0U;
+        Fm24c128dWriteProtect(1U);
+        return FM24C128D_OK;
+    }
+
+    u16PageLeft = (Uint16)(FM24C128D_PAGE_SIZE - (sAsyncAddr & (FM24C128D_PAGE_SIZE - 1U)));
+    u16Chunk = (sAsyncLeft < u16PageLeft) ? sAsyncLeft : u16PageLeft;
+
+    if (u16Chunk > FM24C128D_ASYNC_CHUNK_WORDS)
+    {
+        u16Chunk = FM24C128D_ASYNC_CHUNK_WORDS;
+    }
+
+    u16Ret = Fm24c128dWriteChunk(sAsyncAddr, sAsyncBuf, u16Chunk);
+    if (u16Ret != HW_I2C_OK)
+    {
+        gFmErrCnt++;
+        sAsyncActive = 0U;
+        Fm24c128dWriteProtect(1U);
+        return (u16Ret == HW_I2C_ERR_PARAM) ? FM24C128D_ERR_PARAM : FM24C128D_ERR_I2C;
+    }
+
+    gFmWriteCnt++;
+    gFmNeedWait = 1U;
+
+    sAsyncAddr = (Uint16)(sAsyncAddr + u16Chunk);
+    sAsyncBuf += u16Chunk;
+    sAsyncLeft = (Uint16)(sAsyncLeft - u16Chunk);
+
+    return FM24C128D_ASYNC_BUSY;
 }
 
 /**

@@ -176,11 +176,18 @@ extern Uint16 EepromParamSaveVar(const void *pvData);
 extern void EepromParamMarkAllDirty(void);
 
 /**
- * @brief 立刻落盘，忽略合并窗口与限速（掉电前/关机流程用）
+ * @brief 非阻塞落盘推进，每次只推进一步（后台调度按拍调用）
  *
- * @return 落盘后的状态：EEPROM_PARAM_ST_IDLE 表示成功或本来就无需写
+ * @return EEPROM_PARAM_ST_WRITING 表示还要继续调用；ST_IDLE 表示写完
  */
 extern Uint16 EepromParamFlush(void);
+
+/**
+ * @brief 强制落盘：内部循环调用 EepromParamFlush 直到写完（掉电前/关机流程用）
+ *
+ * @return 落盘结束时的状态：EEPROM_PARAM_ST_IDLE 表示成功
+ */
+extern Uint16 EepromParamFlushBlocking(void);
 
 /**
  * @brief 恢复出厂值：清掉参数头，复位后按初值重新生成

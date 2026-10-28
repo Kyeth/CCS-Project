@@ -293,35 +293,6 @@ static void EepromParamClearDirty(void)
     gDirtyHi = 0U;
 }
 
-/**
- * @brief 把参数头写进芯片
- *
- * @note 头区 32 字节正好在一页内，一次写不会跨页。
- */
-static Uint16 EepromParamWriteHeader(void)
-{
-    Uint16 u16Buf[EEPROM_PARAM_HDR_SIZE];
-    Uint16 u16Idx;
-
-    for (u16Idx = 0U; u16Idx < EEPROM_PARAM_HDR_SIZE; u16Idx++)
-    {
-        u16Buf[u16Idx] = 0x005AU;   /* 保留区固定 0x5A，未写过的片子不会是这个值 */
-    }
-
-    u16Buf[0] = EEPROM_PARAM_MAGIC_BYTE0;
-    u16Buf[1] = EEPROM_PARAM_MAGIC_BYTE1;
-    u16Buf[2] = EEPROM_PARAM_MAGIC_BYTE2;
-    u16Buf[3] = EEPROM_PARAM_MAGIC_BYTE3;
-
-    EepromParamPutU16(u16Buf, 4U, EEPROM_PARAM_VERSION);
-    EepromParamPutU16(u16Buf, 6U, gItemNum);
-    EepromParamPutU16(u16Buf, 8U, gPayloadLen);
-    EepromParamPutU16(u16Buf, 10U, gCrc);
-    EepromParamPutU32(u16Buf, 12U, gWriteCnt);
-
-    return (Fm24c128dWrite(EEPROM_PARAM_HDR_ADDR, u16Buf, EEPROM_PARAM_HDR_SIZE) == FM24C128D_OK)
-         ? 1U : 0U;
-}
 
 /**
  * @brief 从芯片读参数头 + 数据区并校验
@@ -595,8 +566,49 @@ void EepromParamMarkAllDirty(void)
     gEepromParamStatus = EEPROM_PARAM_ST_DIRTY;
 }
 
+#define EEPROM_FLUSH_DATA           (1U)    /* 正在写数据区 */
+#define EEPROM_FLUSH_HEADER         (2U)    /* 正在写参数头 */
+#define EEPROM_FLUSH_BLOCK_MAX      (2000U) /* 阻塞落盘的最大轮数，防止芯片异常时死等 */
+
+static Uint16 sFlushStep = 0U;              /* 落盘状态机步骤，0 表示空闲 */
+static Uint16 sHdrBuf[EEPROM_PARAM_HDR_SIZE];
+
 /**
- * @brief 立刻落盘
+ * @brief 装配参数头并启动异步写
+ *
+ * @return 1 已启动；0 启动失败
+ */
+static Uint16 EepromParamWriteHeaderAsync(void)
+{
+    Uint16 u16Idx;
+    Uint16 u16Ret;
+
+    for (u16Idx = 0U; u16Idx < EEPROM_PARAM_HDR_SIZE; u16Idx++)
+    {
+        sHdrBuf[u16Idx] = 0x005AU;   /* 保留区固定 0x5A，未写过的片子不会是这个值 */
+    }
+
+    sHdrBuf[0] = EEPROM_PARAM_MAGIC_BYTE0;
+    sHdrBuf[1] = EEPROM_PARAM_MAGIC_BYTE1;
+    sHdrBuf[2] = EEPROM_PARAM_MAGIC_BYTE2;
+    sHdrBuf[3] = EEPROM_PARAM_MAGIC_BYTE3;
+
+    EepromParamPutU16(sHdrBuf, 4U, EEPROM_PARAM_VERSION);
+    EepromParamPutU16(sHdrBuf, 6U, gItemNum);
+    EepromParamPutU16(sHdrBuf, 8U, gPayloadLen);
+    EepromParamPutU16(sHdrBuf, 10U, gCrc);
+    EepromParamPutU32(sHdrBuf, 12U, gWriteCnt);
+
+    u16Ret = Fm24c128dWriteAsyncStart(EEPROM_PARAM_HDR_ADDR, sHdrBuf, EEPROM_PARAM_HDR_SIZE);
+
+    return ((u16Ret == FM24C128D_ASYNC_BUSY) || (u16Ret == FM24C128D_OK)) ? 1U : 0U;
+}
+
+/**
+ * @brief 落盘推进：非阻塞状态机，每调用一次只推进一步
+ *
+ * @return EEPROM_PARAM_ST_WRITING 表示还要继续调用；ST_IDLE 表示全部写完
+ * @note 后台调度按拍调用；掉电等必须写完的场合用 EepromParamFlushBlocking()
  */
 Uint16 EepromParamFlush(void)
 {
@@ -606,10 +618,78 @@ Uint16 EepromParamFlush(void)
     Uint16 u16Lo = 0xFFFFU;
     Uint16 u16Hi = 0U;
     Uint16 bChanged = 0U;
+    Uint16 u16Ret;
 
     if ((gInited == 0U) || (gEnabled == 0U))
     {
+        sFlushStep = 0U;
         return EEPROM_PARAM_ST_DISABLED;
+    }
+
+    /* 数据区写：一页要几百微秒，每拍只送一片，送完再收尾 */
+    if (sFlushStep == EEPROM_FLUSH_DATA)
+    {
+        u16Ret = Fm24c128dWriteAsyncPoll();
+
+        if (u16Ret == FM24C128D_ASYNC_BUSY)
+        {
+            return EEPROM_PARAM_ST_WRITING;
+        }
+
+        if (u16Ret != FM24C128D_OK)
+        {
+            sFlushStep = 0U;
+            gErrCnt++;
+            EepromParamUpdateMirror();
+            gEepromParamStatus = EEPROM_PARAM_ST_ERROR;
+            return EEPROM_PARAM_ST_ERROR;       /* 脏标记保留，下个周期重试 */
+        }
+
+        /* 数据已经进芯片了，哈希立刻对齐；头写失败也不影响数据正确性 */
+        EepromParamRefreshHash();
+        gCrc = Crc16Modbus(gShadow, gPayloadLen);
+        gWriteCnt++;
+
+        if (EepromParamWriteHeaderAsync() == 0U)
+        {
+            sFlushStep = 0U;
+            gErrCnt++;
+            EepromParamUpdateMirror();
+            gEepromParamStatus = EEPROM_PARAM_ST_ERROR;
+            return EEPROM_PARAM_ST_ERROR;
+        }
+
+        sFlushStep = EEPROM_FLUSH_HEADER;
+        return EEPROM_PARAM_ST_WRITING;
+    }
+
+    /* 参数头写：32 字一片即可写完 */
+    if (sFlushStep == EEPROM_FLUSH_HEADER)
+    {
+        u16Ret = Fm24c128dWriteAsyncPoll();
+
+        if (u16Ret == FM24C128D_ASYNC_BUSY)
+        {
+            return EEPROM_PARAM_ST_WRITING;
+        }
+
+        if (u16Ret != FM24C128D_OK)
+        {
+            sFlushStep = 0U;
+            gErrCnt++;
+            EepromParamUpdateMirror();
+            gEepromParamStatus = EEPROM_PARAM_ST_ERROR;
+            return EEPROM_PARAM_ST_ERROR;
+        }
+
+        bHeaderDirty = 0U;
+        EepromParamClearDirty();
+        gLastFlushMs = gElapsedMs;
+        gEepromParamStatus = EEPROM_PARAM_ST_IDLE;
+        sFlushStep = 0U;
+        EepromParamUpdateMirror();
+
+        return EEPROM_PARAM_ST_IDLE;
     }
 
     if (gItemNum == 0U)
@@ -661,27 +741,30 @@ Uint16 EepromParamFlush(void)
         return EEPROM_PARAM_ST_IDLE;
     }
 
-    /* 4. 写数据区（只写变化项覆盖的区间，Fm24c128d 内部按页拆分） */
+    /* 4. 启动数据区异步写 */
     if (bChanged != 0U)
     {
-        if (Fm24c128dWrite((Uint16)(EEPROM_PARAM_DATA_ADDR + u16Lo),
-                           &gShadow[u16Lo],
-                           (Uint16)(u16Hi - u16Lo + 1U)) != FM24C128D_OK)
+        u16Ret = Fm24c128dWriteAsyncStart((Uint16)(EEPROM_PARAM_DATA_ADDR + u16Lo),
+                                         &gShadow[u16Lo],
+                                         (Uint16)(u16Hi - u16Lo + 1U));
+
+        if ((u16Ret != FM24C128D_ASYNC_BUSY) && (u16Ret != FM24C128D_OK))
         {
             gErrCnt++;
             EepromParamUpdateMirror();
             gEepromParamStatus = EEPROM_PARAM_ST_ERROR;
-            return EEPROM_PARAM_ST_ERROR;       /* 脏标记保留，下个周期重试 */
+            return EEPROM_PARAM_ST_ERROR;
         }
 
-        /* 数据已经进芯片了，哈希立刻对齐；头写失败也不影响数据正确性 */
-        EepromParamRefreshHash();
+        sFlushStep = EEPROM_FLUSH_DATA;
+        return EEPROM_PARAM_ST_WRITING;
     }
 
-    /* 5. 重算 CRC 并写头 */
+    /* 5. 只有参数头要写 */
     gCrc = Crc16Modbus(gShadow, gPayloadLen);
     gWriteCnt++;
-    if (EepromParamWriteHeader() == 0U)
+
+    if (EepromParamWriteHeaderAsync() == 0U)
     {
         gErrCnt++;
         EepromParamUpdateMirror();
@@ -689,19 +772,33 @@ Uint16 EepromParamFlush(void)
         return EEPROM_PARAM_ST_ERROR;
     }
 
-    /* 6. 清脏 */
-    bHeaderDirty = 0U;
-    EepromParamClearDirty();
-    gLastFlushMs = gElapsedMs;
-    gEepromParamStatus = EEPROM_PARAM_ST_IDLE;
-
-    EepromParamUpdateMirror();
-
-    return EEPROM_PARAM_ST_IDLE;
+    sFlushStep = EEPROM_FLUSH_HEADER;
+    return EEPROM_PARAM_ST_WRITING;
 }
 
 /**
- * @brief 周期任务：按合并窗口 + 限速触发落盘
+ * @brief 强制落盘：阻塞直到写完或重试超限，用于掉电预处理
+ */
+Uint16 EepromParamFlushBlocking(void)
+{
+    Uint16 u16Ret = EEPROM_PARAM_ST_WRITING;
+    Uint16 u16Round;
+
+    for (u16Round = 0U; u16Round < EEPROM_FLUSH_BLOCK_MAX; u16Round++)
+    {
+        u16Ret = EepromParamFlush();
+
+        if (u16Ret != EEPROM_PARAM_ST_WRITING)
+        {
+            return u16Ret;
+        }
+    }
+
+    return EEPROM_PARAM_ST_ERROR;
+}
+
+/**
+ * @brief 周期任务：按合并窗口和限速触发落盘，落盘本身分拍推进
  */
 void EepromParamTask(void *pArgV)
 {
@@ -718,7 +815,19 @@ void EepromParamTask(void *pArgV)
     /* 内部计时：以调度周期为步长，不依赖其他模块的时基 */
     gElapsedMs += (Uint32)gCfg->u16TaskPeriodMs;
 
-    if ((gEnabled == 0U) || ((bDirty == 0U) && (bHeaderDirty == 0U)))
+    if (gEnabled == 0U)
+    {
+        return;
+    }
+
+    /* 上一帧还没写完就只推进状态机，不再看合并窗口 */
+    if (sFlushStep != 0U)
+    {
+        (void)EepromParamFlush();
+        return;
+    }
+
+    if ((bDirty == 0U) && (bHeaderDirty == 0U))
     {
         return;
     }

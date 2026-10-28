@@ -16,6 +16,7 @@
 #include "DrvCfg_EP15K.h"
 #include "Schedule.h"
 #include "CtrlIsr.h"
+#include "Hw_WatchDog.h"
 
 /* PIE 组 1：XINT1（1.4）/ XINT2（1.5） */
 #define ISR_PIE_GROUP1_MASK         (M_INT1)
@@ -37,7 +38,11 @@
 
 /* PIE 组 9：SCIA 收发中断 */
 #define ISR_PIE_GROUP9_MASK         (M_INT9)
+
 #define ISR_PIE_CH_SCIA_RX          (1U)
+
+/* 控制链停摆后仍允许喂狗的最大节拍数：20ms，覆盖启动与模式切换瞬态 */
+#define ISR_WDG_GRACE_TICK          (200U)
 
 void InterruptVectTableInit(void)
 {
@@ -87,13 +92,37 @@ void InterruptVectTableInit(void)
 
 __interrupt void Isr_CpuTimer1(void)
 {
+    static Uint16 sWdgCtrlCnt = 0U;
+    static Uint16 sWdgGrace   = ISR_WDG_GRACE_TICK;
+    Uint16 u16CtrlCnt;
+
     /* 清除定时器硬件中断标志 */
     Hw_CpuTimerClearIntFlag((ST_SYS_TIMER *)&stSysCpuTimer1);
 
     /* 100us 软件心跳：满一个心跳驱动一次任务调度器 */
     if (1U == Hw_CpuTimerIsrTick((ST_SYS_TIMER *)&stSysCpuTimer1))
     {
-        SYS_TICK();
+        SYS_TICK();         /* 自由运行节拍 +1，后台按差值推进，欠拍不丢拍 */
+        Task_HealthTick();  /* 后台活性窗口裁决，200ms 收口一次 */
+
+        /* 喂狗条件：20kHz 控制链仍在推进。
+         * 控制链停摆（CLA 不触发、ADC 无转换、中断被关）时这里停止喂狗，
+         * 由硬件看门狗按 1.6384ms 上限复位；后台任务停摆不在此复位，
+         * 那属于 Task stall 故障，由控制中断封锁发波。
+         * 硬件看门狗最大超时仅 1.6384ms，喂狗点只能放在中断里。 */
+        u16CtrlCnt = CtrlGetCycleCnt();
+
+        if (u16CtrlCnt != sWdgCtrlCnt)
+        {
+            sWdgCtrlCnt = u16CtrlCnt;
+            sWdgGrace   = ISR_WDG_GRACE_TICK;
+            Hw_FeedWatchDog();
+        }
+        else if (sWdgGrace > 0U)
+        {
+            sWdgGrace--;    /* 启动与模式切换瞬态宽限 */
+            Hw_FeedWatchDog();
+        }
     }
 
     /* 台架模式存活计数：定时器中断真进来了这个值就会持续增长。

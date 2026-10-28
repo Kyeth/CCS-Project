@@ -28,8 +28,8 @@ static float  sVrawSum[PV_SM_CH_NUM];     /* 电压 10 拍块累加（10kHz/10 �
 static Uint16 sVdivCnt[PV_SM_CH_NUM];
 
 /* 各通道采样量指针（AdcSample 20kHz 瞬时层） */
-static const float *sPvVoltPtr[PV_SM_CH_NUM];
-static const float *sPvCurPtr[PV_SM_CH_NUM];
+static const volatile float *sPvVoltPtr[PV_SM_CH_NUM];
+static const volatile float *sPvCurPtr[PV_SM_CH_NUM];
 
 /******************************************************************************
  * 基础工具

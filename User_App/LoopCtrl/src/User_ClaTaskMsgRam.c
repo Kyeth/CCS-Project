@@ -22,8 +22,9 @@
 #pragma DATA_SECTION(Cla1ToCpuMsg, "Cla1ToCpuMsgRAM")
 #pragma DATA_SECTION(CpuToCla1Msg, "CpuToCla1MsgRAM")
 
-/* CLA 写、CPU 读：采样值 + 滤波结果 + 序号 */
-ST_CLA_TO_CPU Cla1ToCpuMsg;
+/* CLA 写、CPU 读：采样值 + 滤波结果 + 序号。
+ * 两侧共享，必须 volatile，否则 CPU 侧编译器可能把读取提升或重排到序号检查之外。 */
+volatile ST_CLA_TO_CPU Cla1ToCpuMsg;
 
 /* CPU 写、CLA 读：当前 MUX 地址、使能、角度、电流零漂 */
-ST_CPU_TO_CLA CpuToCla1Msg;
+volatile ST_CPU_TO_CLA CpuToCla1Msg;
