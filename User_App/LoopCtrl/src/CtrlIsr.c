@@ -73,71 +73,6 @@ volatile float  gCtrlObsModActual = 0.0F;
 /* 发波授权：0 = 只算环路不发波，1 = 允许把占空比写进 ePWM */
 volatile Uint16 gCtrlPwmEnable    = 0U;
 
-/* 台架调试计数：CLA1_1 中断次数 / Timer1 驱动次数 */
-volatile Uint16 gCtrlTestClaCnt   = 0U;
-volatile Uint16 gCtrlTestTmrCnt   = 0U;
-
-/* 台架静态自检快照：在 CtrlTestPwmStart() 末尾抓，烧一次就能判读
- *   TbCtlInv  : bit0-1 = CTRMODE（0=UP 1=DOWN 2=UPDOWN），bit2 = PHSEN
- *   AqcsfrcInv: 0x0000 = 已放行；0x0005 = A/B 双路强制低（仍被封）
- *   CmpaInv   : 应等于 1250
- *   TzflgInv  : 应为 0（清完立即抓）
- *   TzselInv  : 应为 0（TZ 闸门已拆）
- *   TbCtrA/TbCtrB: EPwm1 前后两次采样，不同 => 载波在跑 */
-volatile Uint16 gCtrlDiagTbCtlInv   = 0U;
-volatile Uint16 gCtrlDiagAqcsfrcInv = 0U;
-volatile Uint16 gCtrlDiagCmpaInv    = 0U;
-volatile Uint16 gCtrlDiagTzflgInv   = 0U;
-volatile Uint16 gCtrlDiagTzselInv   = 0U;
-volatile Uint16 gCtrlDiagTbCtrA     = 0U;
-volatile Uint16 gCtrlDiagTbCtrB     = 0U;
-volatile Uint16 gCtrlDiagTbCtrPvA   = 0U;
-volatile Uint16 gCtrlDiagTbCtrPvB   = 0U;
-volatile Uint16 gCtrlDiagTbCtrC     = 0U;
-volatile Uint16 gCtrlDiagTbCtrD     = 0U;
-volatile Uint16 gCtrlDiagInv2Cmpa    = 0U;
-volatile Uint16 gCtrlDiagInv2Aqcsfrc = 0U;
-volatile Uint16 gCtrlDiagInv2Tzctl   = 0U;
-volatile Uint16 gCtrlDiagPvCmpa      = 0U;
-volatile Uint16 gCtrlDiagPvAqcsfrc   = 0U;
-volatile Uint16 gCtrlDiagPvAqctla    = 0U;
-volatile Uint16 gCtrlDiagPvTzctl     = 0U;
-volatile Uint16 gCtrlDiagPvGldctl    = 0U;
-volatile Uint16 gCtrlDiagPvTbprd     = 0U;
-volatile Uint16 gCtrlDiagPvXlink     = 0U;
-volatile Uint16 gCtrlDiagBusDbctl    = 0U;
-volatile Uint16 gCtrlDiagBusAqctlb   = 0U;
-volatile Uint16 gCtrlDiagGpioMuxA1   = 0U;
-volatile Uint16 gCtrlDiagGpioGmuxA1  = 0U;
-volatile Uint16 gCtrlDiagGpioMuxA2   = 0U;
-volatile Uint16 gCtrlDiagGpioGmuxA2  = 0U;
-volatile Uint16 gCtrlDiagMuxCand     = 0U;
-volatile Uint16 gCtrlDiagInvDbctl    = 0U;
-
-volatile Uint16 gCtrlDiagPvAq[4]  = {0U, 0U, 0U, 0U};
-
-volatile Uint16 gCtrlDiagXbarIn[6]  = {0U, 0U, 0U, 0U, 0U, 0U};
-volatile Uint16 gCtrlDiagTripCfg[4] = {0U, 0U, 0U, 0U};
-volatile Uint16 gCtrlDiagTripEn[4]  = {0U, 0U, 0U, 0U};
-volatile Uint16 gCtrlDiagGpioADat   = 0U;
-volatile Uint16 gCtrlDiagGpioADir   = 0U;
-volatile Uint16 gCtrlDiagGpioBDat   = 0U;
-volatile Uint16 gCtrlDiagGpioBDir   = 0U;
-volatile Uint16 gCtrlDiagPvTzflg[4] = {0U, 0U, 0U, 0U};
-volatile Uint16 gCtrlDiagPvDcsel[4] = {0U, 0U, 0U, 0U};
-volatile Uint16 gCtrlDiagPvCmp[4] = {0U, 0U, 0U, 0U};
-volatile Uint16 gCtrlDiagPvCtl[4] = {0U, 0U, 0U, 0U};
-volatile Uint16 gCtrlDiagPvRun[4] = {0U, 0U, 0U, 0U};
-
-/* CPU Timer1 中断排查用现场快照 + XINT 触发计数 */
-volatile Uint16 gCtrlDiagPieIfr1   = 0U;
-volatile Uint16 gCtrlDiagPieAck   = 0U;
-volatile Uint16 gCtrlDiagT1Tcr    = 0U;
-volatile Uint32 gCtrlDiagT1Tim    = 0UL;
-volatile Uint16 gCtrlDiagIer      = 0U;
-volatile Uint16 gCtrlDiagXint1Cnt = 0U;
-volatile Uint16 gCtrlDiagXint2Cnt = 0U;
-
 /* 写三位 MUX 地址到 GPIO46/47/42，用 SET/CLEAR 寄存器避免读改写干扰其它引脚 */
 static void CtrlMuxWrite(Uint16 u16Addr)
 {
@@ -215,7 +150,7 @@ void CtrlIsrInit(void)
     ProtectInputInit();
 }
 
-/* ==================== 发波授权 / 台架发波 ==================== */
+/* ==================== 发波授权 ==================== */
 
 /* 严重封锁：把三相压回中点钳位，调制比清零，授权退回 OFF。
  * 只在"真的需要动硬件"时调一次 Hw_InvStopAll()，避免 20kHz 每拍写 AQCSFRC。 */
@@ -252,15 +187,6 @@ static void CtrlAuthRun(void)
     float fStep;
 
     gCtrlAuthFlags = 0U;
-
-    /* 台架模式：无条件放行，固定调制比（上面 CtrlIsrRun 已经分流，这里只兜底） */
-    if (CTRL_TEST_PWM_MODE != 0)
-    {
-        gCtrlAuthFlags = (Uint16)CTRL_AUTH_FLAG_TEST;
-        gCtrlAuthState = (Uint16)CTRL_AUTH_ON;
-        gCtrlModActual = CTRL_TEST_MOD_INDEX;
-        return;
-    }
 
     /* 封锁条件 1：控制层故障（CLA 停摆、逆变过流、硬件过流/短路） */
     if (gCtrlFault != (Uint16)CTRL_FAULT_NONE)
@@ -357,88 +283,7 @@ static void CtrlAuthRun(void)
     }
 }
 
-/* 台架发波：开环角度 + 固定调制比，不看锁相、不看零漂、不判故障。 */
-static void CtrlTestRun(void)
-{
-    float fSin;
-    float fCos;
-    float fModR;
-    float fModS;
-    float fModT;
-
-    gCtrlTheta += (CTRL_TWO_PI * CTRL_TEST_FREQ_HZ * CTRL_TS_SEC);
-
-    if (gCtrlTheta >= CTRL_TWO_PI)
-    {
-        gCtrlTheta -= CTRL_TWO_PI;
-    }
-
-    fSin = sinf(gCtrlTheta);
-    fCos = cosf(gCtrlTheta);
-
-    fModR = CTRL_TEST_MOD_INDEX * fSin;
-    fModS = CTRL_TEST_MOD_INDEX * ((-0.5f * fSin) - (0.86602540f * fCos));
-    fModT = CTRL_TEST_MOD_INDEX * ((-0.5f * fSin) + (0.86602540f * fCos));
-
-    Hw_InvSetDuty((Uint16)HW_INV_PHASE_R, fabsf(fModR), (fModR >= 0.0f) ? 1U : 0U);
-    Hw_InvSetDuty((Uint16)HW_INV_PHASE_S, fabsf(fModS), (fModS >= 0.0f) ? 1U : 0U);
-    Hw_InvSetDuty((Uint16)HW_INV_PHASE_T, fabsf(fModT), (fModT >= 0.0f) ? 1U : 0U);
-
-    /* MUX 轮换：保持与正常模式相同的采样节奏 */
-    gCtrlMuxIdx++;
-    if (gCtrlMuxIdx >= (Uint16)CTRL_MUX_TABLE_NUM)
-    {
-        gCtrlMuxIdx = 0U;
-    }
-
-    gCtrlMuxAddr = gCtrlMuxTable[gCtrlMuxIdx];
-    CtrlMuxWrite(gCtrlMuxAddr);
-    CpuToCla1Msg.u16MuxAddr = gCtrlMuxAddr;
-
-    /* 观测影子 */
-    gCtrlObsThetaDeg  = gCtrlTheta * 57.2957795F;
-    gCtrlObsGridFreq  = CTRL_TEST_FREQ_HZ;
-    gCtrlObsModIndex  = CTRL_TEST_MOD_INDEX;
-    gCtrlObsModActual = CTRL_TEST_MOD_INDEX;
-    gCtrlObsAuthState = (Uint16)CTRL_AUTH_ON;
-    gCtrlObsAuthFlags = (Uint16)CTRL_AUTH_FLAG_TEST;
-    gCtrlObsFault     = gCtrlFault;
-
-    gCtrlCycleCnt++;
-}
-
 /* 控制中断主体 */
-/* 台架专用诊断：GPIO16 = EPWM9A(PV2)。
- * 其他 ePWM 输出脚都是 (GMUX=00,MUX=01) 就能出波，唯独 GPIO16 不出，
- * 高度怀疑该引脚的 EPWM9A 不在 PERIPH1 这一列。
- * 每 5 秒（20kHz × 100000）换一个 (GMUX,MUX) 候选，1..15 循环，
- * 示波器一旦看到 20kHz / 30% 方波，立刻读 gCtrlDiagMuxCand 即为正确复用号。
- * 台架专用：GPIO16 可能被临时映射成别的外设，仅功率级不带电时使用。 */
-#if (CTRL_TEST_MUX_SWEEP != 0)
-static void CtrlTestMuxSweep(void)
-{
-    static Uint32 sSweepCnt = 0UL;
-
-    sSweepCnt++;
-    if (sSweepCnt < 100000UL)
-    {
-        return;
-    }
-
-    sSweepCnt = 0UL;
-    gCtrlDiagMuxCand++;
-    if ((gCtrlDiagMuxCand < 1U) || (gCtrlDiagMuxCand > 15U))
-    {
-        gCtrlDiagMuxCand = 1U;
-    }
-
-    EALLOW;
-    GpioCtrlRegs.GPAGMUX2.bit.GPIO16 = (Uint16)((gCtrlDiagMuxCand >> 2U) & 0x3U);
-    GpioCtrlRegs.GPAMUX2.bit.GPIO16  = (Uint16)(gCtrlDiagMuxCand & 0x3U);
-    EDIS;
-}
-#endif
-
 void CtrlIsrRun(void)
 {
     float fValpha;
@@ -530,23 +375,6 @@ void CtrlIsrRun(void)
         {
             gCtrlFault = (Uint16)CTRL_FAULT_OVERCURRENT;
         }
-    }
-
-    /* ---------- 2b. 台架发波：开环角度 + 固定调制比，不判故障 ---------- */
-    if (CTRL_TEST_PWM_MODE != 0)
-    {
-        /* 静态台架：波形由 CtrlTestPwmStart 一次写死，这里绝不能再改逆变，
-         * 否则 ISR 每 50us 覆盖一次 CMPA/AQCSFRC，读回的是 ISR 的中间值，
-         * 现场看到的 CMPA=2 / AQCSFRC=5 就是被这里覆盖的结果。 */
-        if (CTRL_TEST_DYNAMIC != 0)
-        {
-            CtrlTestRun();
-        }
-#if (CTRL_TEST_MUX_SWEEP != 0)
-        CtrlTestMuxSweep();
-#endif
-        AdcSampleFast();
-        return;
     }
 
     if (gCtrlFault != (Uint16)CTRL_FAULT_NONE)
@@ -750,7 +578,7 @@ void CtrlClearFault(void)
     gCtrlObsModActual = gCtrlModActual;
 }
 
-/* ==================== 发波授权 / 台架发波的对外接口 ==================== */
+/* ==================== 发波授权对外接口 ==================== */
 
 Uint16 CtrlGetAuthState(void)
 {
@@ -765,215 +593,4 @@ float CtrlGetModActual(void)
 Uint16 CtrlGetAuthFlags(void)
 {
     return gCtrlAuthFlags;
-}
-
-/* 台架发波：把逆变六路、PV 四路、半母线平衡桥从软件钳位态释放。
- * 只在 CTRL_TEST_PWM_MODE = 1 时由 StartSystem() 调用。 */
-/* 台架专用：把一路 ePWM 的跳闸闸门整个拆掉（TZSEL/TZCTL 全 0），
- * 并把它自己的强制位清零（AQCSFRC=0 才算真正放行输出）。
- * 功率级不带电时才允许这么干，正式固件必须靠 TZ 保护。 */
-#define CTRL_TEST_TZ_PURGE(pwmRegs)                 \
-    do {                                            \
-        EALLOW;                                     \
-        (pwmRegs).TZSEL.all   = 0x0000U;            \
-        (pwmRegs).TZDCSEL.all = 0x0000U;            \
-        (pwmRegs).TZCLR.all   = 0xFFFFU;            \
-        (pwmRegs).TZCTL.all   = 0xFFFFU;            \
-        (pwmRegs).AQCSFRC.all = 0x0000U;            \
-        EDIS;                                       \
-    } while (0)
-
-void CtrlTestPwmStart(void)
-{
-    static const Uint16 sTestPvPwmId[4] = {HW_PWM_ID6, HW_PWM_ID8, HW_PWM_ID4, HW_PWM_ID5};
-    Uint16 i;
-    Uint16 u16Cmp;
-
-    /* 先把 OST 锁存清掉，再把 11 路（不含风扇 EPWM12）的跳闸闸门整个拆掉。
-     * 用户实测故障脚全高却仍被封波，说明压住输出的是 TZ 侧，
-     * 台架阶段直接把 TZSEL/TZCTL 归零，让输出只受 AQCTL / CMPA 控制。 */
-    Hw_PwmClearAllTripZone();
-
-    CTRL_TEST_TZ_PURGE(EPwm1Regs);
-    CTRL_TEST_TZ_PURGE(EPwm2Regs);
-    CTRL_TEST_TZ_PURGE(EPwm3Regs);
-    CTRL_TEST_TZ_PURGE(EPwm4Regs);
-    CTRL_TEST_TZ_PURGE(EPwm5Regs);
-    CTRL_TEST_TZ_PURGE(EPwm6Regs);
-    CTRL_TEST_TZ_PURGE(EPwm7Regs);
-    CTRL_TEST_TZ_PURGE(EPwm8Regs);
-    CTRL_TEST_TZ_PURGE(EPwm9Regs);
-    CTRL_TEST_TZ_PURGE(EPwm10Regs);
-    CTRL_TEST_TZ_PURGE(EPwm11Regs);
-
-    /* 逆变六路：初值给 0% 占空比（UPDOWN + CAU=SET/CAD=CLEAR 时 CMPA=TBPRD 即无脉冲），
-     * 真正的三电平单极性波形由 20 kHz 控制中断里的 CtrlTestRun() -> Hw_InvSetDuty() 生成：
-     *   正半周：正桥臂(EPWM1/2/3)斩波，负桥臂(EPWM4/10/11)两管全关、相点钳中点；
-     *   负半周：负桥臂(EPWM4/10/11)斩波，正桥臂钳中点；过零两拍换相。
-     * 这样上电瞬间不会出现六个桥臂同时 50% 对打。 */
-    Hw_PwmSetCmpA(HW_PWM_ID0,  2500U);
-    Hw_PwmSetCmpA(HW_PWM_ID1,  2500U);
-    Hw_PwmSetCmpA(HW_PWM_ID2,  2500U);
-    Hw_PwmSetCmpA(HW_PWM_ID3,  2500U);
-    Hw_PwmSetCmpA(HW_PWM_ID9,  2500U);
-    Hw_PwmSetCmpA(HW_PWM_ID10, 2500U);
-
-    /* PV 四路 Boost：ZRO 置高、CAU 置低，占空比 = CMPA / 周期 = 1500/5000 = 30% */
-    u16Cmp = (Uint16)((CTRL_TEST_PV_DUTY * (float)CTRL_TEST_PV_PERIOD) + 0.5f);
-
-    for (i = 0U; i < 4U; i++)
-    {
-        Hw_PwmSetCmpA(sTestPvPwmId[i], u16Cmp);
-    }
-
-    /* PV 四路再绕过驱动层直接写一遍，排除任何封装/链路副作用：
-     *   AQCTLA = 0x0012 => ZRO=SET(0x2) + CAU=CLEAR(0x1)，UP 计数下高电平占 CMPA/PRD
-     *   AQCSFRC = 0     => 撤掉 A/B 强制
-     *   TBCTL.CTRMODE  => UP
-     * 然后把每路的 AQCTLA / CMPA / TBCTL / TBCTR 抓进快照，
-     * 若 EPWM6 与 EPWM5/7/9 快照完全一致而只有 6 出波，问题就在芯片外（引脚/驱动/测量点）。 */
-    EPwm7Regs.AQCTLA.all  = 0x0012U;
-    EPwm7Regs.AQCSFRC.all = 0x0000U;
-    EPwm7Regs.CMPA.bit.CMPA = u16Cmp;
-    EPwm7Regs.TBCTL.bit.CTRMODE = TB_COUNT_UP;
-
-    EPwm9Regs.AQCTLA.all  = 0x0012U;
-    EPwm9Regs.AQCSFRC.all = 0x0000U;
-    EPwm9Regs.CMPA.bit.CMPA = u16Cmp;
-    EPwm9Regs.TBCTL.bit.CTRMODE = TB_COUNT_UP;
-
-    EPwm5Regs.AQCTLA.all  = 0x0012U;
-    EPwm5Regs.AQCSFRC.all = 0x0000U;
-    EPwm5Regs.CMPA.bit.CMPA = u16Cmp;
-    EPwm5Regs.TBCTL.bit.CTRMODE = TB_COUNT_UP;
-
-    EPwm6Regs.AQCTLA.all  = 0x0012U;
-    EPwm6Regs.AQCSFRC.all = 0x0000U;
-    EPwm6Regs.CMPA.bit.CMPA = u16Cmp;
-    EPwm6Regs.TBCTL.bit.CTRMODE = TB_COUNT_UP;
-
-    /* 逆变六路同样直写 AQ：UPDOWN + CAU=SET(0x2@bits5:4) + CAD=CLEAR(0x1@bits7:6) = 0x0060 */
-    EPwm1Regs.AQCTLA.all  = 0x0060U;
-    EPwm1Regs.AQCSFRC.all = 0x0000U;
-    EPwm2Regs.AQCTLA.all  = 0x0060U;
-    EPwm2Regs.AQCSFRC.all = 0x0000U;
-    EPwm3Regs.AQCTLA.all  = 0x0060U;
-    EPwm3Regs.AQCSFRC.all = 0x0000U;
-    EPwm4Regs.AQCTLA.all  = 0x0060U;
-    EPwm4Regs.AQCSFRC.all = 0x0000U;
-    EPwm10Regs.AQCTLA.all = 0x0060U;
-    EPwm10Regs.AQCSFRC.all = 0x0000U;
-    EPwm11Regs.AQCTLA.all = 0x0060U;
-    EPwm11Regs.AQCSFRC.all = 0x0000U;
-
-    /* 半母线平衡桥 EPWM8：CMPA 由配置表置 1250 => 50%，这里不用再动 */
-
-    Hw_TrigGlobalLoad();
-
-    /* --- 台架静态自检：一次烧写就能判定载波与强制位 --- */
-    gCtrlDiagTbCtlInv   = EPwm1Regs.TBCTL.all;
-    gCtrlDiagAqcsfrcInv = EPwm1Regs.AQCSFRC.all;
-    gCtrlDiagCmpaInv    = EPwm1Regs.CMPA.bit.CMPA;
-    gCtrlDiagTzflgInv   = EPwm1Regs.TZFLG.all;
-    gCtrlDiagTzselInv   = EPwm1Regs.TZSEL.all;
-    gCtrlDiagTbCtrA     = EPwm1Regs.TBCTR;
-    gCtrlDiagTbCtrPvA   = EPwm7Regs.TBCTR;
-
-    /* EPWM4 = R 相负半周，修好相配置表后它必须被写进 1250 */
-    gCtrlDiagInv2Cmpa    = EPwm4Regs.CMPA.bit.CMPA;
-    gCtrlDiagInv2Aqcsfrc = EPwm4Regs.AQCSFRC.all;
-    gCtrlDiagInv2Tzctl   = EPwm4Regs.TZCTL.all;
-
-    /* EPWM7 = PV1 组主，静态值应为 CMPA=1500、AQCSFRC=0、AQCTLA 的 ZRO=SET/CAU=CLEAR */
-    gCtrlDiagPvCmpa    = EPwm7Regs.CMPA.bit.CMPA;
-    gCtrlDiagPvAqcsfrc = EPwm7Regs.AQCSFRC.all;
-    gCtrlDiagPvAqctla  = EPwm7Regs.AQCTLA.all;
-    gCtrlDiagPvTzctl   = EPwm7Regs.TZCTL.all;
-    gCtrlDiagPvGldctl  = EPwm7Regs.GLDCTL.all;
-    gCtrlDiagPvTbprd   = EPwm7Regs.TBPRD;
-    gCtrlDiagPvXlink   = EPwm7Regs.EPWMXLINK.all;
-
-    /* EPWM8 = 半母线平衡桥，B 通道要靠死区模块反相生成 */
-    gCtrlDiagBusDbctl  = EPwm8Regs.DBCTL.all;
-    gCtrlDiagBusAqctlb = EPwm8Regs.AQCTLB.all;
-
-    /* GPIO0~15 的复用与 GMUX，确认 EPWM1A/4A/7A/8B 对应的脚确实选了 ePWM */
-    gCtrlDiagGpioMuxA1  = GpioCtrlRegs.GPAMUX1.all;
-    gCtrlDiagGpioGmuxA1 = GpioCtrlRegs.GPAGMUX1.all;
-    /* GPIO16~31 的复用：GPIO16 = EPWM9A(PV2)，在 GPAMUX2 里 */
-    gCtrlDiagGpioMuxA2  = GpioCtrlRegs.GPAMUX2.all;
-    gCtrlDiagGpioGmuxA2 = GpioCtrlRegs.GPAGMUX2.all;
-
-    /* EPWM1 死区控制字：修正后应为 0x000B（OUT_MODE=3, POLSEL=2, IN_MODE=0） */
-    gCtrlDiagInvDbctl = EPwm1Regs.DBCTL.all;
-
-    /* PV 四路逐模块快照：[0]=EPWM7 [1]=EPWM9 [2]=EPWM5 [3]=EPWM6 */
-    gCtrlDiagPvAq[0]  = EPwm7Regs.AQCTLA.all;
-    gCtrlDiagPvAq[1]  = EPwm9Regs.AQCTLA.all;
-    gCtrlDiagPvAq[2]  = EPwm5Regs.AQCTLA.all;
-    gCtrlDiagPvAq[3]  = EPwm6Regs.AQCTLA.all;
-
-    gCtrlDiagPvCmp[0] = EPwm7Regs.CMPA.bit.CMPA;
-    gCtrlDiagPvCmp[1] = EPwm9Regs.CMPA.bit.CMPA;
-    gCtrlDiagPvCmp[2] = EPwm5Regs.CMPA.bit.CMPA;
-    gCtrlDiagPvCmp[3] = EPwm6Regs.CMPA.bit.CMPA;
-
-    gCtrlDiagPvCtl[0] = EPwm7Regs.TBCTL.all;
-    gCtrlDiagPvCtl[1] = EPwm9Regs.TBCTL.all;
-    gCtrlDiagPvCtl[2] = EPwm5Regs.TBCTL.all;
-    gCtrlDiagPvCtl[3] = EPwm6Regs.TBCTL.all;
-
-    gCtrlDiagPvRun[0] = EPwm7Regs.TBCTR;
-    gCtrlDiagPvRun[1] = EPwm9Regs.TBCTR;
-    gCtrlDiagPvRun[2] = EPwm5Regs.TBCTR;
-    gCtrlDiagPvRun[3] = EPwm6Regs.TBCTR;
-
-    for (i = 0U; i < 4000U; i++)
-    {
-        asm(" NOP");
-    }
-
-    gCtrlDiagTbCtrB     = EPwm1Regs.TBCTR;
-    gCtrlDiagTbCtrPvB   = EPwm7Regs.TBCTR;
-    gCtrlDiagTbCtrC     = EPwm4Regs.TBCTR;
-    gCtrlDiagTbCtrD     = EPwm8Regs.TBCTR;
-
-    /* --- X-BAR 链路快照：PV1~PV4 的引脚到底有没有接进 TRIP4/5/7/8 --- */
-    gCtrlDiagXbarIn[0] = InputXbarRegs.INPUT1SELECT;
-    gCtrlDiagXbarIn[1] = InputXbarRegs.INPUT2SELECT;
-    gCtrlDiagXbarIn[2] = InputXbarRegs.INPUT3SELECT;
-    gCtrlDiagXbarIn[3] = InputXbarRegs.INPUT4SELECT;
-    gCtrlDiagXbarIn[4] = InputXbarRegs.INPUT5SELECT;
-    gCtrlDiagXbarIn[5] = InputXbarRegs.INPUT6SELECT;
-
-    gCtrlDiagTripCfg[0] = (Uint16)EPwmXbarRegs.TRIP4MUX0TO15CFG.all;
-    gCtrlDiagTripCfg[1] = (Uint16)EPwmXbarRegs.TRIP5MUX0TO15CFG.all;
-    gCtrlDiagTripCfg[2] = (Uint16)EPwmXbarRegs.TRIP7MUX0TO15CFG.all;
-    gCtrlDiagTripCfg[3] = (Uint16)EPwmXbarRegs.TRIP8MUX0TO15CFG.all;
-
-    gCtrlDiagTripEn[0] = (Uint16)EPwmXbarRegs.TRIP4MUXENABLE.all;
-    gCtrlDiagTripEn[1] = (Uint16)EPwmXbarRegs.TRIP5MUXENABLE.all;
-    gCtrlDiagTripEn[2] = (Uint16)EPwmXbarRegs.TRIP7MUXENABLE.all;
-    gCtrlDiagTripEn[3] = (Uint16)EPwmXbarRegs.TRIP8MUXENABLE.all;
-
-    gCtrlDiagGpioADat = GpioDataRegs.GPADAT.all;
-    gCtrlDiagGpioADir = GpioCtrlRegs.GPADIR.all;
-    gCtrlDiagGpioBDat = GpioDataRegs.GPBDAT.all;
-    gCtrlDiagGpioBDir = GpioCtrlRegs.GPBDIR.all;
-
-    /* TZ 拆完之后每路的 TZFLG 必须为 0，TZDCSEL 也必须为 0 */
-    gCtrlDiagPvTzflg[0] = EPwm7Regs.TZFLG.all;
-    gCtrlDiagPvTzflg[1] = EPwm9Regs.TZFLG.all;
-    gCtrlDiagPvTzflg[2] = EPwm5Regs.TZFLG.all;
-    gCtrlDiagPvTzflg[3] = EPwm6Regs.TZFLG.all;
-
-    gCtrlDiagPvDcsel[0] = EPwm7Regs.TZDCSEL.all;
-    gCtrlDiagPvDcsel[1] = EPwm9Regs.TZDCSEL.all;
-    gCtrlDiagPvDcsel[2] = EPwm5Regs.TZDCSEL.all;
-    gCtrlDiagPvDcsel[3] = EPwm6Regs.TZDCSEL.all;
-
-    gCtrlAuthState = (Uint16)CTRL_AUTH_ON;
-    gCtrlModActual = CTRL_TEST_MOD_INDEX;
-    gCtrlObsAuthState = gCtrlAuthState;
-    gCtrlObsModActual = gCtrlModActual;
 }

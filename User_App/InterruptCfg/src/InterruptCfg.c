@@ -125,14 +125,6 @@ __interrupt void Isr_CpuTimer1(void)
         }
     }
 
-    /* 台架模式存活计数：定时器中断真进来了这个值就会持续增长。
-     * 注意：控制主体只能由 CLA1_1（20 kHz）单点驱动，这里绝不能再调 CtrlIsrRun()，
-     * 否则 10 kHz 与 20 kHz 两个 ISR 会互相覆盖 Hw_InvSetDuty 的换相状态。 */
-    if (CTRL_TEST_PWM_MODE != 0)
-    {
-        gCtrlTestTmrCnt++;
-    }
-
     /* 核心中断 INT13 不经 PIE，这里不写 PIEACK */
 }
 
@@ -150,16 +142,6 @@ __interrupt void Isr_CpuTimer2(void)
 /* CLA1 Task1 完成中断：20kHz 控制中断 */
 __interrupt void Isr_Cla1Task1(void)
 {
-    /* 台架调试计数：ADC->CLA 触发链通了的话这个数会一直涨 */
-    gCtrlTestClaCnt++;
-
-    /* CPU Timer1 现场快照：CLA1_1 以 20 kHz 在跑，借它采样组 1 的状态 */
-    gCtrlDiagPieIfr1 = PieCtrlRegs.PIEIFR1.all;
-    gCtrlDiagPieAck  = PieCtrlRegs.PIEACK.all;
-    gCtrlDiagT1Tcr   = CpuTimer1Regs.TCR.all;
-    gCtrlDiagT1Tim   = CpuTimer1Regs.TIM.all;
-    gCtrlDiagIer     = IER;
-
     /* 控制主体：ADC->CLA 触发链已实测为通，20 kHz 主体就挂在这里 */
     CtrlIsrRun();
 
@@ -202,9 +184,6 @@ __interrupt void Isr_Xint1(void)
 {
     Hw_ExitIsr((Uint16)HW_XINT_ID1);
 
-    /* 诊断：XINT1 触发次数，涨得飞快说明组 1 被它淹没，Timer1 会被饿死 */
-    gCtrlDiagXint1Cnt++;
-
     /* 应答 PIE 组 1 */
     PieCtrlRegs.PIEACK.all = PIEACK_GROUP1;
 }
@@ -213,9 +192,6 @@ __interrupt void Isr_Xint1(void)
 __interrupt void Isr_Xint2(void)
 {
     Hw_ExitIsr((Uint16)HW_XINT_ID2);
-
-    /* 诊断：XINT2 触发次数 */
-    gCtrlDiagXint2Cnt++;
 
     /* 应答 PIE 组 1 */
     PieCtrlRegs.PIEACK.all = PIEACK_GROUP1;

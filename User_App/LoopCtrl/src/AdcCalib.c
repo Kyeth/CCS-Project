@@ -18,7 +18,7 @@
  * @note    与 EP5K 的对应关系：
  *          EP5K《Sample.c》用 int16 系数 K，换算 (K*raw>>12)*0.1；
  *          本工程用 float 系数，换算 (raw-zero)*scale，两者数学等价，
- *          但本工程把零点与比例解耦，台架标定时可以分别修。
+ *          但本工程把零点与比例解耦，现场标定时可以分别修。
  *
  * @copyright Copyright (c) 2026
  ******************************************************************************/
@@ -96,7 +96,7 @@ volatile Uint16 gAdcCalTrackCnt  = 0U;
 volatile int16  gAdcCalObsGfciMa = 0;
 volatile int16  gAdcCalObsBalCur = 0;
 
-/* 生效中的零点与系数（初值来自标称表，运行中可被台架标定改写） */
+/* 生效中的零点与系数（初值来自标称表，运行中可被现场标定改写） */
 static float sZeroCode[ADC_CAL_CH_NUM];
 static float sScale[ADC_CAL_CH_NUM];
 /* 本拍码值（12 位域） */
@@ -230,7 +230,7 @@ static void AdcCalibZeroTrackStep(void)
                 }
                 else
                 {
-                    /* 超差：保留标称零点，等台架标定，状态置 FAILED */
+                    /* 超差：保留标称零点，等现场标定，状态置 FAILED */
                     u16Fail = 1U;
                 }
             }

@@ -134,27 +134,16 @@ void TaskCreate(void)
 
     /* 硬件保护：调度节拍 100us，1 个节拍跑一次 = 10kHz，
      * 与 EP5K 的 HandleProtect 同频，漏桶门限（400 次 / 5ms 静默）直接沿用 */
-    /* 台架发波模式（CTRL_TEST_PWM_MODE=1）下不调度：功率级不带电，
-     * 比较器输入悬空可能产生假跳闸，ProtectLatchFault() 会 TZFRC.OST
-     * 把六路输出永久锁低，台架就看不到驱动信号了。 */
-    if (CTRL_TEST_PWM_MODE == 0)
-    {
-        Task_Start(&ProtectTask, NULL, 1U, 3U);
-    }
+    Task_Start(&ProtectTask, NULL, 1U, 3U);
 
     /* 对外采样量：调度节拍 100us，10 个节拍 = 1kHz 刷新 gAdcPub
      * （RMS 一个工频周期收口一次，直流量 1ms 块平均后一阶滞后） */
     Task_Start(&AdcSampleTask, NULL, 10U, 5U);
     Task_Start(&AtsProtoTask, NULL, 1000U, 6U);
     Task_Start(&AtsCtlTask,    NULL,   10U, 7U);    /* 1ms：ATS 状态去抖与动作超时 */
-    /* 状态机三件套：台架发波模式（CTRL_TEST_PWM_MODE = 1）下全部不调度，
-     * 否则 InvSm 会把发波请求撤掉、PvSm 会把 PV 四路占空比写回 0。 */
-    if (CTRL_TEST_PWM_MODE == 0)
-    {
-        Task_Start(&InvSmTask,     NULL,    1U, 8U);    /* 10kHz：逆变状态机 */
-        Task_Start(&SysSmTask,     NULL,   10U, 9U);    /* 1kHz：系统总状态机 */
-        Task_Start(&PvSmTask,      NULL,    1U, 10U);   /* 10kHz：PV 状态机 + 电压环/电流环 + MPPT */
-    }
+    Task_Start(&InvSmTask,     NULL,    1U, 8U);    /* 10kHz：逆变状态机 */
+    Task_Start(&SysSmTask,     NULL,   10U, 9U);    /* 1kHz：系统总状态机 */
+    Task_Start(&PvSmTask,      NULL,    1U, 10U);   /* 10kHz：PV 状态机 + 电压环/电流环 + MPPT */
 }
 
 /**
@@ -171,7 +160,6 @@ void TaskCreate(void)
  *         gCtrlModIndex > 0            调制比请求值（CtrlSetModIndex() 设置）
  *       状态机额外要求"无故障 + 零漂标定完成"，并等 10ms 后按 40/s 的斜率
  *       把实际调制比爬到请求值；撤销请求时按 80/s 降回 0 再封波。
- *       台架发波模式（CTRL_TEST_PWM_MODE = 1）跳过以上全部，直接出驱动信号。
  */
 void StartSystem(void)
 {
@@ -184,17 +172,8 @@ void StartSystem(void)
     /* 3. 放出全部 ePWM 时基，开始产生 SOC 触发链 */
     Hw_EnableAllPwmCLKSync();
 
-    /* 4. 台架发波模式：不走授权流程，直接把逆变/PV/平衡桥释放，开始出驱动信号；
-     *    正常固件保持"授权请求关闭"，等 InvSm 走到 CHK/SOFT 才申请发波。 */
-    if (CTRL_TEST_PWM_MODE != 0)
-    {
-        CtrlSetPwmEnable(1U);
-        CtrlTestPwmStart();
-    }
-    else
-    {
-        CtrlSetPwmEnable(0U);
-    }
+    /* 4. 上电保持发波请求关闭，等 InvSm 走到 CHK/SOFT 才由状态机申请发波 */
+    CtrlSetPwmEnable(0U);
 
     /* 5. 使能硬件看门狗。
      *    F2837xS 看门狗由 10MHz 内部振荡器驱动，8 位计数配合最大 64 分频，

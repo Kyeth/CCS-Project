@@ -211,7 +211,7 @@ extern float AdcCalibDc(Uint16 u16Idx);
 
 /**
  * @brief  读/写零点（码值）、读写系数（工程值/码值）
- * @note   写入后立即生效，下一拍刷新即用新值；用于台架标定（接标准源，
+ * @note   写入后立即生效，下一拍刷新即用新值；用于现场标定（接标准源，
  *         先用 AdcCalibSetScale 修系数，再用 AdcCalibSetZeroCode 修零点）
  */
 extern float AdcCalibGetZeroCode(Uint16 u16Ch);
