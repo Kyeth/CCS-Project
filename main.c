@@ -134,7 +134,7 @@ void TaskCreate(void)
 
     /* 硬件保护：调度节拍 100us，1 个节拍跑一次 = 10kHz，
      * 与 EP5K 的 HandleProtect 同频，漏桶门限（400 次 / 5ms 静默）直接沿用 */
-    Task_Start(&ProtectTask, NULL, 1U, 3U);
+    /* 保护判定已迁入 20kHz 控制中断（÷2 = 10kHz），见 CtrlIsr.c 的 CtrlSmSchedulerRun() */
 
     /* 对外采样量：调度节拍 100us，10 个节拍 = 1kHz 刷新 gAdcPub
      * （RMS 一个工频周期收口一次，直流量 1ms 块平均后一阶滞后） */

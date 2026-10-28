@@ -147,15 +147,13 @@ void ProtectTaskInit(void)
     Hw_ExitClearAll();
 }
 
-/* 10kHz 判定任务。 */
-void ProtectTask(void *pArgV)
+/* 10kHz 判定：由 20kHz 控制中断 ÷2 驱动。 */
+void RunProtectTask(void)
 {
     Uint16 u16OcEvt;
     Uint16 u16ShortEvt;
     Uint16 u16TripCnt;
     Uint16 u16CleanTick;
-
-    (void)pArgV;
 
     gProtectTick++;
 

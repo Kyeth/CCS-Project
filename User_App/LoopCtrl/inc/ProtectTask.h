@@ -74,8 +74,8 @@ extern "C" {
 /* 初始化：清漏桶与锁存，需在 EINT 之后、任务启动之前调用 */
 extern void ProtectTaskInit(void);
 
-/* 10kHz 判定任务，挂 Task_Start(&ProtectTask, NULL, 1U, 3U) */
-extern void ProtectTask(void *pArgV);
+/* 10kHz 判定：由 20kHz 控制中断 ÷2 驱动，不再挂后台任务 */
+extern void RunProtectTask(void);
 
 /* 查询故障锁存位（Modbus 只读镜像也读这个） */
 extern Uint16 ProtectGetFaultFlags(void);

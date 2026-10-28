@@ -26,6 +26,7 @@
 #include "PvStateMachine.h"
 #include "SystemStateMachine.h"
 #include "BusStateMachine.h"
+#include "ProtectTask.h"
 
 #include <math.h>
 
@@ -124,6 +125,7 @@ static float CtrlWrapTheta(float fTheta)
 /* ==================== 状态机分层调度 ====================
  * 20kHz 控制中断是唯一节拍源，状态机按固定整数拍分频，抖动由硬件保证。
  * 分频只决定状态机多久跑一次，控制环路（PLL + 调制 + 下发）仍每拍 20kHz。
+ *   Protect÷2 -> 10kHz（软件保护判定，先于状态机执行）
  *   Inv    ÷2  -> 10kHz（含 PV 电压/电流环，环路上限要求 10kHz）
  *   Bus    ÷4  ->  5kHz
  *   Pv     ÷2  -> 10kHz（与 Inv 同拍，PI 环率不变；MPPT 外层由状态内计数器分频）
@@ -143,6 +145,7 @@ static void CtrlSmSchedulerRun(void)
     if (gCtrlSmDivInvPv >= CTRL_SM_DIV_INV_PV)
     {
         gCtrlSmDivInvPv = 0U;
+        RunProtectTask();        /* 软件保护判定先跑，本拍结论供状态机读取 */
         RunInvStateMachine();
         RunPvStateMachine();
     }
