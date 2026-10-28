@@ -37,14 +37,6 @@
 #include "InvStateMachine.h"
 #include "CtrlIsr.h"           /* 发波授权状态机的观测镜像 */
 
-/* ===================== 上位机调试用的演示变量 ===================== */
-
-/* 一行 16 位参考：地址 100 */
-Uint16 gMbPcDemoWord = 0U;
-
-/* 一行 32 位浮点参考：地址 102（占 102~103） */
-float32 gMbPcDemoFloat = 0.0F;
-
 /* 掉电保存示范变量：地址 31 / 32，写属性带 SAVE 位。
  * 这两个变量只是示范，正式点表里任何一个变量都可以照此标记。 */
 Uint16  gMbSavedDemoWord  = 1234U;
@@ -191,7 +183,4 @@ const ST_MB_REG_ITEM stMbRegItemPc[MB_PC_REG_MAX] =
     {88U, MB_VAL_U32, MB_RW_READ_ONLY, (void *)&stCtrlMargin.u32AccCnt,    0, 4294967295U}, /* 累计占用周期数 */
     {89U, MB_VAL_U16, MB_RW_READ_ONLY, (void *)&stCtrlMargin.u16SampleCnt, 0, 65535U},  /* 采样拍数 */
 
-    /* ---------- 100 以后：调试变量区，按需往下加 ---------- */
-    {100U, MB_VAL_U16, MB_RW_WRITE, (void *)&gMbPcDemoWord,   0, 65535U},
-    {102U, MB_VAL_F32, MB_RW_WRITE, (void *)&gMbPcDemoFloat, -10000, 10000U},
 };
