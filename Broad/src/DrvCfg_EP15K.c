@@ -362,8 +362,8 @@ const ST_ADC_CH_CFG_ITEM stAdcChCfgItem[] =
     {5, 60,  5}, {0, 0,  0}, {0, 0,  0}, {5, 30,  4},   /* SOC5  : A5 R相电网电压                                  D4 平衡电路电流 */
     {5, 60,  0}, {0, 0,  0}, {0, 0,  0}, {5, 30, 15},   /* SOC6  : A0 T相逆变电压                                  D15 PV4电流 */
     {5, 60,  1}, {0, 0,  0}, {0, 0,  0}, {0, 0,  0},   /* SOC7  : A1 S相电网电压 */
-    {6, 100, 2}, {0, 0,  0}, {0, 0,  0}, {6, 30,  2},   /* SOC8  : A2/D2 逆变电流第二采（PRD），A2 放慢作 ADCINT2 锚点 */
-    {0, 0,  0}, {0, 0,  0}, {0, 0,  0}, {6, 30, 14},   /* SOC9  : D14 R相逆变电流第二采（PRD） */
+    {6, 30,  2}, {0, 0,  0}, {0, 0,  0}, {6, 30,  2},   /* SOC8  : A2/D2 逆变电流第二采（PRD，ACQPS 与 R/S 相同，保证三相对齐） */
+    {6, 120, 0}, {0, 0,  0}, {0, 0,  0}, {6, 30, 14},   /* SOC9  : A0 占位锚点（PRD，2.7us 慢转）+ D14 R相逆变电流第二采（PRD） */
     {0, 0,  0}, {0, 0,  0}, {0, 0,  0}, {0, 0,  0},   /* SOC10 */
     {0, 0,  0}, {0, 0,  0}, {0, 0,  0}, {0, 0,  0},   /* SOC11 */
     {0, 0,  0}, {0, 0,  0}, {0, 0,  0}, {0, 0,  0},   /* SOC12 */
@@ -386,7 +386,7 @@ const ST_ADC_CH_CFG_ITEM stAdcChCfgItem[] =
 const ST_ADC_CFG_ITEM stAdcCfgItem[] =
 {
     /* ADC-A：12位单端，SOC15转换完成产生ADCINT1，用于触发CLA Task1 */
-    {HW_ADC_ID0, &stAdcChCfgItem[0], HW_ADC_RESOLUTION_12BIT, HW_ADC_SIGNALMODE_SINGLE, 1U, 15U, 1U, 8U},
+    {HW_ADC_ID0, &stAdcChCfgItem[0], HW_ADC_RESOLUTION_12BIT, HW_ADC_SIGNALMODE_SINGLE, 1U, 15U, 1U, 9U},
 
     /* ADC-B：12位单端，不使用ADC中断 */
     {HW_ADC_ID1, &stAdcChCfgItem[1], HW_ADC_RESOLUTION_12BIT, HW_ADC_SIGNALMODE_SINGLE, 0U, 0U},
