@@ -153,6 +153,11 @@ void CtrlIsrInit(void)
     stCtrlState.u16SeqLast = 0U;
     stCtrlState.u16SeqStall = 0U;
     stCtrlState.u16CycleCnt = 0U;
+    stCtrlState.u32ClaTotal = 0U;
+    stCtrlState.u16ClaBeat = 0U;
+    stCtrlState.u16ClaCnt = 0U;
+    stCtrlState.u16ClaBeatDiv = 0U;
+    stCtrlState.u16ClaSecCnt = 0U;
 
     stCtrlState.fModActual = 0.0f;
     stCtrlState.u16AuthState = (Uint16)CTRL_AUTH_OFF;
@@ -340,8 +345,6 @@ void CtrlIsrRun(void)
         stCtrlState.u16ProtectDiv++;
     }
 
-    stCtrlState.u16CycleCnt++;
-
     /* ---------- 0. ADC 标定刷新：码值 -> 工程值 ---------- */
     /* 本拍所有消费者（过流判定、PLL、软示波器）都从 AdcCalib 取数，
      * 保证同一拍看到的是同一份数据；上电零漂检测状态机也在里面推进 */
@@ -361,6 +364,24 @@ void CtrlIsrRun(void)
     {
         stCtrlState.u16SeqStall = 0U;
         stCtrlState.u16SeqLast = u16Seq;
+
+        /* 序号前进说明 CLA 任务本拍确实跑过，据此累计心跳 */
+        stCtrlState.u32ClaTotal++;
+
+        if (stCtrlState.u16ClaSecCnt < 0xFFFFU)
+        {
+            stCtrlState.u16ClaSecCnt++;
+        }
+
+        stCtrlState.u16ClaBeatDiv++;
+
+        if (stCtrlState.u16ClaBeatDiv >= CTRL_CLA_BEAT_DIV)
+        {
+            stCtrlState.u16ClaBeatDiv = 0U;
+            stCtrlState.u16ClaBeat++;
+            stCtrlState.u16ClaCnt = stCtrlState.u16ClaSecCnt;
+            stCtrlState.u16ClaSecCnt = 0U;
+        }
     }
 
     if (stCtrlState.u16SeqStall > CTRL_CLA_TIMEOUT_NUM)

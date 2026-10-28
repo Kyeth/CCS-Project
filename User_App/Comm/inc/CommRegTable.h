@@ -45,8 +45,8 @@ extern "C" {
 #define MB_ARM_REG_NUM              (ARM_POINT_NUM)
 
 /* ---- 上位机点表（SCI-D，GPIO93/94）：0~26 控制块 + 100 以后调试变量 ---- */
-#define MB_PC_REG_MAX               (106U)
-#define MB_PC_REG_NUM               (106U)
+#define MB_PC_REG_MAX               (111U)
+#define MB_PC_REG_NUM               (111U)
 /* 掉电保存示范变量：属性带 MB_RW_SAVE，上电自动回填 */
 extern Uint16  gMbSavedDemoWord;
 extern float32 gMbSavedDemoFloat;

@@ -75,3 +75,5 @@ C_SRCS__QUOTED += \
 "../User_App/LoopCtrl/src/ProtectTask.c" \
 "../User_App/LoopCtrl/src/SampleData.c" \
 "../User_App/LoopCtrl/src/User_ClaTaskMsgRam.c" 
+
+

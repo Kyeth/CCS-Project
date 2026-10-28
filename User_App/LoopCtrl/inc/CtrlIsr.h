@@ -47,7 +47,8 @@ extern "C" {
 #define CTRL_MOD_INDEX_MAX      (0.90f)
 
 /* CLA 心跳超时：连续 N 个控制周期 u16Seq 不变化即判定 CLA 停摆 */
-#define CTRL_CLA_TIMEOUT_NUM    (20U)
+#define CTRL_CLA_TIMEOUT_NUM    (20U)     /* 序号连续不变化的拍数上限，超过判 CLA 超时 */
+#define CTRL_CLA_BEAT_DIV       (20000U)  /* 1 秒心跳分频：20kHz / 20000 = 1Hz */
 
 /* ---------------- 发波授权状态机（在 20kHz 控制中断内裁定） ----------------
  * CtrlSetPwmEnable() 只是一个"请求"，真正能否把占空比写进 ePWM 由这里决定：
@@ -128,7 +129,12 @@ typedef struct
     Uint16 u16MuxAddr;          // 当前 MUX 选通地址
     Uint16 u16SeqLast;          // 上一拍 CLA 序号
     Uint16 u16SeqStall;         // CLA 序号停滞计数
-    Uint16 u16CycleCnt;         // 已运行控制拍数
+    Uint16 u16CycleCnt;          // 已运行控制拍数
+    volatile Uint32 u32ClaTotal; // CLA 累计完成拍数，上电起单调递增
+    volatile Uint16 u16ClaBeat;  // CLA 心跳：每 20000 拍 +1，即 1Hz
+    volatile Uint16 u16ClaCnt;   // 上一秒内 CLA 完成拍数，正常约 20000
+    Uint16 u16ClaBeatDiv;        // 心跳分频计数，仅本模块使用
+    Uint16 u16ClaSecCnt;         // 秒内完成拍数累加，仅本模块使用
     Uint16 u16ProtectDiv;       // 保护框架 10ms 分频计数
     Uint16 u16AuthState;        // CTRL_AUTH_xxx
     Uint16 u16AuthCnt;          // WAIT 态已等待拍数
