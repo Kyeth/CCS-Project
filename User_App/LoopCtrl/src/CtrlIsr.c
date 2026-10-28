@@ -21,6 +21,7 @@
 #include "AdcSample.h"
 #include "Schedule.h"
 #include "ProtectFault.h"
+#include "ProtectInput.h"
 
 #include <math.h>
 
@@ -209,6 +210,9 @@ void CtrlIsrInit(void)
     CpuToCla1Msg.fTheta = 0.0f;
 
     CtrlMuxWrite(gCtrlMuxAddr);
+
+    ProtectInit();
+    ProtectInputInit();
 }
 
 /* ==================== 发波授权 / 台架发波 ==================== */
@@ -458,6 +462,7 @@ void CtrlIsrRun(void)
     if (gCtrlProtectDiv >= 200U)
     {
         gCtrlProtectDiv = 0U;
+        ProtectInputRun10ms();
         ProtectRun10ms();
     }
     else
@@ -497,6 +502,12 @@ void CtrlIsrRun(void)
     if (Task_GetHealthFault() != 0U)
     {
         gCtrlFault = (Uint16)CTRL_FAULT_TASK_STALL;
+    }
+
+    /* ---------- 1c. 保护框架：未屏蔽的 STOP 及以上故障直接封锁发波 ---------- */
+    if (ProtectGetTotalSign() != 0U)
+    {
+        gCtrlFault = (Uint16)CTRL_FAULT_PROTECT;
     }
 
     /* ---------- 2. 过流封波检测（三路逆变电流瞬时值） ---------- */
@@ -727,6 +738,7 @@ void CtrlSetFault(Uint16 u16Fault)
 /* 清故障码：同时把调制比清零，要求重新给授权才可能再发波。 */
 void CtrlClearFault(void)
 {
+    ProtectReset();
     gCtrlFault = (Uint16)CTRL_FAULT_NONE;
     gCtrlObsFault = gCtrlFault;
     gCtrlModIndex = 0.0f;

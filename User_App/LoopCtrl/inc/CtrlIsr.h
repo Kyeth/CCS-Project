@@ -103,6 +103,7 @@ typedef enum
     CTRL_FAULT_HW_OC = 3U,                  /* 硬件逆变过流（XINT1 漏桶判定） */
     CTRL_FAULT_SHORT = 4U,                  /* 硬件短路（XINT2 窗口判定） */
     CTRL_FAULT_TASK_STALL = 5U,             /* 后台任务停摆（200ms 活性窗口） */
+    CTRL_FAULT_PROTECT = 6U,                /* 保护框架判定为停机级故障 */
     CTRL_FAULT_MAX
 } E_CTRL_FAULT;
 
