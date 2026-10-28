@@ -26,10 +26,9 @@ void ProtectInit(void)
 
     for (i = 0U; i < PROTECT_WORD_NUM; i++)
     {
-        stProtect.u16Status[i]      = 0U;
-        stProtect.u16Pending[i]     = 0U;
-        stProtect.u16Mask[i]        = 0U;
-        stProtect.u16MaskShadow[i]  = 0U;
+        stProtect.u16Status[i]  = 0U;
+        stProtect.u16Pending[i] = 0U;
+        stProtect.u16Mask[i]    = 0U;
     }
 
     for (i = 0U; i < PROTECT_PROTO_WORD_NUM; i++)
@@ -42,11 +41,9 @@ void ProtectInit(void)
         stProtect.u16DebounceCnt[i] = 0U;
     }
 
-    stProtect.u16ActionLevel       = (Uint16)PROTECT_SEV_INFO;
-    stProtect.u16TotalSign         = 0U;
-    stProtect.u16MaskKeepAlive     = 0U;
-    stProtect.u16MaskKeepAliveLast = 0U;
-    stProtect.u16MaskAgeMs         = PROTECT_MASK_HEARTBEAT_MS;
+    stProtect.u16ActionLevel  = (Uint16)PROTECT_SEV_INFO;
+    stProtect.u16TotalSign    = 0U;
+    stProtect.u16MaskClearCmd = 0U;
 }
 
 void ProtectTrigger(E_PROTECT_FAULT eFault)
@@ -92,18 +89,12 @@ void ProtectSetMask(Uint16 u16Word, Uint16 u16Mask)
     if (u16Word < PROTECT_WORD_NUM)
     {
         stProtect.u16Mask[u16Word] = u16Mask;
-        stProtect.u16MaskAgeMs = 0U;
     }
 }
 
 Uint16 ProtectGetMask(Uint16 u16Word)
 {
     return (u16Word < PROTECT_WORD_NUM) ? stProtect.u16Mask[u16Word] : 0U;
-}
-
-void ProtectMaskKeepAlive(void)
-{
-    stProtect.u16MaskAgeMs = 0U;
 }
 
 void ProtectReset(void)
@@ -236,33 +227,14 @@ void ProtectRun10ms(void)
     ProtectUpdateAction();
     ProtectUpdateProto();
 
-    /* 上位机改写屏蔽字或翻转心跳，都视为一次续期 */
-    for (i = 0U; i < PROTECT_WORD_NUM; i++)
-    {
-        if (stProtect.u16Mask[i] != stProtect.u16MaskShadow[i])
-        {
-            stProtect.u16MaskShadow[i]  = stProtect.u16Mask[i];
-            stProtect.u16MaskAgeMs      = 0U;
-        }
-    }
-
-    if (stProtect.u16MaskKeepAlive != stProtect.u16MaskKeepAliveLast)
-    {
-        stProtect.u16MaskKeepAliveLast = stProtect.u16MaskKeepAlive;
-        stProtect.u16MaskAgeMs         = 0U;
-    }
-
-    if (stProtect.u16MaskAgeMs < PROTECT_MASK_HEARTBEAT_MS)
-    {
-        stProtect.u16MaskAgeMs = (Uint16)(stProtect.u16MaskAgeMs + PROTECT_TICK_MS);
-    }
-    else
+    /* 屏蔽字直接生效、长期保持，不设心跳；写 1 到清除寄存器即全部恢复 */
+    if (stProtect.u16MaskClearCmd == (Uint16)PROTECT_MASK_CLEAR_VALUE)
     {
         for (i = 0U; i < PROTECT_WORD_NUM; i++)
         {
-            stProtect.u16Mask[i]       = 0U;
-            stProtect.u16MaskShadow[i] = 0U;
+            stProtect.u16Mask[i] = 0U;
         }
+        stProtect.u16MaskClearCmd = 0U;
     }
 }
 

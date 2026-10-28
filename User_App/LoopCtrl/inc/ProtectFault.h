@@ -23,7 +23,7 @@
 #include "DrvCfg_Protect.h"
 
 #define PROTECT_TICK_MS             (10U)     /* ProtectRun10ms 的节拍 */
-#define PROTECT_MASK_HEARTBEAT_MS   (500U)    /* 屏蔽字心跳超时 */
+#define PROTECT_MASK_CLEAR_VALUE    (1U)      /* 写该值到清除寄存器即清空全部屏蔽字 */
 
 typedef struct
 {
@@ -34,10 +34,7 @@ typedef struct
     Uint16          u16Proto[PROTECT_PROTO_WORD_NUM]; /* 聚合后的协议故障字 */
     volatile Uint16 u16ActionLevel;                   /* 未屏蔽位中的最高严重度 */
     volatile Uint16 u16TotalSign;                     /* 存在未屏蔽的 STOP 及以上 */
-    Uint16          u16MaskAgeMs;                     /* 屏蔽字心跳计时 */
-    Uint16          u16MaskShadow[PROTECT_WORD_NUM];  /* 屏蔽字影子，用于检测上位机改写 */
-    volatile Uint16 u16MaskKeepAlive;                 /* 上位机心跳，值变化即续期（重复写同值无效） */
-    Uint16          u16MaskKeepAliveLast;             /* 心跳影子 */
+    volatile Uint16 u16MaskClearCmd;                  /* 上位机写 1 = 清空全部屏蔽字 */
 }ST_PROTECT_STATE;
 
 extern ST_PROTECT_STATE stProtect;
@@ -59,7 +56,6 @@ Uint16 ProtectQuery(Uint16 u16DomainMask, Uint16 u16MinSeverity);
 
 void   ProtectSetMask(Uint16 u16Word, Uint16 u16Mask);
 Uint16 ProtectGetMask(Uint16 u16Word);
-void   ProtectMaskKeepAlive(void);
 
 void   ProtectReset(void);
 

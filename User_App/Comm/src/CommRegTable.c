@@ -184,8 +184,8 @@ const ST_MB_REG_ITEM stMbRegItemPc[MB_PC_REG_MAX] =
     {88U, MB_VAL_U32, MB_RW_READ_ONLY, (void *)&stCtrlMargin.u32AccCnt,    0, 4294967295U}, /* 累计占用周期数 */
     {89U, MB_VAL_U16, MB_RW_READ_ONLY, (void *)&stCtrlMargin.u16SampleCnt, 0, 65535U},  /* 采样拍数 */
 
-    /* ---------- 100~105：保护屏蔽字（1=屏蔽动作，仍记录，只读位段由内核判定）----------
-     * 上位机写入后须在 500ms 内继续翻转 106 号心跳，否则屏蔽字自动全清。 */
+    /* ---------- 100~105：保护屏蔽字（1=屏蔽动作，仍记录）----------
+     * 写进去就长期有效，无需心跳；掉电或复位清零，写 106=1 可立即全部恢复。 */
     {100U, MB_VAL_U16, MB_RW_WRITE, (void *)&stProtect.u16Mask[0], 0, 65535U},  /* W0 逆变域 */
     {101U, MB_VAL_U16, MB_RW_WRITE, (void *)&stProtect.u16Mask[1], 0, 65535U},  /* W1 光伏域 */
     {102U, MB_VAL_U16, MB_RW_WRITE, (void *)&stProtect.u16Mask[2], 0, 65535U},  /* W2 电网域 */
@@ -193,10 +193,8 @@ const ST_MB_REG_ITEM stMbRegItemPc[MB_PC_REG_MAX] =
     {104U, MB_VAL_U16, MB_RW_WRITE, (void *)&stProtect.u16Mask[4], 0, 65535U},  /* W4 系统域 */
     {105U, MB_VAL_U16, MB_RW_WRITE, (void *)&stProtect.u16Mask[5], 0, 65535U},  /* W5 内部细分 */
 
-    /* ---------- 106：屏蔽字心跳 ----------
-     * 注意读的是"值是否变化"：500ms 内必须写一个与上次不同的值（0/1 交替最省事），
-     * 重复写同一个值不算续期。超时后 100~105 自动全清。 */
-    {106U, MB_VAL_U16, MB_RW_WRITE, (void *)&stProtect.u16MaskKeepAlive, 0, 65535U},
+    /* ---------- 106：屏蔽字清除命令，写 1 = 立即清空 100~105，读完自动回 0 ---------- */
+    {106U, MB_VAL_U16, MB_RW_WRITE, (void *)&stProtect.u16MaskClearCmd, 0, 1U},
 
     /* ---------- 107~108：保护动作汇总（只读）---------- */
     {107U, MB_VAL_U16, MB_RW_READ_ONLY, (void *)&stProtect.u16ActionLevel, 0, 4U},  /* 0=INFO 4=TRIP */
