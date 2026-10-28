@@ -114,24 +114,6 @@ volatile Uint16 gSoftOscFrameCnt = 0U;
  * @brief 按类型取一路变量的当前值，并乘以放大倍数
  * @return 32 位有符号值（以 Uint32 返回，上位机按有符号解析）
  */
-/**
- * @brief 把值饱和到 ID 内 14 位有符号范围
- */
-static int32 SoftOscClampIdCh(int32 i32Val)
-{
-    if (i32Val > (int32)SOFT_OSC_ID_CH_MAX)
-    {
-        return (int32)SOFT_OSC_ID_CH_MAX;
-    }
-
-    if (i32Val < (int32)SOFT_OSC_ID_CH_MIN)
-    {
-        return (int32)SOFT_OSC_ID_CH_MIN;
-    }
-
-    return i32Val;
-}
-
 static Uint32 SoftOscGetValue(Uint16 u16Ch)
 {
     const ST_SOFT_OSC_CH *pstCh;
@@ -460,17 +442,16 @@ void SoftOscTask(void *pArgV)
     u32Ch4 = SoftOscGetValue((Uint16)(u16Base + 4U));
     u32Ch5 = SoftOscGetValue((Uint16)(u16Base + 5U));
 
-    /* ID 里只有 14 位，先各自饱和，避免第 1、2 路超出后把相邻位挤花 */
-    u32Ch0 = (Uint32)SoftOscClampIdCh((int32)u32Ch0);
-    u32Ch1 = (Uint32)SoftOscClampIdCh((int32)u32Ch1);
-
-    /* 第 1、2 路进 ID（各 14 位，饱和不回绕）；第 6、5、4、3 路依次进 DATA */
-    u32Id = (((u32Ch0 & 0x00003FFFUL) << SOFT_OSC_ID_CH_BITS) |
-             (u32Ch1 & 0x00003FFFUL)) & SOFT_OSC_ID_MASK;
-
-    if (gSoftOscGroup != 0U)
+    /* 第 1、2 路进 ID；第 5、6 路进 DATA；第 3、4 路进 DATB */
+    if (gSoftOscGroup == 0U)
     {
-        u32Id |= SOFT_OSC_FRAME_FLAG;
+        u32Id = (((u32Ch0 & 0x0000FFFFUL) << 16) |
+                 (u32Ch1 & 0x0000FFFFUL)) & SOFT_OSC_ID_MASK;
+    }
+    else
+    {
+        u32Id = (((u32Ch0 & 0x0000FFFFUL) << 16) |
+                 (u32Ch1 & 0x0000FFFFUL)) | SOFT_OSC_FRAME_FLAG;
     }
 
     u32DataA = ((u32Ch4 & 0x0000FFFFUL) << 16) | (u32Ch5 & 0x0000FFFFUL);
