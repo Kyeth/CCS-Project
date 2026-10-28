@@ -75,7 +75,7 @@ void PeripheralsInit(void)
     // 开启定时器
     // 这里开启定时器的目的是为了使得通信相关接口可以正常工作
     Hw_CpuTimerStart((ST_SYS_TIMER *)&stSysCpuTimer1);   /* 100us 节拍，驱动 SYS_TICK */
-    Hw_CpuTimerStart((ST_SYS_TIMER *)&stSysCpuTimer2);   /* 1ms 心跳 */
+    Hw_CpuTimerStart((ST_SYS_TIMER *)&stSysCpuTimer2);   /* 200MHz 自由运行计数器，供控制中断测余量 */
 
     EINT;   // Enable Global interrupt INTM
     ERTM;   // Enable Global real-time interrupt DBGM
