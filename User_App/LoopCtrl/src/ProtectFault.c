@@ -1,9 +1,16 @@
-/*
- * ProtectFault.c
+/**
+ * @file ProtectFault.c
+ * @author yetingheng (004182)
+ * @brief 保护故障框架实现：记录、去抖、聚合与动作等级
+ * @version 0.1
+ * @date 2026-10-28
  *
- * 保护框架实现。所有判据由外部上报，本文件只负责状态机与聚合。
+ * @copyright Copyright (c) 2026
  */
 
+/*
+ * 保护框架实现。所有判据由外部上报，本文件只负责状态机与聚合。
+ */
 #include "ProtectFault.h"
 
 ST_PROTECT_STATE stProtect;

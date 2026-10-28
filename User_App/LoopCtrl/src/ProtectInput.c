@@ -1,9 +1,16 @@
-/*
- * ProtectInput.c
+/**
+ * @file ProtectInput.c
+ * @author yetingheng (004182)
+ * @brief 保护判据源实现：逆变输出与直流分量判据
+ * @version 0.1
+ * @date 2026-10-28
  *
- * 判据源实现：逆变输出故障、输出直流分量。
+ * @copyright Copyright (c) 2026
  */
 
+/*
+ * 判据源实现：逆变输出故障、输出直流分量。
+ */
 #include "ProtectInput.h"
 #include "SampleData.h"
 #include "CtrlIsr.h"

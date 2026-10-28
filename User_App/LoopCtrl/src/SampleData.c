@@ -1,12 +1,14 @@
 /**
  * @file SampleData.c
- * @brief 采样数据统一结构体的实例定义
  * @author yetingheng (004182)
- * @version 0.2
- * @date 2026-11-05
+ * @brief 采样数据分层结构体的实例与初始化
+ * @version 0.1
+ * @date 2026-10-28
  *
  * @copyright Copyright (c) 2026
- *
+ */
+
+/*
  * 全部实例集中在本文件定义，头文件只做 extern 声明，避免 #10462-D
  * 落在小端 RAM 存放的 .cla 侧。
  */

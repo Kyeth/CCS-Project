@@ -1,10 +1,17 @@
-/*
- * DrvCfg_Protect.c
+/**
+ * @file DrvCfg_Protect.c
+ * @author yetingheng (004182)
+ * @brief 保护配置表定义：故障属性表与协议聚合表
+ * @version 0.1
+ * @date 2026-10-28
  *
+ * @copyright Copyright (c) 2026
+ */
+
+/*
  * 保护配置数据：故障位属性表 + 协议故障字聚合表。
  * 属性表由 PROTECT_FAULT_LIST 展开，新增故障只需改头文件一行。
  */
-
 #include "DrvCfg_Protect.h"
 
 const ST_PROTECT_ATTR stProtectAttr[] =

@@ -1,17 +1,19 @@
 /**
  * @file AdcSample.c
- * @brief 采样统计层：瞬时值（20 kHz）+ 块平均 / 工频 RMS / 峰值 / 有功
  * @author yetingheng (004182)
- * @version 0.2
- * @date 2026-11-05
+ * @brief 采样统计层：瞬时值、块平均、工频有效值、峰值与有功
+ * @version 0.1
+ * @date 2026-10-28
  *
  * @copyright Copyright (c) 2026
- *
+ */
+
+/*
  * 数据流：
- *   ADC -> CLA（20 kHz）-> Cla1ToCpuMsg -> stSampleRaw（码值）
- *        -> AdcCalib（码值转工程值）-> stSampleIns（瞬时值）
- *        -> AdcSampleFast 累加 -> stSampleAvg / stSampleRms
- *        -> AdcSampleTask（1 kHz）一阶滞后 -> 对外可读
+ * ADC -> CLA（20 kHz）-> Cla1ToCpuMsg -> stSampleRaw（码值）
+ * -> AdcCalib（码值转工程值）-> stSampleIns（瞬时值）
+ * -> AdcSampleFast 累加 -> stSampleAvg / stSampleRms
+ * -> AdcSampleTask（1 kHz）一阶滞后 -> 对外可读
  */
 #include "AdcSample.h"
 #include "AdcCalib.h"

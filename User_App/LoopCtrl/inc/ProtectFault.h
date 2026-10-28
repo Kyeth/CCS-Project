@@ -1,15 +1,22 @@
-/*
- * ProtectFault.h
+/**
+ * @file ProtectFault.h
+ * @author yetingheng (004182)
+ * @brief 保护故障框架：故障字、屏蔽字、严重度与动作等级
+ * @version 0.1
+ * @date 2026-10-28
  *
+ * @copyright Copyright (c) 2026
+ */
+
+/*
  * 保护框架：故障位的记录、去抖、锁存、屏蔽与协议字聚合。
  *
  * 设计要点：
- *   1. 判据由各模块调用 ProtectTrigger/ProtectRelease 上报，本模块不认识传感器；
- *   2. 屏蔽位只压动作，不压记录，便于调试时观察真实越限；
- *   3. 屏蔽字不落 EEPROM，由上位机 500ms 心跳维持，超时自动解除；
- *   4. 状态机按功能域 + 严重度查询，实现 PV 故障不拦 INV、INV 故障不拦 PV。
+ * 1. 判据由各模块调用 ProtectTrigger/ProtectRelease 上报，本模块不认识传感器；
+ * 2. 屏蔽位只压动作，不压记录，便于调试时观察真实越限；
+ * 3. 屏蔽字不落 EEPROM，由上位机 500ms 心跳维持，超时自动解除；
+ * 4. 状态机按功能域 + 严重度查询，实现 PV 故障不拦 INV、INV 故障不拦 PV。
  */
-
 #ifndef USER_APP_LOOPCTRL_INC_PROTECTFAULT_H_
 #define USER_APP_LOOPCTRL_INC_PROTECTFAULT_H_
 

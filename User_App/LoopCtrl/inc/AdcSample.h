@@ -1,17 +1,19 @@
 /**
  * @file AdcSample.h
- * @brief 采样统计层的接口：刷新频率、窗口长度、滤波系数与对外函数
  * @author yetingheng (004182)
- * @version 0.2
- * @date 2026-11-05
+ * @brief 采样统计层接口：刷新频率、统计窗口与对外函数
+ * @version 0.1
+ * @date 2026-10-28
  *
  * @copyright Copyright (c) 2026
- *
+ */
+
+/*
  * 数据结构在 SampleData.h，本文件只管"多久刷新一次、窗口多长、滞后多快"。
- *   stSampleIns   20 kHz 原样刷新，控制环专用，不做任何滤波；
- *   stSampleAvg   块平均，8 拍（2.5 kHz）与 200 拍（100 Hz）两档；
- *   stSampleRms   工频周期 RMS，再叠一阶滞后，供上位机 / ARM / 软示波器；
- *   stSampleRaw   CLA 直出的码值，供标定调试与点表回读。
+ * stSampleIns   20 kHz 原样刷新，控制环专用，不做任何滤波；
+ * stSampleAvg   块平均，8 拍（2.5 kHz）与 200 拍（100 Hz）两档；
+ * stSampleRms   工频周期 RMS，再叠一阶滞后，供上位机 / ARM / 软示波器；
+ * stSampleRaw   CLA 直出的码值，供标定调试与点表回读。
  */
 #ifndef ADC_SAMPLE_H
 #define ADC_SAMPLE_H

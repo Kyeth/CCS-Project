@@ -1,6 +1,14 @@
-/*
- * DataExchange.c
+/**
+ * @file DataExchange.c
+ * @author yetingheng (004182)
+ * @brief 点表镜像与内部变量交换：发布段上行、命令段下行
+ * @version 0.1
+ * @date 2026-10-28
  *
+ * @copyright Copyright (c) 2026
+ */
+
+/*
  * 批 0.7：骨架 + 已确定来源的发布项。
  * 未接通的字段留 TODO，批 0.8 / 0.9 逐个补齐，不在这里猜数据源。
  */

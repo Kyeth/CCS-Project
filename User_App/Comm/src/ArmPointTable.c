@@ -1,6 +1,14 @@
-/*
- * ArmPointTable.c
+/**
+ * @file ArmPointTable.c
+ * @author yetingheng (004182)
+ * @brief ARM 通讯点表定义：399 项寄存器到 stArmMirror 的映射
+ * @version 0.1
+ * @date 2026-10-28
  *
+ * @copyright Copyright (c) 2026
+ */
+
+/*
  * ARM 点表本体：地址升序排列，供 Modbus 引擎二分查找。
  * 只读项用于 DSP->ARM 发布，可写项用于 ARM->DSP 下达。
  */

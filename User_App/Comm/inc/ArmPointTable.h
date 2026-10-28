@@ -1,9 +1,17 @@
-/*
- * ArmPointTable.h
+/**
+ * @file ArmPointTable.h
+ * @author yetingheng (004182)
+ * @brief ARM 通讯点表镜像结构体与点表声明
+ * @version 0.1
+ * @date 2026-10-28
  *
+ * @copyright Copyright (c) 2026
+ */
+
+/*
  * ARM（SCI-A）通讯点表的镜像结构体。协议字段与内部变量彻底解耦：
- *   - 点表的值指针一律指向 stArmMirror，不直接指向业务变量；
- *   - DataExchangeRx() 把镜像里的命令搬到内部，DataExchangeTx() 反向搬运。
+ * - 点表的值指针一律指向 stArmMirror，不直接指向业务变量；
+ * - DataExchangeRx() 把镜像里的命令搬到内部，DataExchangeTx() 反向搬运。
  * 三相命名统一 R / S / T；功率量有符号，逆变输出为正、整流吸收为负。
  */
 #ifndef ARM_POINT_TABLE_H

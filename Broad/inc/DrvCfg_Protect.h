@@ -1,14 +1,21 @@
-/*
- * DrvCfg_Protect.h
+/**
+ * @file DrvCfg_Protect.h
+ * @author yetingheng (004182)
+ * @brief 保护配置表：故障位属性与协议故障字聚合关系
+ * @version 0.1
+ * @date 2026-10-28
  *
+ * @copyright Copyright (c) 2026
+ */
+
+/*
  * 保护配置表：内部故障位属性、协议故障字聚合关系。
  * 本文件只放数据定义，保护判据与动作在 ProtectFault.c / CtrlIsr.c。
  *
  * 内部分层：
- *   故障位按功能域分字（INV / PV / GRID / DC / SYS），第 6 字 DETAIL 只作内部分相细分，
- *   不上协议；协议故障字（5030~5034、5054、5060）由聚合表按 any-of 关系生成。
+ * 故障位按功能域分字（INV / PV / GRID / DC / SYS），第 6 字 DETAIL 只作内部分相细分，
+ * 不上协议；协议故障字（5030~5034、5054、5060）由聚合表按 any-of 关系生成。
  */
-
 #ifndef BROAD_INC_DRVCFG_PROTECT_H_
 #define BROAD_INC_DRVCFG_PROTECT_H_
 

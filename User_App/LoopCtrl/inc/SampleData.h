@@ -1,16 +1,18 @@
 /**
  * @file SampleData.h
- * @brief 采样数据统一结构体：码值 / 瞬时 / 统计 / 有效值 / 状态
  * @author yetingheng (004182)
- * @version 0.2
- * @date 2026-11-05
+ * @brief 采样数据分层结构体：码值、瞬时、统计、有效值、状态
+ * @version 0.1
+ * @date 2026-10-28
  *
  * @copyright Copyright (c) 2026
- *
+ */
+
+/*
  * 命名规则：f<源><相或序号><量><角色>
- *   源   Inv / Grid / Bus / Pv / Bal / Gfci / Mux
- *   量   Volt / Curr / Ofs / Pwr / Freq
- *   角色 Raw / Ins / Avg8 / Avg200 / Rms / Pk
+ * 源   Inv / Grid / Bus / Pv / Bal / Gfci / Mux
+ * 量   Volt / Curr / Ofs / Pwr / Freq
+ * 角色 Raw / Ins / Avg8 / Avg200 / Rms / Pk
  * 三相量一律 float[3] + E_SAMPLE_PHASE，PV 一律 float[4] + E_SAMPLE_PV。
  * 单位一律 V / A / Hz / W，协议里的 0.1V 缩放放在 DataExchange 层。
  */
