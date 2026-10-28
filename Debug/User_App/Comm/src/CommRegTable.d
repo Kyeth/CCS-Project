@@ -83,6 +83,7 @@ User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/P
 User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/StateMachine/inc/SystemStateMachine.h
 User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/StateMachine/inc/InvStateMachine.h
 User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/CtrlIsr.h
+User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/User_ClaTask.h
 
 ../User_App/Comm/src/CommRegTable.c:
 
@@ -249,4 +250,6 @@ D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/StateMachine/inc/SystemState
 D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/StateMachine/inc/InvStateMachine.h:
 
 D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/CtrlIsr.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/User_ClaTask.h:
 
