@@ -42,6 +42,29 @@ extern "C" {
  * tau = 150 ms -> 到 99% 约 0.69 s。块平均本身已经足够平滑，只留这一处滞后。 */
 #define ADC_SAMPLE_ALPHA_RMS        (0.00667f)
 
+/* ==================== 统计层内部状态 ====================
+ * RMS 平方和、块平均累加器、有功累加器与窗口计数全部收在这里，
+ * 函数内一律经 stAdcSampleAcc 访问。 */
+typedef struct
+{
+    float  fRmsAcc[11];         /* 平方和累加，下标见 AdcSample.c 的 RMS_xxx */
+    float  fRmsRaw[11];         /* 本工频周期原始 RMS */
+    float  fRmsPubPtr[11];      /* 一阶滞后后的对外值 */
+    float  fPkAcc[3];           /* 本周期峰值累加 R/S/T */
+    float  fAvg8Acc[10];        /* 8 拍块平均累加，下标见 AVG8_xxx */
+    float  fAvg200Acc[6];       /* 200 拍块平均累加，下标见 AVG200_xxx */
+    float  fPwrAcc8[3];         /* 有功 8 拍累加 */
+    float  fPwrAcc200[3];       /* 有功 200 拍累加 */
+    Uint16 u16WinCnt;           /* RMS 窗口样本数 */
+    Uint16 u16Avg8Cnt;          /* 8 拍块计数 */
+    Uint16 u16Avg200Cnt;        /* 200 拍块计数 */
+    Uint16 u16RmsFresh;         /* 1 = 有周期 RMS 待滤波 */
+    float  fThetaPrev;          /* 上一拍锁相角，用于找过零点 */
+} ST_ADC_SAMPLE_ACC;
+
+/* 实例定义在 AdcSample.c */
+extern ST_ADC_SAMPLE_ACC stAdcSampleAcc;
+
 /******************************************************************************
  * 接口
  ******************************************************************************/

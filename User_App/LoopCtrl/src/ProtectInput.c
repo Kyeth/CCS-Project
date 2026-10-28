@@ -18,7 +18,8 @@
 
 #include <math.h>
 
-static Uint16 sNoOutCnt[SAMPLE_PH_NUM];     /* 有指令无输出的连续时间计数 */
+/* 判据运行状态：单个实例 stProtectInput */
+ST_PROTECT_INPUT_STATE stProtectInput;
 
 /* 相别到故障位的映射，显式列出，避免依赖枚举顺序 */
 static const E_PROTECT_FAULT sInvOutFault[SAMPLE_PH_NUM] =
@@ -34,7 +35,7 @@ void ProtectInputInit(void)
 
     for (i = 0U; i < (Uint16)SAMPLE_PH_NUM; i++)
     {
-        sNoOutCnt[i] = 0U;
+        stProtectInput.u16NoOutCnt[i] = 0U;
     }
 }
 
@@ -71,21 +72,21 @@ void ProtectInputRun10ms(void)
 
         if (u16NoOut != 0U)
         {
-            if (sNoOutCnt[ph] < (Uint16)PROTECT_INV_OUT_NOOUT_MS)
+            if (stProtectInput.u16NoOutCnt[ph] < (Uint16)PROTECT_INV_OUT_NOOUT_MS)
             {
-                sNoOutCnt[ph]++;
+                stProtectInput.u16NoOutCnt[ph]++;
             }
         }
         else
         {
-            sNoOutCnt[ph] = 0U;
+            stProtectInput.u16NoOutCnt[ph] = 0U;
         }
 
         /* 判据 B：幅值不合规 —— 稳态下偏离参考电压超过 10% */
         fDev = fabsf(fVolt - PROTECT_INV_VREF_VOLT);
 
         u16Trip = 0U;
-        if ((sNoOutCnt[ph] >= (Uint16)PROTECT_INV_OUT_NOOUT_MS)
+        if ((stProtectInput.u16NoOutCnt[ph] >= (Uint16)PROTECT_INV_OUT_NOOUT_MS)
             || ((u16Active != 0U) && (fDev > (PROTECT_INV_VREF_VOLT * PROTECT_INV_OUT_DEV_RATIO))))
         {
             u16Trip = 1U;

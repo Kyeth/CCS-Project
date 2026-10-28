@@ -49,34 +49,14 @@ static const Uint16 gCtrlMuxTable[] =
 
 #define CTRL_MUX_TABLE_NUM      (sizeof(gCtrlMuxTable) / sizeof(gCtrlMuxTable[0]))
 
-static float  gCtrlTheta;               /* PLL 输出角度 (rad, 0~2pi) */
-static float  gCtrlOmega;               /* PLL 输出角速度 (rad/s) */
-static float  gCtrlModIndex;            /* 调制比 0~CTRL_MOD_INDEX_MAX */
-static Uint16 gCtrlFault;               /* E_CTRL_FAULT */
-static Uint16 gCtrlMuxIdx;              /* 轮换表下标 */
-static Uint16 gCtrlMuxAddr;             /* 当前选通地址 */
-static Uint16 gCtrlSeqLast;             /* 上一次看到的 CLA 序号 */
-static Uint16 gCtrlSeqStall;            /* 序号停滞计数 */
-static Uint16 gCtrlCycleCnt;            /* 已运行控制拍数 */
-static Uint16 gCtrlProtectDiv;          /* 保护框架 10ms 分频计数 */
+/* 控制中断全部运行状态：单个实例 stCtrlState，函数内一律经结构体访问 */
+ST_CTRL_STATE stCtrlState;
 
-/* 发波授权状态机 */
-static float  gCtrlModActual;           /* 实际下发调制比：按斜率跟随 gCtrlModIndex */
-static Uint16 gCtrlAuthState;           /* CTRL_AUTH_xxx */
-static Uint16 gCtrlAuthCnt;             /* WAIT 态已等待拍数 */
-static Uint16 gCtrlAuthFlags;           /* CTRL_AUTH_FLAG_xxx */
+/* 观测影子量：供软示波器与 Modbus 只读镜像按地址取用 */
+ST_CTRL_OBS stCtrlObs;
 
-/* 观测影子量：非 static，供软示波器直接按地址观测（只写不读） */
-volatile float  gCtrlObsThetaDeg  = 0.0F;
-volatile float  gCtrlObsGridFreq  = 0.0F;
-volatile float  gCtrlObsModIndex  = 0.0F;
-volatile Uint16 gCtrlObsFault     = 0U;
-volatile Uint16 gCtrlObsAuthState = 0U;
-volatile Uint16 gCtrlObsAuthFlags = 0U;
-volatile float  gCtrlObsModActual = 0.0F;
-
-/* 发波授权：0 = 只算环路不发波，1 = 允许把占空比写进 ePWM */
-volatile Uint16 gCtrlPwmEnable    = 0U;
+/* 中断执行周期占用量测 */
+ST_CTRL_MARGIN stCtrlMargin;
 
 /* 写三位 MUX 地址到 GPIO46/47/42，用 SET/CLEAR 寄存器避免读改写干扰其它引脚 */
 static void CtrlMuxWrite(Uint16 u16Addr)
@@ -135,32 +115,28 @@ static float CtrlWrapTheta(float fTheta)
 #define CTRL_SM_DIV_BUS         (4U)
 #define CTRL_SM_DIV_SYS         (20U)
 
-static Uint16 gCtrlSmDivInvPv;
-static Uint16 gCtrlSmDivBus;
-static Uint16 gCtrlSmDivSys;
-
 static void CtrlSmSchedulerRun(void)
 {
-    gCtrlSmDivInvPv++;
-    if (gCtrlSmDivInvPv >= CTRL_SM_DIV_INV_PV)
+    stCtrlState.u16SmDivInvPv++;
+    if (stCtrlState.u16SmDivInvPv >= CTRL_SM_DIV_INV_PV)
     {
-        gCtrlSmDivInvPv = 0U;
+        stCtrlState.u16SmDivInvPv = 0U;
         RunProtectTask();        /* 软件保护判定先跑，本拍结论供状态机读取 */
         RunInvStateMachine();
         RunPvStateMachine();
     }
 
-    gCtrlSmDivBus++;
-    if (gCtrlSmDivBus >= CTRL_SM_DIV_BUS)
+    stCtrlState.u16SmDivBus++;
+    if (stCtrlState.u16SmDivBus >= CTRL_SM_DIV_BUS)
     {
-        gCtrlSmDivBus = 0U;
+        stCtrlState.u16SmDivBus = 0U;
         RunBusStateMachine();
     }
 
-    gCtrlSmDivSys++;
-    if (gCtrlSmDivSys >= CTRL_SM_DIV_SYS)
+    stCtrlState.u16SmDivSys++;
+    if (stCtrlState.u16SmDivSys >= CTRL_SM_DIV_SYS)
     {
-        gCtrlSmDivSys = 0U;
+        stCtrlState.u16SmDivSys = 0U;
         RunSysStateMachine();
     }
 }
@@ -168,31 +144,31 @@ static void CtrlSmSchedulerRun(void)
 /* 初始化 */
 void CtrlIsrInit(void)
 {
-    gCtrlTheta = 0.0f;
-    gCtrlOmega = CTRL_TWO_PI * 50.0f;
-    gCtrlModIndex = 0.0f;
-    gCtrlFault = (Uint16)CTRL_FAULT_NONE;
-    gCtrlMuxIdx = 0U;
-    gCtrlMuxAddr = CLA_MUX_ADDR_PV1;
-    gCtrlSeqLast = 0U;
-    gCtrlSeqStall = 0U;
-    gCtrlCycleCnt = 0U;
+    stCtrlState.fTheta = 0.0f;
+    stCtrlState.fOmega = CTRL_TWO_PI * 50.0f;
+    stCtrlState.fModIndex = 0.0f;
+    stCtrlState.u16Fault = (Uint16)CTRL_FAULT_NONE;
+    stCtrlState.u16MuxIdx = 0U;
+    stCtrlState.u16MuxAddr = CLA_MUX_ADDR_PV1;
+    stCtrlState.u16SeqLast = 0U;
+    stCtrlState.u16SeqStall = 0U;
+    stCtrlState.u16CycleCnt = 0U;
 
-    gCtrlModActual = 0.0f;
-    gCtrlAuthState = (Uint16)CTRL_AUTH_OFF;
-    gCtrlAuthCnt   = 0U;
-    gCtrlAuthFlags = 0U;
+    stCtrlState.fModActual = 0.0f;
+    stCtrlState.u16AuthState = (Uint16)CTRL_AUTH_OFF;
+    stCtrlState.u16AuthCnt   = 0U;
+    stCtrlState.u16AuthFlags = 0U;
 
-    gCtrlObsAuthState = gCtrlAuthState;
-    gCtrlObsAuthFlags = gCtrlAuthFlags;
-    gCtrlObsModActual = gCtrlModActual;
+    stCtrlObs.u16AuthState = stCtrlState.u16AuthState;
+    stCtrlObs.u16AuthFlags = stCtrlState.u16AuthFlags;
+    stCtrlObs.fModActual = stCtrlState.fModActual;
 
     /* CLA 侧默认使能滤波归档 */
     CpuToCla1Msg.u16Enable = 1U;
-    CpuToCla1Msg.u16MuxAddr = gCtrlMuxAddr;
+    CpuToCla1Msg.u16MuxAddr = stCtrlState.u16MuxAddr;
     CpuToCla1Msg.fTheta = 0.0f;
 
-    CtrlMuxWrite(gCtrlMuxAddr);
+    CtrlMuxWrite(stCtrlState.u16MuxAddr);
 
     ProtectInit();
     ProtectInputInit();
@@ -205,14 +181,14 @@ void CtrlIsrInit(void)
  * 只在"真的需要动硬件"时调一次 Hw_InvStopAll()，避免 20kHz 每拍写 AQCSFRC。 */
 static void CtrlAuthBlock(void)
 {
-    if ((gCtrlAuthState != (Uint16)CTRL_AUTH_OFF) || (gCtrlModActual > 0.0f))
+    if ((stCtrlState.u16AuthState != (Uint16)CTRL_AUTH_OFF) || (stCtrlState.fModActual > 0.0f))
     {
         Hw_InvStopAll();
     }
 
-    gCtrlModActual = 0.0f;
-    gCtrlAuthCnt   = 0U;
-    gCtrlAuthState = (Uint16)CTRL_AUTH_OFF;
+    stCtrlState.fModActual = 0.0f;
+    stCtrlState.u16AuthCnt   = 0U;
+    stCtrlState.u16AuthState = (Uint16)CTRL_AUTH_OFF;
 }
 
 /* 把桥臂从"软件钳位"切到"正常斩波"。
@@ -235,94 +211,94 @@ static void CtrlAuthRun(void)
 {
     float fStep;
 
-    gCtrlAuthFlags = 0U;
+    stCtrlState.u16AuthFlags = 0U;
 
     /* 封锁条件 1：控制层故障（CLA 停摆、逆变过流、硬件过流/短路） */
-    if (gCtrlFault != (Uint16)CTRL_FAULT_NONE)
+    if (stCtrlState.u16Fault != (Uint16)CTRL_FAULT_NONE)
     {
-        gCtrlAuthFlags |= (Uint16)CTRL_AUTH_FLAG_FAULT;
+        stCtrlState.u16AuthFlags |= (Uint16)CTRL_AUTH_FLAG_FAULT;
     }
 
     /* 封锁条件 2：ADC 零漂标定未完成，此时的占空比没有物理意义 */
     if (AdcCalibGetZeroState() != ADC_CAL_ZERO_DONE)
     {
-        gCtrlAuthFlags |= (Uint16)CTRL_AUTH_FLAG_CALIB;
+        stCtrlState.u16AuthFlags |= (Uint16)CTRL_AUTH_FLAG_CALIB;
     }
 
-    if (gCtrlAuthFlags != 0U)
+    if (stCtrlState.u16AuthFlags != 0U)
     {
         CtrlAuthBlock();
         return;
     }
 
-    switch (gCtrlAuthState)
+    switch (stCtrlState.u16AuthState)
     {
         case CTRL_AUTH_OFF:
-            gCtrlModActual = 0.0f;
-            if (gCtrlPwmEnable != 0U)
+            stCtrlState.fModActual = 0.0f;
+            if (stCtrlState.u16PwmEnable != 0U)
             {
-                gCtrlAuthCnt   = 0U;
-                gCtrlAuthState = (Uint16)CTRL_AUTH_WAIT;
+                stCtrlState.u16AuthCnt   = 0U;
+                stCtrlState.u16AuthState = (Uint16)CTRL_AUTH_WAIT;
             }
             break;
 
         case CTRL_AUTH_WAIT:
-            gCtrlModActual = 0.0f;
-            if (gCtrlPwmEnable == 0U)
+            stCtrlState.fModActual = 0.0f;
+            if (stCtrlState.u16PwmEnable == 0U)
             {
-                gCtrlAuthState = (Uint16)CTRL_AUTH_OFF;
+                stCtrlState.u16AuthState = (Uint16)CTRL_AUTH_OFF;
                 break;
             }
 
-            gCtrlAuthCnt++;
-            if (gCtrlAuthCnt >= CTRL_AUTH_WAIT_MAX)
+            stCtrlState.u16AuthCnt++;
+            if (stCtrlState.u16AuthCnt >= CTRL_AUTH_WAIT_MAX)
             {
                 CtrlAuthArm();
-                gCtrlAuthCnt   = 0U;
-                gCtrlAuthState = (Uint16)CTRL_AUTH_ON;
+                stCtrlState.u16AuthCnt   = 0U;
+                stCtrlState.u16AuthState = (Uint16)CTRL_AUTH_ON;
             }
             break;
 
         case CTRL_AUTH_ON:
-            if (gCtrlPwmEnable == 0U)
+            if (stCtrlState.u16PwmEnable == 0U)
             {
-                gCtrlAuthState = (Uint16)CTRL_AUTH_SOFT_OFF;
+                stCtrlState.u16AuthState = (Uint16)CTRL_AUTH_SOFT_OFF;
                 break;
             }
 
             /* 实际调制比向请求值双侧跟随（请求值由 CtrlSetModIndex 限幅在 0~0.90） */
             fStep = CTRL_AUTH_SLEW_UP;
-            if (gCtrlModActual < gCtrlModIndex)
+            if (stCtrlState.fModActual < stCtrlState.fModIndex)
             {
-                gCtrlModActual += fStep;
-                if (gCtrlModActual > gCtrlModIndex)
+                stCtrlState.fModActual += fStep;
+                if (stCtrlState.fModActual > stCtrlState.fModIndex)
                 {
-                    gCtrlModActual = gCtrlModIndex;
+                    stCtrlState.fModActual = stCtrlState.fModIndex;
                 }
             }
             else
             {
-                gCtrlModActual -= fStep;
-                if (gCtrlModActual < gCtrlModIndex)
+                stCtrlState.fModActual -= fStep;
+                if (stCtrlState.fModActual < stCtrlState.fModIndex)
                 {
-                    gCtrlModActual = gCtrlModIndex;
+                    stCtrlState.fModActual = stCtrlState.fModIndex;
                 }
             }
             break;
 
         case CTRL_AUTH_SOFT_OFF:
             fStep = CTRL_AUTH_SLEW_DN;
-            if (gCtrlModActual > fStep)
+            if (stCtrlState.fModActual > fStep)
             {
-                gCtrlModActual -= fStep;
+                stCtrlState.fModActual -= fStep;
             }
             else
             {
                 /* 调制比已归零：真正封波，回 OFF 等下一次请求 */
-                gCtrlModActual = 0.0f;
+                stCtrlState.fModActual = 0.0f;
                 Hw_InvStopAll();
-                gCtrlAuthCnt   = 0U;
-                gCtrlAuthState = (Uint16)CTRL_AUTH_OFF;
+                stCtrlState.u16AuthCnt   = 0U;
+                stCtrlState.u16AuthState = (Uint16)CTRL_AUTH_OFF;
             }
             break;
 
@@ -350,21 +326,21 @@ void CtrlIsrRun(void)
     float fCur;
     Uint16 u16Seq;
 
-    gCtrlCycleCnt++;
+    stCtrlState.u16CycleCnt++;
 
     /* ---------- 0. 保护框架：10ms 节拍推进记录、去抖与协议聚合 ---------- */
-    if (gCtrlProtectDiv >= 200U)
+    if (stCtrlState.u16ProtectDiv >= 200U)
     {
-        gCtrlProtectDiv = 0U;
+        stCtrlState.u16ProtectDiv = 0U;
         ProtectInputRun10ms();
         ProtectRun10ms();
     }
     else
     {
-        gCtrlProtectDiv++;
+        stCtrlState.u16ProtectDiv++;
     }
 
-    gCtrlCycleCnt++;
+    stCtrlState.u16CycleCnt++;
 
     /* ---------- 0. ADC 标定刷新：码值 -> 工程值 ---------- */
     /* 本拍所有消费者（过流判定、PLL、软示波器）都从 AdcCalib 取数，
@@ -374,64 +350,64 @@ void CtrlIsrRun(void)
     /* ---------- 1. CLA 心跳检测 ---------- */
     u16Seq = Cla1ToCpuMsg.u16Seq;
 
-    if (u16Seq == gCtrlSeqLast)
+    if (u16Seq == stCtrlState.u16SeqLast)
     {
-        if (gCtrlSeqStall < 0xFFFFU)
+        if (stCtrlState.u16SeqStall < 0xFFFFU)
         {
-            gCtrlSeqStall++;
+            stCtrlState.u16SeqStall++;
         }
     }
     else
     {
-        gCtrlSeqStall = 0U;
-        gCtrlSeqLast = u16Seq;
+        stCtrlState.u16SeqStall = 0U;
+        stCtrlState.u16SeqLast = u16Seq;
     }
 
-    if (gCtrlSeqStall > CTRL_CLA_TIMEOUT_NUM)
+    if (stCtrlState.u16SeqStall > CTRL_CLA_TIMEOUT_NUM)
     {
-        gCtrlFault = (Uint16)CTRL_FAULT_CLA_TIMEOUT;
+        stCtrlState.u16Fault = (Uint16)CTRL_FAULT_CLA_TIMEOUT;
     }
 
     /* ---------- 1b. 后台任务活性：停摆即按故障处理，撤销发波授权 ---------- */
     if (Task_GetHealthFault() != 0U)
     {
-        gCtrlFault = (Uint16)CTRL_FAULT_TASK_STALL;
+        stCtrlState.u16Fault = (Uint16)CTRL_FAULT_TASK_STALL;
     }
 
     /* ---------- 1c. 保护框架：未屏蔽的 STOP 及以上故障直接封锁发波 ---------- */
     if (ProtectGetTotalSign() != 0U)
     {
-        gCtrlFault = (Uint16)CTRL_FAULT_PROTECT;
+        stCtrlState.u16Fault = (Uint16)CTRL_FAULT_PROTECT;
     }
 
     /* ---------- 2. 过流封波检测（三路逆变电流瞬时值） ---------- */
-    if (gCtrlFault == (Uint16)CTRL_FAULT_NONE)
+    if (stCtrlState.u16Fault == (Uint16)CTRL_FAULT_NONE)
     {
         fCur = AdcCalibInvCur(CLA_IDX_R);
         if (fabsf(fCur) > CTRL_INV_CUR_LIMIT)
         {
-            gCtrlFault = (Uint16)CTRL_FAULT_OVERCURRENT;
+            stCtrlState.u16Fault = (Uint16)CTRL_FAULT_OVERCURRENT;
         }
 
         fCur = AdcCalibInvCur(CLA_IDX_S);
         if (fabsf(fCur) > CTRL_INV_CUR_LIMIT)
         {
-            gCtrlFault = (Uint16)CTRL_FAULT_OVERCURRENT;
+            stCtrlState.u16Fault = (Uint16)CTRL_FAULT_OVERCURRENT;
         }
 
         fCur = AdcCalibInvCur(CLA_IDX_T);
         if (fabsf(fCur) > CTRL_INV_CUR_LIMIT)
         {
-            gCtrlFault = (Uint16)CTRL_FAULT_OVERCURRENT;
+            stCtrlState.u16Fault = (Uint16)CTRL_FAULT_OVERCURRENT;
         }
     }
 
-    if (gCtrlFault != (Uint16)CTRL_FAULT_NONE)
+    if (stCtrlState.u16Fault != (Uint16)CTRL_FAULT_NONE)
     {
         /* 故障：三相封波到中点钳位，调制比清零，授权退回 OFF */
         CtrlAuthBlock();
-        gCtrlModIndex = 0.0f;
-        gCtrlObsFault = gCtrlFault;
+        stCtrlState.fModIndex = 0.0f;
+        stCtrlObs.u16Fault = stCtrlState.u16Fault;
         return;
     }
 
@@ -449,8 +425,8 @@ void CtrlIsrRun(void)
     fVbeta = 0.577350269f * (AdcCalibGridVolt(CLA_IDX_R)
                              + (2.0f * AdcCalibGridVolt(CLA_IDX_S)));
 
-    fSin = sinf(gCtrlTheta);
-    fCos = cosf(gCtrlTheta);
+    fSin = sinf(stCtrlState.fTheta);
+    fCos = cosf(stCtrlState.fTheta);
 
     /* 本工程 Clarke 定义为 Vbeta = (1/sqrt3)(Va + 2Vb) = -Vcos(theta)，
      * 因此锁相误差取 Vq = Valpha*cos(theta) + Vbeta*sin(theta)，
@@ -470,20 +446,20 @@ void CtrlIsrRun(void)
     }
 
     /* 角速度积分 + 比例校正 */
-    gCtrlOmega += CTRL_PLL_KI * fVq * CTRL_TS_SEC;
+    stCtrlState.fOmega += CTRL_PLL_KI * fVq * CTRL_TS_SEC;
 
-    if (gCtrlOmega < (CTRL_TWO_PI * CTRL_PLL_FREQ_MIN))
+    if (stCtrlState.fOmega < (CTRL_TWO_PI * CTRL_PLL_FREQ_MIN))
     {
-        gCtrlOmega = CTRL_TWO_PI * CTRL_PLL_FREQ_MIN;
+        stCtrlState.fOmega = CTRL_TWO_PI * CTRL_PLL_FREQ_MIN;
     }
 
-    if (gCtrlOmega > (CTRL_TWO_PI * CTRL_PLL_FREQ_MAX))
+    if (stCtrlState.fOmega > (CTRL_TWO_PI * CTRL_PLL_FREQ_MAX))
     {
-        gCtrlOmega = CTRL_TWO_PI * CTRL_PLL_FREQ_MAX;
+        stCtrlState.fOmega = CTRL_TWO_PI * CTRL_PLL_FREQ_MAX;
     }
 
-    fDTheta = (gCtrlOmega + (CTRL_PLL_KP * fVq)) * CTRL_TS_SEC;
-    gCtrlTheta = CtrlWrapTheta(gCtrlTheta + fDTheta);
+    fDTheta = (stCtrlState.fOmega + (CTRL_PLL_KP * fVq)) * CTRL_TS_SEC;
+    stCtrlState.fTheta = CtrlWrapTheta(stCtrlState.fTheta + fDTheta);
 
     /* 用角度增量的小角度展开递推 sin/cos：
      * fDTheta 最大约 0.022rad（70Hz），三阶截断误差 < 1e-9，
@@ -495,19 +471,19 @@ void CtrlIsrRun(void)
             - (fSin * (fDTheta - ((fDTheta * fDTheta * fDTheta) * 0.16666667f)));
 
     /* 角度同步给 CLA（预留给 CLA 侧做坐标变换） */
-    CpuToCla1Msg.fTheta = gCtrlTheta;
+    CpuToCla1Msg.fTheta = stCtrlState.fTheta;
 
     /* ---------- 4. 生成三相调制波并下发 ----------
      * 三电平单极性：|m*sin| 就是斩波占空比，sin 的符号决定哪一对管子斩波，
      * 过零点处 |sin| -> 0，占空比自然归零，所以换相是软换相。 */
-    fModR = gCtrlModActual * fSinNew;
-    fModS = gCtrlModActual * ((-0.5f * fSinNew) - (0.86602540f * fCosNew));
-    fModT = gCtrlModActual * ((-0.5f * fSinNew) + (0.86602540f * fCosNew));
+    fModR = stCtrlState.fModActual * fSinNew;
+    fModS = stCtrlState.fModActual * ((-0.5f * fSinNew) - (0.86602540f * fCosNew));
+    fModT = stCtrlState.fModActual * ((-0.5f * fSinNew) + (0.86602540f * fCosNew));
 
     /* 只有授权态 ON 且实际调制比非 0 才写硬件：其余状态下桥臂由授权状态机
      * 负责压回钳位（CtrlAuthBlock / SOFT_OFF 归零时各做一次），这里不再每拍
      * 调 Hw_InvStopAll()，避免以 20kHz 反复写 AQCSFRC。 */
-    if ((gCtrlAuthState == (Uint16)CTRL_AUTH_ON) && (gCtrlModActual > 0.0f))
+    if ((stCtrlState.u16AuthState == (Uint16)CTRL_AUTH_ON) && (stCtrlState.fModActual > 0.0f))
     {
         Hw_InvSetDuty((Uint16)HW_INV_PHASE_R, fabsf(fModR), (fModR >= 0.0f) ? 1U : 0U);
         Hw_InvSetDuty((Uint16)HW_INV_PHASE_S, fabsf(fModS), (fModS >= 0.0f) ? 1U : 0U);
@@ -519,25 +495,25 @@ void CtrlIsrRun(void)
     }
 
     /* ---------- 5. MUX 轮换（放在最后：本拍写入的地址供下一周期采样） ---------- */
-    gCtrlMuxIdx++;
-    if (gCtrlMuxIdx >= (Uint16)CTRL_MUX_TABLE_NUM)
+    stCtrlState.u16MuxIdx++;
+    if (stCtrlState.u16MuxIdx >= (Uint16)CTRL_MUX_TABLE_NUM)
     {
-        gCtrlMuxIdx = 0U;
+        stCtrlState.u16MuxIdx = 0U;
     }
 
-    gCtrlMuxAddr = gCtrlMuxTable[gCtrlMuxIdx];
+    stCtrlState.u16MuxAddr = gCtrlMuxTable[stCtrlState.u16MuxIdx];
 
-    CtrlMuxWrite(gCtrlMuxAddr);
-    CpuToCla1Msg.u16MuxAddr = gCtrlMuxAddr;
+    CtrlMuxWrite(stCtrlState.u16MuxAddr);
+    CpuToCla1Msg.u16MuxAddr = stCtrlState.u16MuxAddr;
 
     /* ---------- 6. 刷新观测影子量（软示波器用） ---------- */
-    gCtrlObsThetaDeg = gCtrlTheta * 57.2957795F;   /* rad -> deg */
-    gCtrlObsGridFreq = gCtrlOmega * 0.15915494F;   /* rad/s -> Hz */
-    gCtrlObsModIndex  = gCtrlModIndex;
-    gCtrlObsModActual = gCtrlModActual;
-    gCtrlObsFault     = gCtrlFault;
-    gCtrlObsAuthState = gCtrlAuthState;
-    gCtrlObsAuthFlags = gCtrlAuthFlags;
+    stCtrlObs.fThetaDeg = stCtrlState.fTheta * 57.2957795F;   /* rad -> deg */
+    stCtrlObs.fGridFreq = stCtrlState.fOmega * 0.15915494F;   /* rad/s -> Hz */
+    stCtrlObs.fModIndex  = stCtrlState.fModIndex;
+    stCtrlObs.fModActual = stCtrlState.fModActual;
+    stCtrlObs.u16Fault     = stCtrlState.u16Fault;
+    stCtrlObs.u16AuthState = stCtrlState.u16AuthState;
+    stCtrlObs.u16AuthFlags = stCtrlState.u16AuthFlags;
 
     /* ---------- 7. 采样快照：瞬时值进控制环，RMS/慢速值留给对外 ---------- */
     /* 放在最后：本拍的 AdcCalib 与锁相角都已经是新值 */
@@ -557,47 +533,47 @@ void CtrlSetModIndex(float fModIndex)
         fModIndex = CTRL_MOD_INDEX_MAX;
     }
 
-    gCtrlModIndex = fModIndex;
+    stCtrlState.fModIndex = fModIndex;
 }
 
 float CtrlGetModIndex(void)
 {
-    return gCtrlModIndex;
+    return stCtrlState.fModIndex;
 }
 
 void CtrlSetPwmEnable(Uint16 u16Enable)
 {
-    gCtrlPwmEnable = (u16Enable != 0U) ? 1U : 0U;
+    stCtrlState.u16PwmEnable = (u16Enable != 0U) ? 1U : 0U;
 }
 
 Uint16 CtrlGetPwmEnable(void)
 {
-    return gCtrlPwmEnable;
+    return stCtrlState.u16PwmEnable;
 }
 
 float CtrlGetTheta(void)
 {
-    return gCtrlTheta;
+    return stCtrlState.fTheta;
 }
 
 float CtrlGetGridFreq(void)
 {
-    return gCtrlOmega / CTRL_TWO_PI;
+    return stCtrlState.fOmega / CTRL_TWO_PI;
 }
 
 Uint16 CtrlGetFault(void)
 {
-    return gCtrlFault;
+    return stCtrlState.u16Fault;
 }
 
 Uint16 CtrlGetMuxAddr(void)
 {
-    return gCtrlMuxAddr;
+    return stCtrlState.u16MuxAddr;
 }
 
 Uint16 CtrlGetCycleCnt(void)
 {
-    return gCtrlCycleCnt;
+    return stCtrlState.u16CycleCnt;
 }
 
 /* 外部保护任务置故障码：只允许“无故障 -> 有故障”方向升级，避免覆盖已锁存的故障。 */
@@ -608,10 +584,10 @@ void CtrlSetFault(Uint16 u16Fault)
         return;
     }
 
-    if (gCtrlFault == (Uint16)CTRL_FAULT_NONE)
+    if (stCtrlState.u16Fault == (Uint16)CTRL_FAULT_NONE)
     {
-        gCtrlFault = u16Fault;
-        gCtrlObsFault = gCtrlFault;
+        stCtrlState.u16Fault = u16Fault;
+        stCtrlObs.u16Fault = stCtrlState.u16Fault;
     }
 }
 
@@ -619,30 +595,101 @@ void CtrlSetFault(Uint16 u16Fault)
 void CtrlClearFault(void)
 {
     ProtectReset();
-    gCtrlFault = (Uint16)CTRL_FAULT_NONE;
-    gCtrlObsFault = gCtrlFault;
-    gCtrlModIndex = 0.0f;
-    gCtrlPwmEnable = 0U;
+    stCtrlState.u16Fault = (Uint16)CTRL_FAULT_NONE;
+    stCtrlObs.u16Fault = stCtrlState.u16Fault;
+    stCtrlState.fModIndex = 0.0f;
+    stCtrlState.u16PwmEnable = 0U;
 
     CtrlAuthBlock();
-    gCtrlObsAuthState = gCtrlAuthState;
-    gCtrlObsAuthFlags = gCtrlAuthFlags;
-    gCtrlObsModActual = gCtrlModActual;
+    stCtrlObs.u16AuthState = stCtrlState.u16AuthState;
+    stCtrlObs.u16AuthFlags = stCtrlState.u16AuthFlags;
+    stCtrlObs.fModActual = stCtrlState.fModActual;
 }
 
 /* ==================== 发波授权对外接口 ==================== */
 
 Uint16 CtrlGetAuthState(void)
 {
-    return gCtrlAuthState;
+    return stCtrlState.u16AuthState;
 }
 
 float CtrlGetModActual(void)
 {
-    return gCtrlModActual;
+    return stCtrlState.fModActual;
 }
 
 Uint16 CtrlGetAuthFlags(void)
 {
-    return gCtrlAuthFlags;
+    return stCtrlState.u16AuthFlags;
+}
+
+/* ==================== 中断余量测量 ====================
+ * Timer2 是 200MHz 自由运行递减计数器：入口读一次、出口读一次，
+ * 两者之差就是本拍控制中断占用的 CPU 周期数（1 周期 = 5ns）。 */
+static Uint32 sCtrlIsrStartCnt = 0UL;
+
+void CtrlIsrMarginBegin(void)
+{
+    sCtrlIsrStartCnt = CpuTimer2Regs.TIM.all;
+}
+
+void CtrlIsrMarginEnd(void)
+{
+    Uint32 u32Used;
+    Uint16 u16Used;
+
+    /* 递减计数器：入口值减出口值即经过的周期数 */
+    u32Used = sCtrlIsrStartCnt - CpuTimer2Regs.TIM.all;
+
+    /* 单拍不可能超过 1ms（200000 周期），超出说明计数器被复位过，丢弃该样本 */
+    if (u32Used > 200000UL)
+    {
+        return;
+    }
+
+    u16Used = (Uint16)u32Used;
+
+    stCtrlMargin.u16LastCnt = u16Used;
+
+    if (u16Used > stCtrlMargin.u16MaxCnt)
+    {
+        stCtrlMargin.u16MaxCnt = u16Used;
+    }
+
+    if ((stCtrlMargin.u16SampleCnt == 0U) || (u16Used < stCtrlMargin.u16MinCnt))
+    {
+        stCtrlMargin.u16MinCnt = u16Used;
+    }
+
+    if (stCtrlMargin.u16SampleCnt < 0xFFFFU)
+    {
+        stCtrlMargin.u16SampleCnt++;
+    }
+
+    stCtrlMargin.u32AccCnt += u32Used;
+
+    if (u16Used > (Uint16)CTRL_ISR_BUDGET_CNT)
+    {
+        if (stCtrlMargin.u16OverCnt < 0xFFFFU)
+        {
+            stCtrlMargin.u16OverCnt++;
+        }
+    }
+}
+
+/* 最近一拍占用周期数 */
+Uint16 CtrlGetIsrCnt(void)
+{
+    return stCtrlMargin.u16LastCnt;
+}
+
+/* 历史最小余量（周期数），预算已耗尽时返回 0 */
+Uint16 CtrlGetMarginMinCnt(void)
+{
+    if (stCtrlMargin.u16MaxCnt >= (Uint16)CTRL_ISR_BUDGET_CNT)
+    {
+        return 0U;
+    }
+
+    return (Uint16)((Uint16)CTRL_ISR_BUDGET_CNT - stCtrlMargin.u16MaxCnt);
 }

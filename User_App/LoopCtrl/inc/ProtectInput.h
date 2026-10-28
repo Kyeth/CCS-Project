@@ -31,6 +31,15 @@
 /* 逆变输出直流分量判据 */
 #define PROTECT_INV_DC_OFS_MAX_A    (2.0f)      /* 直流分量上限 [A] */
 
+/* ==================== 输出故障判据状态 ==================== */
+typedef struct
+{
+    Uint16 u16NoOutCnt[3];      // 各相"有指令无输出"连续拍计数
+} ST_PROTECT_INPUT_STATE;
+
+/* 实例定义在 ProtectInput.c */
+extern ST_PROTECT_INPUT_STATE stProtectInput;
+
 void ProtectInputInit(void);
 
 /**

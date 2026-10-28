@@ -65,7 +65,7 @@ extern "C" {
 #define CTRL_AUTH_SLEW_UP           (0.0020f)   /* 调制比爬升：每秒 40 */
 #define CTRL_AUTH_SLEW_DN           (0.0040f)   /* 调制比下降：每秒 80 */
 
-/* CtrlGetAuthFlags() / gCtrlObsAuthFlags 的位定义 */
+/* CtrlGetAuthFlags() / stCtrlObs.u16AuthFlags 的位定义 */
 #define CTRL_AUTH_FLAG_FAULT        (0x0001U)   /* 控制故障封锁 */
 #define CTRL_AUTH_FLAG_CALIB        (0x0002U)   /* 零漂标定未完成封锁 */
 
@@ -114,18 +114,69 @@ extern Uint16 CtrlGetAuthState(void);
 extern float  CtrlGetModActual(void);
 extern Uint16 CtrlGetAuthFlags(void);
 
-/* 发波授权请求量：非 static，便于挂到 Modbus 点表里做软件互锁 */
-extern volatile Uint16 gCtrlPwmEnable;
+/* ==================== 控制中断运行状态 ====================
+ * 全部状态收进一个结构体，函数内一律经 stCtrlState 访问，
+ * 不再有散落的文件作用域变量。 */
+typedef struct
+{
+    float  fTheta;              // PLL 输出角度 rad, 0~2pi
+    float  fOmega;              // PLL 输出角速度 rad/s
+    float  fModIndex;           // 调制比请求值 0~CTRL_MOD_INDEX_MAX
+    float  fModActual;          // 实际下发调制比，按斜率跟随 fModIndex
+    Uint16 u16Fault;            // E_CTRL_FAULT
+    Uint16 u16MuxIdx;           // MUX 轮换表下标
+    Uint16 u16MuxAddr;          // 当前 MUX 选通地址
+    Uint16 u16SeqLast;          // 上一拍 CLA 序号
+    Uint16 u16SeqStall;         // CLA 序号停滞计数
+    Uint16 u16CycleCnt;         // 已运行控制拍数
+    Uint16 u16ProtectDiv;       // 保护框架 10ms 分频计数
+    Uint16 u16AuthState;        // CTRL_AUTH_xxx
+    Uint16 u16AuthCnt;          // WAIT 态已等待拍数
+    Uint16 u16AuthFlags;        // CTRL_AUTH_FLAG_xxx
+    Uint16 u16PwmEnable;        // 发波请求 0/1
+    Uint16 u16SmDivInvPv;       // 状态机分频 Inv/Pv，÷2 -> 10kHz
+    Uint16 u16SmDivBus;         // 状态机分频 Bus，÷4 -> 5kHz
+    Uint16 u16SmDivSys;         // 状态机分频 Sys，÷20 -> 1kHz
+} ST_CTRL_STATE;
 
-/* 观测影子量：控制中断每拍刷新，供软示波器（SoftOsc）按地址观测。
- * 控制环内部状态量本身是文件内 static，这里只做只读镜像。 */
-extern volatile float  gCtrlObsThetaDeg;
-extern volatile float  gCtrlObsGridFreq;
-extern volatile float  gCtrlObsModIndex;
-extern volatile Uint16 gCtrlObsFault;
-extern volatile Uint16 gCtrlObsAuthState;
-extern volatile Uint16 gCtrlObsAuthFlags;
-extern volatile float  gCtrlObsModActual;
+/* 观测影子量：每拍刷新，供软示波器与 Modbus 只读镜像取用 */
+typedef struct
+{
+    volatile float  fThetaDeg;      // 锁相角 度
+    volatile float  fGridFreq;      // 电网频率 Hz
+    volatile float  fModIndex;      // 调制比请求值
+    volatile float  fModActual;     // 实际下发调制比
+    volatile Uint16 u16Fault;       // 控制故障码
+    volatile Uint16 u16AuthState;   // 发波授权状态
+    volatile Uint16 u16AuthFlags;   // 封锁标志位
+} ST_CTRL_OBS;
+
+/* 中断余量：以 CpuTimer2 自由运行计数器为时基，统计每拍占用周期数。
+ * 预算 CTRL_ISR_BUDGET_CNT = 10000 周期（200MHz 下 50us）。 */
+typedef struct
+{
+    volatile Uint16 u16LastCnt;     // 上一拍占用周期数
+    volatile Uint16 u16MaxCnt;      // 峰值占用周期数
+    volatile Uint16 u16MinCnt;      // 谷值占用周期数，0 表示尚未采样
+    volatile Uint32 u32AccCnt;      // 累计占用周期数
+    volatile Uint16 u16SampleCnt;   // 采样拍数
+    volatile Uint16 u16OverCnt;     // 超出预算的拍数
+} ST_CTRL_MARGIN;
+
+#define CTRL_ISR_BUDGET_CNT         (10000U)
+
+/* 实例定义在 CtrlIsr.c */
+extern ST_CTRL_STATE  stCtrlState;
+extern ST_CTRL_OBS    stCtrlObs;
+extern ST_CTRL_MARGIN stCtrlMargin;
+
+/* 中断入口/出口打点，由 CLA1_1 中断调用 */
+extern void   CtrlIsrMarginBegin(void);
+extern void   CtrlIsrMarginEnd(void);
+
+/* 最近一拍的占用周期数与历史最小余量 */
+extern Uint16 CtrlGetIsrCnt(void);
+extern Uint16 CtrlGetMarginMinCnt(void);
 
 #ifdef __cplusplus
 }

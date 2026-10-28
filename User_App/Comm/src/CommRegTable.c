@@ -117,23 +117,23 @@ const ST_MB_REG_ITEM stMbRegItemPc[MB_PC_REG_MAX] =
     {32U, MB_VAL_F32, MB_RW_WRITE_SAVE, (void *)&gMbSavedDemoFloat, -10000, 10000U},
 
     /* ---------- 33~36：硬件保护任务状态（10kHz 漏桶判定）---------- */
-    {33U, MB_VAL_U16, MB_RW_READ_ONLY, (void *)&gProtectInvOcCnt,    0, 65535U},
-    {34U, MB_VAL_U16, MB_RW_READ_ONLY, (void *)&gProtectShortCnt,    0, 65535U},
-    {35U, MB_VAL_U16, MB_RW_READ_ONLY, (void *)&gProtectFaultFlags,  0, 65535U},
-    {36U, MB_VAL_U16, MB_RW_READ_ONLY, (void *)&gProtectTick,        0, 65535U},
+    {33U, MB_VAL_U16, MB_RW_READ_ONLY, (void *)&stProtectState.u16InvOcCnt,    0, 65535U},
+    {34U, MB_VAL_U16, MB_RW_READ_ONLY, (void *)&stProtectState.u16ShortCnt,    0, 65535U},
+    {35U, MB_VAL_U16, MB_RW_READ_ONLY, (void *)&stProtectState.u16FaultLatch,  0, 65535U},
+    {36U, MB_VAL_U16, MB_RW_READ_ONLY, (void *)&stProtectState.u16Tick,        0, 65535U},
 
     /* ---------- 37~41：半波自适应诊断（只读）---------- */
-    {37U, MB_VAL_U16, MB_RW_READ_ONLY, (void *)&gProtectHalfWaveMode,   0, 1U},
-    {38U, MB_VAL_U16, MB_RW_READ_ONLY, (void *)&gProtectHalfWaveJudge,  0, 65535U},
-    {39U, MB_VAL_I16, MB_RW_READ_ONLY, (void *)&gProtectInvDc[0], -30000, 30000U},  /* R 相，0.1A */
-    {40U, MB_VAL_I16, MB_RW_READ_ONLY, (void *)&gProtectInvDc[1], -30000, 30000U},  /* S 相，0.1A */
-    {41U, MB_VAL_I16, MB_RW_READ_ONLY, (void *)&gProtectInvDc[2], -30000, 30000U},  /* T 相，0.1A */
+    {37U, MB_VAL_U16, MB_RW_READ_ONLY, (void *)&stProtectState.u16HalfWaveMode,   0, 1U},
+    {38U, MB_VAL_U16, MB_RW_READ_ONLY, (void *)&stProtectState.u16HalfWaveJudge,  0, 65535U},
+    {39U, MB_VAL_I16, MB_RW_READ_ONLY, (void *)&stProtectState.i16InvDc[0], -30000, 30000U},  /* R 相，0.1A */
+    {40U, MB_VAL_I16, MB_RW_READ_ONLY, (void *)&stProtectState.i16InvDc[1], -30000, 30000U},  /* S 相，0.1A */
+    {41U, MB_VAL_I16, MB_RW_READ_ONLY, (void *)&stProtectState.i16InvDc[2], -30000, 30000U},  /* T 相，0.1A */
 
     /* ---------- 42~45：ADC 标定状态（只读）---------- */
-    {42U, MB_VAL_U16, MB_RW_READ_ONLY, (void *)&gAdcCalZeroState,   0, 65535U},          /* 0待测/1累加/2完成/3超差/4冻结 */
-    {43U, MB_VAL_U16, MB_RW_READ_ONLY, (void *)&gAdcCalTrackCnt,    0, 65535U},          /* 已累加拍数 */
-    {44U, MB_VAL_I16, MB_RW_READ_ONLY, (void *)&gAdcCalObsGfciMa, -30000, 30000U},       /* GFCI 电流，mA */
-    {45U, MB_VAL_I16, MB_RW_READ_ONLY, (void *)&gAdcCalObsBalCur, -30000, 30000U},       /* 平衡电路电流，0.1A */
+    {42U, MB_VAL_U16, MB_RW_READ_ONLY, (void *)&stAdcCalib.u16ZeroState,   0, 65535U},          /* 0待测/1累加/2完成/3超差/4冻结 */
+    {43U, MB_VAL_U16, MB_RW_READ_ONLY, (void *)&stAdcCalib.u16TrackCnt,    0, 65535U},          /* 已累加拍数 */
+    {44U, MB_VAL_I16, MB_RW_READ_ONLY, (void *)&stAdcCalib.i16ObsGfciMa, -30000, 30000U},       /* GFCI 电流，mA */
+    {45U, MB_VAL_I16, MB_RW_READ_ONLY, (void *)&stAdcCalib.i16ObsBalCur, -30000, 30000U},       /* 平衡电路电流，0.1A */
 
     /* ---------- 46~49：对外采样量示例（AdcSample，只读，F32）---------- */
     {46U, MB_VAL_F32, MB_RW_READ_ONLY, (void *)&stSampleRms.fGridVoltRms[SAMPLE_PH_R], 0, 10000U},   /* 电网 R 相电压有效值 V */
@@ -180,8 +180,16 @@ const ST_MB_REG_ITEM stMbRegItemPc[MB_PC_REG_MAX] =
     {81U, MB_VAL_F32, MB_RW_READ_ONLY, (void *)&gPvSm.stCh[3].fPower, 0, 15000U}, /* PV4 功率 W */
 
     /* ---------- 发波授权观测（82~84，20kHz 控制中断裁定） ---------- */
-    {82U, MB_VAL_U16, MB_RW_READ_ONLY, (void *)&gCtrlObsAuthState, 0, 3U},        /* 0=OFF 1=WAIT 2=ON 3=SOFT_OFF */
-    {83U, MB_VAL_F32, MB_RW_READ_ONLY, (void *)&gCtrlObsModActual, 0, 1U},        /* 实际下发调制比 */
+    {82U, MB_VAL_U16, MB_RW_READ_ONLY, (void *)&stCtrlObs.u16AuthState, 0, 3U},        /* 0=OFF 1=WAIT 2=ON 3=SOFT_OFF */
+    {83U, MB_VAL_F32, MB_RW_READ_ONLY, (void *)&stCtrlObs.fModActual, 0, 1U},        /* 实际下发调制比 */
+
+    /* ---------- 84~89：控制中断执行余量（只读，单位 = 200MHz 周期数）---------- */
+    {84U, MB_VAL_U16, MB_RW_READ_ONLY, (void *)&stCtrlMargin.u16LastCnt,   0, 65535U},  /* 上一拍占用周期数 */
+    {85U, MB_VAL_U16, MB_RW_READ_ONLY, (void *)&stCtrlMargin.u16MaxCnt,    0, 65535U},  /* 峰值占用周期数 */
+    {86U, MB_VAL_U16, MB_RW_READ_ONLY, (void *)&stCtrlMargin.u16MinCnt,    0, 65535U},  /* 谷值占用周期数 */
+    {87U, MB_VAL_U16, MB_RW_READ_ONLY, (void *)&stCtrlMargin.u16OverCnt,   0, 65535U},  /* 超预算拍数 */
+    {88U, MB_VAL_U32, MB_RW_READ_ONLY, (void *)&stCtrlMargin.u32AccCnt,    0, 4294967295U}, /* 累计占用周期数 */
+    {89U, MB_VAL_U16, MB_RW_READ_ONLY, (void *)&stCtrlMargin.u16SampleCnt, 0, 65535U},  /* 采样拍数 */
 
     /* ---------- 100 以后：调试变量区，按需往下加 ---------- */
     {100U, MB_VAL_U16, MB_RW_WRITE, (void *)&gMbPcDemoWord,   0, 65535U},

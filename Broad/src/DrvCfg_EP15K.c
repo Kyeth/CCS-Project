@@ -304,15 +304,16 @@ volatile ST_SYS_TIMER stSysCpuTimer1 =
     1U                              /* u16TickDivCoef */
 };
 
-/* 辅助定时器：1ms，200MHz/1kHz = 200000个时钟，PRD = 199999
- * 若希望改为"100us硬件中断 + 分频10出1ms心跳"，把周期换成PERIOD_100US、分频系数改成10即可 */
+/* 计时基准：Timer2 作 200MHz 自由运行递减计数器，不产生中断。
+ * 控制中断在入口与出口各读一次 TIM 寄存器，差值即该拍占用周期数；
+ * 周期 0xFFFFFFFF 约 21.5s 才回绕，远大于单拍 50us，无需处理溢出。 */
 volatile ST_SYS_TIMER stSysCpuTimer2 =
 {
     (Uint16)HW_CPUTIMER_ID2,        /* u16TimerId     */
     0U,                             /* u16Prescaler   */
-    1U,                             /* bEnableInt     */
+    0U,                             /* bEnableInt     */
     1U,                             /* bEmuStop       */
-    DRVCFG_TIMER_PERIOD_1MS,        /* u32Period      */
+    0xFFFFFFFFUL,                   /* u32Period      */
     0UL,                            /* u32Tick        */
     0U,                             /* u16TickDivCnt  */
     1U                              /* u16TickDivCoef */

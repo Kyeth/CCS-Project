@@ -46,7 +46,7 @@ extern "C" {
 
 /* ---- 上位机点表（SCI-D，GPIO93/94）：0~26 控制块 + 100 以后调试变量 ---- */
 #define MB_PC_REG_MAX               (96U)
-#define MB_PC_REG_NUM               (84U)
+#define MB_PC_REG_NUM               (90U)
 extern Uint16  gMbPcDemoWord;
 /* 掉电保存示范变量：属性带 MB_RW_SAVE，上电自动回填 */
 extern Uint16  gMbSavedDemoWord;

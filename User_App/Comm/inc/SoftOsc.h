@@ -124,6 +124,10 @@ extern volatile Uint16 gSoftOscGroupSel;   /* 单边模式下发哪一组：0 = 
 /* 点表里写"源编号/寄存器地址"时允许的最大值 */
 #define SOFT_OSC_SRC_ID_MAX         (65535U)
 
+/* 地址模式标志：源编号最高位写 1，低 15 位按"点表寄存器地址"反查。
+ * 有了它，点表里 0~99 这些地址也能被观测（0~99 与内置源编号 1~38 冲突）。 */
+#define SOFT_OSC_SRC_ADDR_FLAG      (0x8000U)
+
 /* 一个通道的可写配置：观测源编号 + 定点放大倍数 */
 typedef struct
 {
