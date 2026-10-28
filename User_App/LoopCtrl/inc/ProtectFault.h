@@ -29,12 +29,15 @@ typedef struct
 {
     volatile Uint16 u16Status[PROTECT_WORD_NUM];      /* 故障记录位，屏蔽也置位 */
     Uint16          u16Pending[PROTECT_WORD_NUM];     /* 判据当前有效 */
-    Uint16          u16Mask[PROTECT_WORD_NUM];        /* 1=屏蔽动作，仍记录 */
+    volatile Uint16 u16Mask[PROTECT_WORD_NUM];        /* 1=屏蔽动作，仍记录；上位机可改 */
     Uint16          u16DebounceCnt[PROTECT_FLT_NUM];  /* 去抖计数，单位 ms */
     Uint16          u16Proto[PROTECT_PROTO_WORD_NUM]; /* 聚合后的协议故障字 */
     volatile Uint16 u16ActionLevel;                   /* 未屏蔽位中的最高严重度 */
     volatile Uint16 u16TotalSign;                     /* 存在未屏蔽的 STOP 及以上 */
     Uint16          u16MaskAgeMs;                     /* 屏蔽字心跳计时 */
+    Uint16          u16MaskShadow[PROTECT_WORD_NUM];  /* 屏蔽字影子，用于检测上位机改写 */
+    volatile Uint16 u16MaskKeepAlive;                 /* 上位机心跳，值变化即续期 */
+    Uint16          u16MaskKeepAliveLast;             /* 心跳影子 */
 }ST_PROTECT_STATE;
 
 extern ST_PROTECT_STATE stProtect;

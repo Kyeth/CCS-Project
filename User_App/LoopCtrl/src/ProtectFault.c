@@ -233,6 +233,22 @@ void ProtectRun10ms(void)
     ProtectUpdateAction();
     ProtectUpdateProto();
 
+    /* 上位机改写屏蔽字或翻转心跳，都视为一次续期 */
+    for (i = 0U; i < PROTECT_WORD_NUM; i++)
+    {
+        if (stProtect.u16Mask[i] != stProtect.u16MaskShadow[i])
+        {
+            stProtect.u16MaskShadow[i]  = stProtect.u16Mask[i];
+            stProtect.u16MaskAgeMs      = 0U;
+        }
+    }
+
+    if (stProtect.u16MaskKeepAlive != stProtect.u16MaskKeepAliveLast)
+    {
+        stProtect.u16MaskKeepAliveLast = stProtect.u16MaskKeepAlive;
+        stProtect.u16MaskAgeMs         = 0U;
+    }
+
     if (stProtect.u16MaskAgeMs < PROTECT_MASK_HEARTBEAT_MS)
     {
         stProtect.u16MaskAgeMs = (Uint16)(stProtect.u16MaskAgeMs + PROTECT_TICK_MS);
@@ -241,7 +257,8 @@ void ProtectRun10ms(void)
     {
         for (i = 0U; i < PROTECT_WORD_NUM; i++)
         {
-            stProtect.u16Mask[i] = 0U;
+            stProtect.u16Mask[i]       = 0U;
+            stProtect.u16MaskShadow[i] = 0U;
         }
     }
 }

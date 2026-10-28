@@ -30,7 +30,8 @@
 #include "EepromParam.h"   /* 保存层诊断量的 Modbus 镜像 */
 #include "ProtectTask.h"   /* 硬件保护任务状态量 */
 #include "AdcCalib.h"      /* ADC 标定状态量 */
-#include "AdcSample.h"     /* 对外采样量 */
+#include "AdcSample.h"
+#include "ProtectFault.h"     /* 对外采样量 */
 #include "AtsProto.h"      /* ATS 旁听镜像 */
 #include "AtsCtl.h"        /* ATS 干接点状态 */
 #include "SystemStateMachine.h" /* 系统/逆变状态机 */
@@ -182,5 +183,30 @@ const ST_MB_REG_ITEM stMbRegItemPc[MB_PC_REG_MAX] =
     {87U, MB_VAL_U16, MB_RW_READ_ONLY, (void *)&stCtrlMargin.u16OverCnt,   0, 65535U},  /* 超预算拍数 */
     {88U, MB_VAL_U32, MB_RW_READ_ONLY, (void *)&stCtrlMargin.u32AccCnt,    0, 4294967295U}, /* 累计占用周期数 */
     {89U, MB_VAL_U16, MB_RW_READ_ONLY, (void *)&stCtrlMargin.u16SampleCnt, 0, 65535U},  /* 采样拍数 */
+
+    /* ---------- 100~105：保护屏蔽字（1=屏蔽动作，仍记录，只读位段由内核判定）----------
+     * 上位机写入后须在 500ms 内继续翻转 106 号心跳，否则屏蔽字自动全清。 */
+    {100U, MB_VAL_U16, MB_RW_WRITE, (void *)&stProtect.u16Mask[0], 0, 65535U},  /* W0 逆变域 */
+    {101U, MB_VAL_U16, MB_RW_WRITE, (void *)&stProtect.u16Mask[1], 0, 65535U},  /* W1 光伏域 */
+    {102U, MB_VAL_U16, MB_RW_WRITE, (void *)&stProtect.u16Mask[2], 0, 65535U},  /* W2 电网域 */
+    {103U, MB_VAL_U16, MB_RW_WRITE, (void *)&stProtect.u16Mask[3], 0, 65535U},  /* W3 直流域 */
+    {104U, MB_VAL_U16, MB_RW_WRITE, (void *)&stProtect.u16Mask[4], 0, 65535U},  /* W4 系统域 */
+    {105U, MB_VAL_U16, MB_RW_WRITE, (void *)&stProtect.u16Mask[5], 0, 65535U},  /* W5 内部细分 */
+
+    /* ---------- 106：屏蔽字心跳，写完屏蔽字后 500ms 内至少改写一次 ---------- */
+    {106U, MB_VAL_U16, MB_RW_WRITE, (void *)&stProtect.u16MaskKeepAlive, 0, 65535U},
+
+    /* ---------- 107~108：保护动作汇总（只读）---------- */
+    {107U, MB_VAL_U16, MB_RW_READ_ONLY, (void *)&stProtect.u16ActionLevel, 0, 4U},  /* 0=INFO 4=TRIP */
+    {108U, MB_VAL_U16, MB_RW_READ_ONLY, (void *)&stProtect.u16TotalSign,   0, 1U},  /* 1=存在未屏蔽的停机级故障 */
+
+    /* ---------- 109~115：协议故障字回读（只读，与 ARM 5030~5060 同源）---------- */
+    {109U, MB_VAL_U16, MB_RW_READ_ONLY, (void *)&stProtect.u16Proto[PROTECT_PW_5030], 0, 65535U},
+    {110U, MB_VAL_U16, MB_RW_READ_ONLY, (void *)&stProtect.u16Proto[PROTECT_PW_5031], 0, 65535U},
+    {111U, MB_VAL_U16, MB_RW_READ_ONLY, (void *)&stProtect.u16Proto[PROTECT_PW_5032], 0, 65535U},
+    {112U, MB_VAL_U16, MB_RW_READ_ONLY, (void *)&stProtect.u16Proto[PROTECT_PW_5033], 0, 65535U},
+    {113U, MB_VAL_U16, MB_RW_READ_ONLY, (void *)&stProtect.u16Proto[PROTECT_PW_5034], 0, 65535U},
+    {114U, MB_VAL_U16, MB_RW_READ_ONLY, (void *)&stProtect.u16Proto[PROTECT_PW_5054], 0, 65535U},
+    {115U, MB_VAL_U16, MB_RW_READ_ONLY, (void *)&stProtect.u16Proto[PROTECT_PW_5060], 0, 65535U},
 
 };
