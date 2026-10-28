@@ -114,6 +114,7 @@ ORDERED_OBJS += \
 $(GEN_CMDS__FLAG) \
 -llibc.a \
 
+ORDERED_OBJS += "./User_App/LoopCtrl/src/ProtectFault.obj"
 -include ../makefile.init
 
 RM := DEL /F

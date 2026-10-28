@@ -19,6 +19,8 @@
 #include "Hw_PwmDriver.h"
 #include "AdcCalib.h"
 #include "AdcSample.h"
+#include "Schedule.h"
+#include "ProtectFault.h"
 
 #include <math.h>
 
@@ -50,6 +52,7 @@ static Uint16 gCtrlMuxAddr;             /* 当前选通地址 */
 static Uint16 gCtrlSeqLast;             /* 上一次看到的 CLA 序号 */
 static Uint16 gCtrlSeqStall;            /* 序号停滞计数 */
 static Uint16 gCtrlCycleCnt;            /* 已运行控制拍数 */
+static Uint16 gCtrlProtectDiv;          /* 保护框架 10ms 分频计数 */
 
 /* 发波授权状态机 */
 static float  gCtrlModActual;           /* 实际下发调制比：按斜率跟随 gCtrlModIndex */
@@ -451,6 +454,19 @@ void CtrlIsrRun(void)
 
     gCtrlCycleCnt++;
 
+    /* ---------- 0. 保护框架：10ms 节拍推进记录、去抖与协议聚合 ---------- */
+    if (gCtrlProtectDiv >= 200U)
+    {
+        gCtrlProtectDiv = 0U;
+        ProtectRun10ms();
+    }
+    else
+    {
+        gCtrlProtectDiv++;
+    }
+
+    gCtrlCycleCnt++;
+
     /* ---------- 0. ADC 标定刷新：码值 -> 工程值 ---------- */
     /* 本拍所有消费者（过流判定、PLL、软示波器）都从 AdcCalib 取数，
      * 保证同一拍看到的是同一份数据；上电零漂检测状态机也在里面推进 */
@@ -475,6 +491,12 @@ void CtrlIsrRun(void)
     if (gCtrlSeqStall > CTRL_CLA_TIMEOUT_NUM)
     {
         gCtrlFault = (Uint16)CTRL_FAULT_CLA_TIMEOUT;
+    }
+
+    /* ---------- 1b. 后台任务活性：停摆即按故障处理，撤销发波授权 ---------- */
+    if (Task_GetHealthFault() != 0U)
+    {
+        gCtrlFault = (Uint16)CTRL_FAULT_TASK_STALL;
     }
 
     /* ---------- 2. 过流封波检测（三路逆变电流瞬时值） ---------- */
