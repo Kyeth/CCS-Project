@@ -1,7 +1,7 @@
 ******************************************************************************
              TMS320C2000 Linker PC v22.6.2                     
 ******************************************************************************
->> Linked Wed Oct 28 17:01:24 2026
+>> Linked Wed Oct 28 17:01:56 2026
 
 OUTPUT FILE NAME:   <EP15K_2026.out>
 ENTRY POINT SYMBOL: "_c_int00"  address: 0008d24f
@@ -22,7 +22,7 @@ PAGE 0:
   RAMD0                 0000b000   00000800  000001ef  00000611  RWIX
   FLASH_BOOT_RSVD       00080000   00006000  00000000  00006000  RWIX
   BEGIN                 00086000   00000002  00000002  00000000  RWIX
-  FLASH_APP             00086002   00019ffe  00009743  000108bb  RWIX
+  FLASH_APP             00086002   00019ffe  0000973b  000108c3  RWIX
   FLASH_BACKUP_RSVD     000a0000   0001a000  00000000  0001a000  RWIX
   FLASH_SPARE_RSVD      000ba000   00004000  00000000  00004000  RWIX
   FLASH_CFG_RSVD        000be000   00001ff0  00000000  00001ff0  RWIX
@@ -118,8 +118,8 @@ PAGE 1:
   OUTPUTXBAR            00007a80   00000040  00000000  00000040  RWIX
   GPIOCTRL              00007c00   00000180  00000180  00000000  RWIX
   GPIODATA              00007f00   00000030  00000030  00000000  RWIX
-  RAMGS0                0000c000   00001000  00000ffd  00000003  RWIX
-  RAMGS1                0000d000   00001000  00000e5a  000001a6  RWIX
+  RAMGS0                0000c000   00001000  00000fff  00000001  RWIX
+  RAMGS1                0000d000   00001000  00000e58  000001a8  RWIX
   RAMGS2                0000e000   00001000  00000000  00001000  RWIX
   RAMGS3                0000f000   00001000  00000000  00001000  RWIX
   RAMGS4                00010000   00001000  00000000  00001000  RWIX
@@ -167,19 +167,18 @@ codestart
 .switch    0    0008f560    00000036     
                   0008f560    00000036     AdcCalib.obj (.switch:AdcCalibReadCode12)
 
-.cinit     0    0008f598    000001bc     
+.cinit     0    0008f598    000001b4     
                   0008f598    0000016a     (.cinit..data.load) [load image, compression = lzss]
                   0008f702    00000006     (__TI_handler_table)
                   0008f708    00000004     (.cinit..bss.1.load) [load image, compression = zero_init]
                   0008f70c    00000004     (.cinit..bss.2.load) [load image, compression = zero_init]
                   0008f710    00000004     (.cinit..bss.3.load) [load image, compression = zero_init]
-                  0008f714    00000004     (.cinit..bss.4.load) [load image, compression = zero_init]
-                  0008f718    00000004     (.cinit..scratchpad.load) [load image, compression = zero_init]
-                  0008f71c    00000004     (.cinit.Cla1DataRam.load) [load image, compression = zero_init]
-                  0008f720    00000004     (.cinit.Cla1ToCpuMsgRAM.load) [load image, compression = zero_init]
-                  0008f724    00000004     (.cinit.CpuToCla1MsgRAM.load) [load image, compression = zero_init]
-                  0008f728    00000004     (.cinit.PieVectTableFile.load) [load image, compression = zero_init]
-                  0008f72c    00000028     (__TI_cinit_table)
+                  0008f714    00000004     (.cinit..scratchpad.load) [load image, compression = zero_init]
+                  0008f718    00000004     (.cinit.Cla1DataRam.load) [load image, compression = zero_init]
+                  0008f71c    00000004     (.cinit.Cla1ToCpuMsgRAM.load) [load image, compression = zero_init]
+                  0008f720    00000004     (.cinit.CpuToCla1MsgRAM.load) [load image, compression = zero_init]
+                  0008f724    00000004     (.cinit.PieVectTableFile.load) [load image, compression = zero_init]
+                  0008f728    00000024     (__TI_cinit_table)
 
 .init_array 
 *          0    00086008    00000000     UNINITIALIZED
@@ -598,7 +597,7 @@ XintRegsFile
                   0008f556    00000004     Hw_CanDriver.obj (.const:gCanRegs)
                   0008f55a    00000003     ProtectInput.obj (.const:sInvOutFault)
 
-.data      1    0000c000    00000502     UNINITIALIZED
+.data      1    0000c000    00000500     UNINITIALIZED
                   0000c000    00000222     DrvCfg_EP15K.obj (.data:stGpioCfgItem)
                   0000c222    000001e0     DrvCfg_EP15K.obj (.data:stPwmCfgItem)
                   0000c402    0000001c     EepromParam.obj (.data)
@@ -624,36 +623,34 @@ XintRegsFile
                   0000c4e9    00000003     Hw_SpiDriver.obj (.data:gSpiErrCnt)
                   0000c4ec    00000003     Hw_SpiDriver.obj (.data:gSpiUsed)
                   0000c4ef    00000001     Hw_SpiDriver.obj (.data)
-                  0000c4f0    00000002     CtrlIsr.obj (.data)
-                  0000c4f2    00000002     Hw_InvDriver.obj (.data)
-                  0000c4f4    00000002     Hw_PwmDriver.obj (.data)
-                  0000c4f6    00000002     InterruptCfg.obj (.data)
-                  0000c4f8    00000002     RelayCtl.obj (.data)
-                  0000c4fa    00000002     SmUtil.obj (.data)
-                  0000c4fc    00000002     rts2800_fpu32_eabi.lib : _lock.c.obj (.data:_lock)
-                  0000c4fe    00000002                            : _lock.c.obj (.data:_unlock)
-                  0000c500    00000002     Hw_CanDriver.obj (.data:gCanInited)
+                  0000c4f0    00000002     Hw_InvDriver.obj (.data)
+                  0000c4f2    00000002     Hw_PwmDriver.obj (.data)
+                  0000c4f4    00000002     InterruptCfg.obj (.data)
+                  0000c4f6    00000002     RelayCtl.obj (.data)
+                  0000c4f8    00000002     SmUtil.obj (.data)
+                  0000c4fa    00000002     rts2800_fpu32_eabi.lib : _lock.c.obj (.data:_lock)
+                  0000c4fc    00000002                            : _lock.c.obj (.data:_unlock)
+                  0000c4fe    00000002     Hw_CanDriver.obj (.data:gCanInited)
 
-.bss.1     1    0000c504    00000afb     UNINITIALIZED
-                  0000c504    00000400     Hw_SciDriver.obj (.bss:gSciRxBuf)
-                  0000c904    00000400     Hw_SciDriver.obj (.bss:gSciTxBuf)
-                  0000cd04    0000002a     CtrlIsr.obj (.bss)
-                  0000cd2e    00000012     ProtectTask.obj (.bss)
-                  0000cd40    0000018f     ArmPointTable.obj (.bss)
-                  0000cecf    00000130     AtsProto.obj (.bss:gAtsReg)
+.bss.1     1    0000c500    00000aff     UNINITIALIZED
+                  0000c500    00000400     Hw_SciDriver.obj (.bss:gSciRxBuf)
+                  0000c900    00000400     Hw_SciDriver.obj (.bss:gSciTxBuf)
+                  0000cd00    0000018f     ArmPointTable.obj (.bss)
+                  0000ce8f    00000130     AtsProto.obj (.bss:gAtsReg)
+                  0000cfbf    00000040     EepromParam.obj (.bss:gLastHash)
 
 .bss.2     1    0000d000    000009be     UNINITIALIZED
                   0000d000    00000400     EepromParam.obj (.bss:gShadow)
                   0000d400    00000150     PvStateMachine.obj (.bss)
-                  0000d550    00000020     Hw_CanDriver.obj (.bss:gCanCfg)
-                  0000d570    00000010     BusStateMachine.obj (.bss)
+                  0000d550    0000002c     CtrlIsr.obj (.bss)
+                  0000d57c    00000004     ModbusSlave.obj (.bss:gMbErrCnt)
                   0000d580    00000116     AdcCalib.obj (.bss)
                   0000d696    00000104     ModbusSlave.obj (.bss:gMbFrame)
                   0000d79a    00000104     ModbusSlave.obj (.bss:gMbResp)
                   0000d89e    00000100     EepromParam.obj (.bss:gItem)
-                  0000d99e    00000020     EepromParam.obj (.bss:sHdrBuf)
+                  0000d99e    00000020     Hw_CanDriver.obj (.bss:gCanCfg)
 
-.bss.3     1    0000d9c0    000003fe     UNINITIALIZED
+.bss.3     1    0000d9c0    0000049a     UNINITIALIZED
                   0000d9c0    000000f2     SampleData.obj (.bss)
                   0000dab2    00000088     Schedule.obj (.bss:Task)
                   0000db3a    00000006     Hw_InvDriver.obj (.bss:gInvDuty)
@@ -662,17 +659,17 @@ XintRegsFile
                   0000dbbf    00000001     --HOLE--
                   0000dbc0    0000007a     ProtectFault.obj (.bss)
                   0000dc3a    00000048     SoftOsc.obj (.bss:gSoftOscCh)
-                  0000dc82    00000040     EepromParam.obj (.bss:gLastHash)
-                  0000dcc2    00000040     PvStateMachine.obj (.bss:sIpvBuf)
-                  0000dd02    00000040     PvStateMachine.obj (.bss:sVpvBuf)
-                  0000dd42    00000018     Hw_SciDriver.obj (.bss:gSciRxRing)
-                  0000dd5a    00000018     Hw_SciDriver.obj (.bss:gSciTxRing)
-                  0000dd72    00000018     SoftOsc.obj (.bss:gSoftOscChCfg)
-                  0000dd8a    00000018     SoftOsc.obj (.bss:gSoftOscChCfgShadow)
-                  0000dda2    0000000e     AtsProto.obj (.bss)
-                  0000ddb0    0000000e     InvStateMachine.obj (.bss)
-
-.bss.4     1    0000ddc0    0000009e     UNINITIALIZED
+                  0000dc82    00000040     PvStateMachine.obj (.bss:sIpvBuf)
+                  0000dcc2    00000040     PvStateMachine.obj (.bss:sVpvBuf)
+                  0000dd02    00000020     EepromParam.obj (.bss:sHdrBuf)
+                  0000dd22    00000018     Hw_SciDriver.obj (.bss:gSciRxRing)
+                  0000dd3a    00000018     Hw_SciDriver.obj (.bss:gSciTxRing)
+                  0000dd52    00000018     SoftOsc.obj (.bss:gSoftOscChCfg)
+                  0000dd6a    00000018     SoftOsc.obj (.bss:gSoftOscChCfgShadow)
+                  0000dd82    00000012     ProtectTask.obj (.bss)
+                  0000dd94    00000010     BusStateMachine.obj (.bss)
+                  0000dda4    0000000e     AtsProto.obj (.bss)
+                  0000ddb2    0000000e     InvStateMachine.obj (.bss)
                   0000ddc0    0000000c     Fm24c128d.obj (.bss)
                   0000ddcc    0000000a     SystemStateMachine.obj (.bss)
                   0000ddd6    0000000a     Hw_ExitDriver.obj (.bss:gXintEvtTotal)
@@ -683,25 +680,24 @@ XintRegsFile
                   0000de00    00000008     PvStateMachine.obj (.bss:sVpvSum)
                   0000de08    00000008     PvStateMachine.obj (.bss:sVrawSum)
                   0000de10    00000005     Hw_ExitDriver.obj (.bss:gXintEvtLast)
-                  0000de15    00000004     ModbusSlave.obj (.bss:gMbErrCnt)
-                  0000de19    00000004     ModbusSlave.obj (.bss:gMbFrameCnt)
-                  0000de1d    00000004     ModbusSlave.obj (.bss:gMbLastFunc)
-                  0000de21    00000004     Hw_SciDriver.obj (.bss:gSciFrameActive)
-                  0000de25    00000004     Hw_SciDriver.obj (.bss:gSciFrameLen)
-                  0000de29    00000004     Hw_SciDriver.obj (.bss:gSciFrameLost)
-                  0000de2d    00000004     Hw_SciDriver.obj (.bss:gSciFrameReady)
-                  0000de31    00000004     Hw_SciDriver.obj (.bss:gSciFrameStart)
-                  0000de35    00000004     Hw_SciDriver.obj (.bss:gSciIdleTh)
-                  0000de39    00000004     Hw_SciDriver.obj (.bss:gSciInited)
-                  0000de3d    00000004     Hw_SciDriver.obj (.bss:gSciLastTotal)
-                  0000de41    00000004     Hw_SciDriver.obj (.bss:gSciRxIdleCnt)
-                  0000de45    00000004     Hw_SciDriver.obj (.bss:gSciRxTotal)
-                  0000de49    00000004     PvStateMachine.obj (.bss:sIpvIdx)
-                  0000de4d    00000004     PvStateMachine.obj (.bss:sVdivCnt)
-                  0000de51    00000004     PvStateMachine.obj (.bss:sVpvIdx)
-                  0000de55    00000003     ProtectInput.obj (.bss)
-                  0000de58    00000003     Hw_InvDriver.obj (.bss:gInvChop)
-                  0000de5b    00000003     Hw_InvDriver.obj (.bss:gInvPending)
+                  0000de15    00000004     ModbusSlave.obj (.bss:gMbFrameCnt)
+                  0000de19    00000004     ModbusSlave.obj (.bss:gMbLastFunc)
+                  0000de1d    00000004     Hw_SciDriver.obj (.bss:gSciFrameActive)
+                  0000de21    00000004     Hw_SciDriver.obj (.bss:gSciFrameLen)
+                  0000de25    00000004     Hw_SciDriver.obj (.bss:gSciFrameLost)
+                  0000de29    00000004     Hw_SciDriver.obj (.bss:gSciFrameReady)
+                  0000de2d    00000004     Hw_SciDriver.obj (.bss:gSciFrameStart)
+                  0000de31    00000004     Hw_SciDriver.obj (.bss:gSciIdleTh)
+                  0000de35    00000004     Hw_SciDriver.obj (.bss:gSciInited)
+                  0000de39    00000004     Hw_SciDriver.obj (.bss:gSciLastTotal)
+                  0000de3d    00000004     Hw_SciDriver.obj (.bss:gSciRxIdleCnt)
+                  0000de41    00000004     Hw_SciDriver.obj (.bss:gSciRxTotal)
+                  0000de45    00000004     PvStateMachine.obj (.bss:sIpvIdx)
+                  0000de49    00000004     PvStateMachine.obj (.bss:sVdivCnt)
+                  0000de4d    00000004     PvStateMachine.obj (.bss:sVpvIdx)
+                  0000de51    00000003     ProtectInput.obj (.bss)
+                  0000de54    00000003     Hw_InvDriver.obj (.bss:gInvChop)
+                  0000de57    00000003     Hw_InvDriver.obj (.bss:gInvPending)
 
 MODULE SUMMARY
 
@@ -833,24 +829,23 @@ MODULE SUMMARY
        Total:                           227     0         10     
                                                                  
        Stack:                           0       0         512    
-       Linker Generated:                0       444       0      
+       Linker Generated:                0       436       0      
     +--+--------------------------------+-------+---------+---------+
-       Grand Total:                     31211   8843      15794  
+       Grand Total:                     31211   8835      15794  
 
 
 LINKER GENERATED COPY TABLES
 
-__TI_cinit_table @ 0008f72c records: 10, size/record: 4, table size: 40
-	.data: load addr=0008f598, load size=0000016a bytes, run addr=0000c000, run size=00000502 bytes, compression=lzss
-	.bss.1: load addr=0008f708, load size=00000004 bytes, run addr=0000c504, run size=00000afb bytes, compression=zero_init
+__TI_cinit_table @ 0008f728 records: 9, size/record: 4, table size: 36
+	.data: load addr=0008f598, load size=0000016a bytes, run addr=0000c000, run size=00000500 bytes, compression=lzss
+	.bss.1: load addr=0008f708, load size=00000004 bytes, run addr=0000c500, run size=00000aff bytes, compression=zero_init
 	.bss.2: load addr=0008f70c, load size=00000004 bytes, run addr=0000d000, run size=000009be bytes, compression=zero_init
-	.bss.3: load addr=0008f710, load size=00000004 bytes, run addr=0000d9c0, run size=000003fe bytes, compression=zero_init
-	.bss.4: load addr=0008f714, load size=00000004 bytes, run addr=0000ddc0, run size=0000009e bytes, compression=zero_init
-	.scratchpad: load addr=0008f718, load size=00000004 bytes, run addr=0000a82c, run size=00000008 bytes, compression=zero_init
-	Cla1DataRam: load addr=0008f71c, load size=00000004 bytes, run addr=0000a800, run size=0000002a bytes, compression=zero_init
-	Cla1ToCpuMsgRAM: load addr=0008f720, load size=00000004 bytes, run addr=00001500, run size=0000003c bytes, compression=zero_init
-	CpuToCla1MsgRAM: load addr=0008f724, load size=00000004 bytes, run addr=00001480, run size=0000000a bytes, compression=zero_init
-	PieVectTableFile: load addr=0008f728, load size=00000004 bytes, run addr=00000d00, run size=000001c0 bytes, compression=zero_init
+	.bss.3: load addr=0008f710, load size=00000004 bytes, run addr=0000d9c0, run size=0000049a bytes, compression=zero_init
+	.scratchpad: load addr=0008f714, load size=00000004 bytes, run addr=0000a82c, run size=00000008 bytes, compression=zero_init
+	Cla1DataRam: load addr=0008f718, load size=00000004 bytes, run addr=0000a800, run size=0000002a bytes, compression=zero_init
+	Cla1ToCpuMsgRAM: load addr=0008f71c, load size=00000004 bytes, run addr=00001500, run size=0000003c bytes, compression=zero_init
+	CpuToCla1MsgRAM: load addr=0008f720, load size=00000004 bytes, run addr=00001480, run size=0000000a bytes, compression=zero_init
+	PieVectTableFile: load addr=0008f724, load size=00000004 bytes, run addr=00000d00, run size=000001c0 bytes, compression=zero_init
 
 
 LINKER GENERATED HANDLER TABLE
@@ -1001,22 +996,18 @@ address     data page           name
 0000c4d4     313 (0000c4c0)     gSoftOscGroupSel
 0000c4d7     313 (0000c4c0)     gSoftOscFrameCnt
 0000c4dc     313 (0000c4c0)     gTvsRefSlotData
-0000c4fc     313 (0000c4c0)     _lock
-0000c4fe     313 (0000c4c0)     _unlock
+0000c4fa     313 (0000c4c0)     _lock
+0000c4fc     313 (0000c4c0)     _unlock
 
-0000cd04     334 (0000cd00)     stCtrlMargin
-0000cd0c     334 (0000cd00)     stCtrlObs
-0000cd18     334 (0000cd00)     stCtrlState
-0000cd2e     334 (0000cd00)     stProtectState
+0000cd00     334 (0000cd00)     stArmMirror
 
-0000cd40     335 (0000cd40)     stArmMirror
-
-0000cecf     33b (0000cec0)     gAtsReg
+0000ce8f     33a (0000ce80)     gAtsReg
 
 0000d400     350 (0000d400)     gPvSm
 
-0000d570     355 (0000d540)     stBusState
-0000d574     355 (0000d540)     stBusSystem
+0000d550     355 (0000d540)     stCtrlMargin
+0000d55a     355 (0000d540)     stCtrlObs
+0000d566     355 (0000d540)     stCtrlState
 
 0000d580     356 (0000d580)     stAdcCalib
 
@@ -1034,15 +1025,18 @@ address     data page           name
 
 0000dbc0     36f (0000dbc0)     stProtect
 
-0000dd72     375 (0000dd40)     gSoftOscChCfg
+0000dd52     375 (0000dd40)     gSoftOscChCfg
 
-0000dda2     376 (0000dd80)     gAtsInfo
-0000ddb0     376 (0000dd80)     gInvSm
+0000dd82     376 (0000dd80)     stProtectState
+0000dd94     376 (0000dd80)     stBusState
+0000dd98     376 (0000dd80)     stBusSystem
+0000dda4     376 (0000dd80)     gAtsInfo
+0000ddb2     376 (0000dd80)     gInvSm
 
 0000ddcc     377 (0000ddc0)     gSysSm
 0000dde0     377 (0000ddc0)     gAtsCtl
 
-0000de55     379 (0000de40)     stProtectInput
+0000de51     379 (0000de40)     stProtectInput
 
 00048000    1200 (00048000)     CanaRegs
 
@@ -1712,9 +1706,9 @@ abs   000001ef  RamfuncsLoadSize
 0     00087c07  XINT4_ISR                                
 0     00087c11  XINT5_ISR                                
 1     00007070  XintRegs                                 
-0     0008f72c  __TI_CINIT_Base                          
-0     0008f754  __TI_CINIT_Limit                         
-0     0008f754  __TI_CINIT_Warm                          
+0     0008f728  __TI_CINIT_Base                          
+0     0008f74c  __TI_CINIT_Limit                         
+0     0008f74c  __TI_CINIT_Warm                          
 0     0008f702  __TI_Handler_Table_Base                  
 0     0008f708  __TI_Handler_Table_Limit                 
 1     00000600  __TI_STACK_END                           
@@ -1737,13 +1731,13 @@ n/a   UNDEFED   __c_args__
 1     00000400  __stack                                  
 0     0008d27b  _args_main                               
 0     0008d24f  _c_int00                                 
-1     0000c4fc  _lock                                    
+1     0000c4fa  _lock                                    
 0     0008d2ae  _nop                                     
 0     0008d2aa  _register_lock                           
 0     0008d2a6  _register_unlock                         
 0     0008d2ce  _system_post_cinit                       
 0     0008d2cc  _system_pre_init                         
-1     0000c4fe  _unlock                                  
+1     0000c4fc  _unlock                                  
 0     0008d1bb  abort                                    
 0     00086000  code_start                               
 0     0008d1bd  exit                                     
@@ -1751,19 +1745,19 @@ n/a   UNDEFED   __c_args__
 1     0000dde0  gAtsCtl                                  
 1     0000c41f  gAtsErrCnt                               
 1     0000c41e  gAtsFrameCnt                             
-1     0000dda2  gAtsInfo                                 
-1     0000cecf  gAtsReg                                  
+1     0000dda4  gAtsInfo                                 
+1     0000ce8f  gAtsReg                                  
 1     0000c410  gEepromParamErrCnt                       
 1     0000c40e  gEepromParamItemNum                      
 1     0000c40d  gEepromParamStatus                       
 1     0000c40f  gEepromParamWriteCntLo                   
-1     0000ddb0  gInvSm                                   
+1     0000ddb2  gInvSm                                   
 1     0000c432  gMbPcDemoFloat                           
 1     0000c430  gMbPcDemoWord                            
 1     0000c434  gMbSavedDemoFloat                        
 1     0000c431  gMbSavedDemoWord                         
 1     0000d400  gPvSm                                    
-1     0000dd72  gSoftOscChCfg                            
+1     0000dd52  gSoftOscChCfg                            
 1     0000c4d7  gSoftOscFrameCnt                         
 1     0000c4d4  gSoftOscGroupSel                         
 1     0000c4d3  gSoftOscMode                             
@@ -1777,18 +1771,18 @@ n/a   UNDEFED   __c_args__
 0     0008f350  stAdcCfgItem                             
 0     0008f080  stAdcChCfgItem                           
 1     0000db40  stAdcSampleAcc                           
-1     0000cd40  stArmMirror                              
+1     0000cd00  stArmMirror                              
 1     0000c440  stAtsProtoCfg                            
-1     0000d570  stBusState                               
-1     0000d574  stBusSystem                              
+1     0000dd94  stBusState                               
+1     0000dd98  stBusSystem                              
 1     0000c45a  stCanCfg                                 
 0     0008f3de  stCanCfgItem                             
 1     0000c44e  stClaCfg                                 
 0     0008f536  stClaCfgItem                             
 0     0000a800  stClaFilt                                
-1     0000cd04  stCtrlMargin                             
-1     0000cd0c  stCtrlObs                                
-1     0000cd18  stCtrlState                              
+1     0000d550  stCtrlMargin                             
+1     0000d55a  stCtrlObs                                
+1     0000d566  stCtrlState                              
 1     0000c45e  stEcapCfg                                
 0     0008f466  stEcapCfgItem                            
 1     0000c494  stEepromParamCfg                         
@@ -1809,8 +1803,8 @@ n/a   UNDEFED   __c_args__
 0     0008e816  stProtectAgg                             
 0     0008eb22  stProtectAttr                            
 0     0008f516  stProtectCfg                             
-1     0000de55  stProtectInput                           
-1     0000cd2e  stProtectState                           
+1     0000de51  stProtectInput                           
+1     0000dd82  stProtectState                           
 1     0000c446  stPwmCfg                                 
 1     0000c222  stPwmCfgItem                             
 1     0000c46a  stPwmTzCfg                               
@@ -2409,9 +2403,9 @@ page  address   name
 0     0008f550  stExitCfgItem                            
 0     0008f702  __TI_Handler_Table_Base                  
 0     0008f708  __TI_Handler_Table_Limit                 
-0     0008f72c  __TI_CINIT_Base                          
-0     0008f754  __TI_CINIT_Limit                         
-0     0008f754  __TI_CINIT_Warm                          
+0     0008f728  __TI_CINIT_Base                          
+0     0008f74c  __TI_CINIT_Limit                         
+0     0008f74c  __TI_CINIT_Warm                          
 1     00000400  __stack                                  
 1     00000600  __TI_STACK_END                           
 1     00000b00  AdcaResultRegs                           
@@ -2505,17 +2499,14 @@ page  address   name
 1     0000c4d4  gSoftOscGroupSel                         
 1     0000c4d7  gSoftOscFrameCnt                         
 1     0000c4dc  gTvsRefSlotData                          
-1     0000c4fc  _lock                                    
-1     0000c4fe  _unlock                                  
-1     0000cd04  stCtrlMargin                             
-1     0000cd0c  stCtrlObs                                
-1     0000cd18  stCtrlState                              
-1     0000cd2e  stProtectState                           
-1     0000cd40  stArmMirror                              
-1     0000cecf  gAtsReg                                  
+1     0000c4fa  _lock                                    
+1     0000c4fc  _unlock                                  
+1     0000cd00  stArmMirror                              
+1     0000ce8f  gAtsReg                                  
 1     0000d400  gPvSm                                    
-1     0000d570  stBusState                               
-1     0000d574  stBusSystem                              
+1     0000d550  stCtrlMargin                             
+1     0000d55a  stCtrlObs                                
+1     0000d566  stCtrlState                              
 1     0000d580  stAdcCalib                               
 1     0000d9c0  stSampleStatus                           
 1     0000d9c4  stSampleRms                              
@@ -2525,12 +2516,15 @@ page  address   name
 1     0000dab2  Task                                     
 1     0000db40  stAdcSampleAcc                           
 1     0000dbc0  stProtect                                
-1     0000dd72  gSoftOscChCfg                            
-1     0000dda2  gAtsInfo                                 
-1     0000ddb0  gInvSm                                   
+1     0000dd52  gSoftOscChCfg                            
+1     0000dd82  stProtectState                           
+1     0000dd94  stBusState                               
+1     0000dd98  stBusSystem                              
+1     0000dda4  gAtsInfo                                 
+1     0000ddb2  gInvSm                                   
 1     0000ddcc  gSysSm                                   
 1     0000dde0  gAtsCtl                                  
-1     0000de55  stProtectInput                           
+1     0000de51  stProtectInput                           
 1     00048000  CanaRegs                                 
 1     0004a000  CanbRegs                                 
 1     00050024  FlashPumpSemaphoreRegs                   

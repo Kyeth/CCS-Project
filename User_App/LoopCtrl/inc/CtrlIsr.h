@@ -161,6 +161,7 @@ typedef struct
     volatile Uint32 u32AccCnt;      // 累计占用周期数
     volatile Uint16 u16SampleCnt;   // 采样拍数
     volatile Uint16 u16OverCnt;     // 超出预算的拍数
+    Uint32 u32StartCnt;             // 入口打点值，仅本模块使用
 } ST_CTRL_MARGIN;
 
 #define CTRL_ISR_BUDGET_CNT         (10000U)

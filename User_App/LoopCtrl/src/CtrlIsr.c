@@ -626,11 +626,9 @@ Uint16 CtrlGetAuthFlags(void)
 /* ==================== 中断余量测量 ====================
  * Timer2 是 200MHz 自由运行递减计数器：入口读一次、出口读一次，
  * 两者之差就是本拍控制中断占用的 CPU 周期数（1 周期 = 5ns）。 */
-static Uint32 sCtrlIsrStartCnt = 0UL;
-
 void CtrlIsrMarginBegin(void)
 {
-    sCtrlIsrStartCnt = CpuTimer2Regs.TIM.all;
+    stCtrlMargin.u32StartCnt = CpuTimer2Regs.TIM.all;
 }
 
 void CtrlIsrMarginEnd(void)
@@ -639,7 +637,7 @@ void CtrlIsrMarginEnd(void)
     Uint16 u16Used;
 
     /* 递减计数器：入口值减出口值即经过的周期数 */
-    u32Used = sCtrlIsrStartCnt - CpuTimer2Regs.TIM.all;
+    u32Used = stCtrlMargin.u32StartCnt - CpuTimer2Regs.TIM.all;
 
     /* 单拍不可能超过 1ms（200000 周期），超出说明计数器被复位过，丢弃该样本 */
     if (u32Used > 200000UL)
