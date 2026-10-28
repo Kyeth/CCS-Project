@@ -57,15 +57,15 @@ static const ST_SOFT_OSC_SRC gSoftOscSrcTab[] =
     {SOFT_OSC_SRC_BUS_VOLT_L,   SOFT_OSC_TYPE_FLOAT,  (void *)&gAdcCalValue[ADC_CAL_BUS_VOLT_L]},
     {SOFT_OSC_SRC_BUS_VOLT_H,   SOFT_OSC_TYPE_FLOAT,  (void *)&gAdcCalValue[ADC_CAL_BUS_VOLT_H]},
 
-    /* 对外稳定量：来自 AdcSample 的 gAdcPub（RMS / 慢速滤波后的物理量） */
-    {SOFT_OSC_SRC_GRID_VOLT_RMS_R, SOFT_OSC_TYPE_FLOAT,  (void *)&gAdcPub.fGridVoltRmsR},
-    {SOFT_OSC_SRC_GRID_VOLT_RMS_S, SOFT_OSC_TYPE_FLOAT,  (void *)&gAdcPub.fGridVoltRmsS},
-    {SOFT_OSC_SRC_GRID_VOLT_RMS_T, SOFT_OSC_TYPE_FLOAT,  (void *)&gAdcPub.fGridVoltRmsT},
-    {SOFT_OSC_SRC_INV_CUR_RMS_R,   SOFT_OSC_TYPE_FLOAT,  (void *)&gAdcPub.fInvCurRmsR},
-    {SOFT_OSC_SRC_INV_CUR_RMS_S,   SOFT_OSC_TYPE_FLOAT,  (void *)&gAdcPub.fInvCurRmsS},
-    {SOFT_OSC_SRC_INV_CUR_RMS_T,   SOFT_OSC_TYPE_FLOAT,  (void *)&gAdcPub.fInvCurRmsT},
-    {SOFT_OSC_SRC_BUS_VOLT_SLOW,   SOFT_OSC_TYPE_FLOAT,  (void *)&gAdcPub.fBusVoltSlow},
-    {SOFT_OSC_SRC_PV_VOLT1_SLOW,   SOFT_OSC_TYPE_FLOAT,  (void *)&gAdcPub.fPvVolt1Slow},
+    /* 对外稳定量：来自 SampleData 的 stSampleRms / stSampleAvg（RMS 与慢速滤波后的物理量） */
+    {SOFT_OSC_SRC_GRID_VOLT_RMS_R, SOFT_OSC_TYPE_FLOAT,  (void *)&stSampleRms.fGridVoltRms[SAMPLE_PH_R]},
+    {SOFT_OSC_SRC_GRID_VOLT_RMS_S, SOFT_OSC_TYPE_FLOAT,  (void *)&stSampleRms.fGridVoltRms[SAMPLE_PH_S]},
+    {SOFT_OSC_SRC_GRID_VOLT_RMS_T, SOFT_OSC_TYPE_FLOAT,  (void *)&stSampleRms.fGridVoltRms[SAMPLE_PH_T]},
+    {SOFT_OSC_SRC_INV_CUR_RMS_R,   SOFT_OSC_TYPE_FLOAT,  (void *)&stSampleRms.fInvCurrRms[SAMPLE_PH_R]},
+    {SOFT_OSC_SRC_INV_CUR_RMS_S,   SOFT_OSC_TYPE_FLOAT,  (void *)&stSampleRms.fInvCurrRms[SAMPLE_PH_S]},
+    {SOFT_OSC_SRC_INV_CUR_RMS_T,   SOFT_OSC_TYPE_FLOAT,  (void *)&stSampleRms.fInvCurrRms[SAMPLE_PH_T]},
+    {SOFT_OSC_SRC_BUS_VOLT_SLOW,   SOFT_OSC_TYPE_FLOAT,  (void *)&stSampleAvg.fBusVoltAvg200},
+    {SOFT_OSC_SRC_PV_VOLT1_SLOW,   SOFT_OSC_TYPE_FLOAT,  (void *)&stSampleAvg.fPvVoltAvg8[SAMPLE_PV1]},
     {SOFT_OSC_SRC_ATS_PHASE_DIFF,  SOFT_OSC_TYPE_FLOAT,  (void *)&gAtsInfo.fPhaseDiff},
     {SOFT_OSC_SRC_ATS_VOLT_DIFF,   SOFT_OSC_TYPE_FLOAT,  (void *)&gAtsInfo.fVoltDiff},
 };

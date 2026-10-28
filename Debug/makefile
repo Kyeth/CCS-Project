@@ -313,3 +313,4 @@ secondary-outputs: $(BIN_OUTPUTS)
 
 ORDERED_OBJS += "./User_App/Comm/src/ArmPointTable.obj"
 ORDERED_OBJS += "./User_App/Comm/src/DataExchange.obj"
+ORDERED_OBJS += "./User_App/LoopCtrl/src/SampleData.obj"

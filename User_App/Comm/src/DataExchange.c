@@ -46,34 +46,34 @@ void DataExchangeRx(void)
 void DataExchangeTx(void)
 {
     /* ---- 交流量 ---- */
-    stArmMirror.stStatus.u16RPhInvVolt   = DxSatU16(gAdcPub.fInvVoltRmsR * DX_VOLT_SCALE);
-    stArmMirror.stStatus.u16RPhInvCur    = DxSatU16(gAdcPub.fInvCurRmsR * DX_CUR_SCALE);
-    stArmMirror.stStatus.u16SPhInvVolt   = DxSatU16(gAdcPub.fInvVoltRmsS * DX_VOLT_SCALE);
-    stArmMirror.stStatus.u16SPhInvCur    = DxSatU16(gAdcPub.fInvCurRmsS * DX_CUR_SCALE);
-    stArmMirror.stStatus.u16RPhGridVolt  = DxSatU16(gAdcPub.fGridVoltRmsR * DX_VOLT_SCALE);
-    stArmMirror.stStatus.u16SPhGridVolt  = DxSatU16(gAdcPub.fGridVoltRmsS * DX_VOLT_SCALE);
-    stArmMirror.stStatus.u16InvFreq      = DxSatU16(gAdcPub.fGridFreq * DX_FREQ_SCALE);
+    stArmMirror.stStatus.u16RPhInvVolt   = DxSatU16(stSampleRms.fInvVoltRms[SAMPLE_PH_R] * DX_VOLT_SCALE);
+    stArmMirror.stStatus.u16RPhInvCur    = DxSatU16(stSampleRms.fInvCurrRms[SAMPLE_PH_R] * DX_CUR_SCALE);
+    stArmMirror.stStatus.u16SPhInvVolt   = DxSatU16(stSampleRms.fInvVoltRms[SAMPLE_PH_S] * DX_VOLT_SCALE);
+    stArmMirror.stStatus.u16SPhInvCur    = DxSatU16(stSampleRms.fInvCurrRms[SAMPLE_PH_S] * DX_CUR_SCALE);
+    stArmMirror.stStatus.u16RPhGridVolt  = DxSatU16(stSampleRms.fGridVoltRms[SAMPLE_PH_R] * DX_VOLT_SCALE);
+    stArmMirror.stStatus.u16SPhGridVolt  = DxSatU16(stSampleRms.fGridVoltRms[SAMPLE_PH_S] * DX_VOLT_SCALE);
+    stArmMirror.stStatus.u16InvFreq      = DxSatU16(stSampleStatus.fGridFreq * DX_FREQ_SCALE);
 
     /* ---- 母线 ---- */
-    stArmMirror.stStatus.u16BusVolt      = DxSatU16(gAdcPub.fBusVoltSlow * DX_VOLT_SCALE);
-    stArmMirror.stStatus.u16BusVoltP   = DxSatU16(gAdcPub.fBusVoltLSlow * DX_VOLT_SCALE);
-    stArmMirror.stStatus.u16BusVoltN   = DxSatU16(gAdcPub.fBusVoltHSlow * DX_VOLT_SCALE);
-    stArmMirror.stMeas.u16BUS1VoltPBUSVolt = DxSatU16(gAdcPub.fBusVoltLSlow * DX_VOLT_SCALE);
-    stArmMirror.stMeas.u16BUS2VoltNBUSVolt = DxSatU16(gAdcPub.fBusVoltHSlow * DX_VOLT_SCALE);
+    stArmMirror.stStatus.u16BusVolt      = DxSatU16(stSampleAvg.fBusVoltAvg200 * DX_VOLT_SCALE);
+    stArmMirror.stStatus.u16BusVoltP   = DxSatU16(stSampleAvg.fBusNegVoltAvg200 * DX_VOLT_SCALE);
+    stArmMirror.stStatus.u16BusVoltN   = DxSatU16(stSampleAvg.fBusPosVoltAvg200 * DX_VOLT_SCALE);
+    stArmMirror.stMeas.u16BUS1VoltPBUSVolt = DxSatU16(stSampleAvg.fBusNegVoltAvg200 * DX_VOLT_SCALE);
+    stArmMirror.stMeas.u16BUS2VoltNBUSVolt = DxSatU16(stSampleAvg.fBusPosVoltAvg200 * DX_VOLT_SCALE);
 
     /* ---- PV ---- */
-    stArmMirror.stStatus.u16PV1VoltIn    = DxSatU16(gAdcPub.fPvVolt1Slow * DX_VOLT_SCALE);
-    stArmMirror.stMeas.u16PV1Volt        = DxSatU16(gAdcPub.fPvVolt1Slow * DX_VOLT_SCALE);
-    stArmMirror.stMeas.u16PV2Volt        = DxSatU16(gAdcPub.fPvVolt2Slow * DX_VOLT_SCALE);
-    stArmMirror.stMeas.u16PV3Volt        = DxSatU16(gAdcPub.fPvVolt3Slow * DX_VOLT_SCALE);
-    stArmMirror.stMeas.u16PV4Volt        = DxSatU16(gAdcPub.fPvVolt4Slow * DX_VOLT_SCALE);
-    stArmMirror.stMeas.u16PV1Cur         = DxSatU16(gAdcPub.fPvCur1Slow * DX_CUR_SCALE);
-    stArmMirror.stMeas.u16PV2Cur         = DxSatU16(gAdcPub.fPvCur2Slow * DX_CUR_SCALE);
-    stArmMirror.stMeas.u16PV3Cur         = DxSatU16(gAdcPub.fPvCur3Slow * DX_CUR_SCALE);
-    stArmMirror.stMeas.u16PV4Cur         = DxSatU16(gAdcPub.fPvCur4Slow * DX_CUR_SCALE);
+    stArmMirror.stStatus.u16PV1VoltIn    = DxSatU16(stSampleAvg.fPvVoltAvg8[SAMPLE_PV1] * DX_VOLT_SCALE);
+    stArmMirror.stMeas.u16PV1Volt        = DxSatU16(stSampleAvg.fPvVoltAvg8[SAMPLE_PV1] * DX_VOLT_SCALE);
+    stArmMirror.stMeas.u16PV2Volt        = DxSatU16(stSampleAvg.fPvVoltAvg8[SAMPLE_PV2] * DX_VOLT_SCALE);
+    stArmMirror.stMeas.u16PV3Volt        = DxSatU16(stSampleAvg.fPvVoltAvg8[SAMPLE_PV3] * DX_VOLT_SCALE);
+    stArmMirror.stMeas.u16PV4Volt        = DxSatU16(stSampleAvg.fPvVoltAvg8[SAMPLE_PV4] * DX_VOLT_SCALE);
+    stArmMirror.stMeas.u16PV1Cur         = DxSatU16(stSampleAvg.fPvCurrAvg8[SAMPLE_PV1] * DX_CUR_SCALE);
+    stArmMirror.stMeas.u16PV2Cur         = DxSatU16(stSampleAvg.fPvCurrAvg8[SAMPLE_PV2] * DX_CUR_SCALE);
+    stArmMirror.stMeas.u16PV3Cur         = DxSatU16(stSampleAvg.fPvCurrAvg8[SAMPLE_PV3] * DX_CUR_SCALE);
+    stArmMirror.stMeas.u16PV4Cur         = DxSatU16(stSampleAvg.fPvCurrAvg8[SAMPLE_PV4] * DX_CUR_SCALE);
 
     /* ---- 保护 ---- */
-    stArmMirror.stStatus.u16GFCILeakCur  = DxSatU16(gAdcPub.fGfciRms * DX_GFCI_SCALE);
+    stArmMirror.stStatus.u16GFCILeakCur  = DxSatU16(stSampleRms.fGfciCurrRms * DX_GFCI_SCALE);
 
     // TODO(批 0.8)：故障字 u16PCSFault1..5 接 stProtect.u16Proto[0..4] 与 u16PCSAlarm1
     // TODO(批 0.8)：功率、并机数量、DER 段、版本号

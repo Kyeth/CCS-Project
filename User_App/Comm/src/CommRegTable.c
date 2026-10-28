@@ -136,10 +136,10 @@ const ST_MB_REG_ITEM stMbRegItemPc[MB_PC_REG_MAX] =
     {45U, MB_VAL_I16, MB_RW_READ_ONLY, (void *)&gAdcCalObsBalCur, -30000, 30000U},       /* 平衡电路电流，0.1A */
 
     /* ---------- 46~49：对外采样量示例（AdcSample，只读，F32）---------- */
-    {46U, MB_VAL_F32, MB_RW_READ_ONLY, (void *)&gAdcPub.fGridVoltRmsR, 0, 10000U},   /* 电网 R 相电压有效值 V */
-    {47U, MB_VAL_F32, MB_RW_READ_ONLY, (void *)&gAdcPub.fInvCurRmsR, -10000, 10000U}, /* 逆变 R 相电流有效值 A */
-    {48U, MB_VAL_F32, MB_RW_READ_ONLY, (void *)&gAdcPub.fBusVoltSlow, 0, 10000U},    /* 母线电压 V */
-    {49U, MB_VAL_F32, MB_RW_READ_ONLY, (void *)&gAdcPub.fPvVolt1Slow, 0, 10000U},    /* PV1 电压 V */
+    {46U, MB_VAL_F32, MB_RW_READ_ONLY, (void *)&stSampleRms.fGridVoltRms[SAMPLE_PH_R], 0, 10000U},   /* 电网 R 相电压有效值 V */
+    {47U, MB_VAL_F32, MB_RW_READ_ONLY, (void *)&stSampleRms.fInvCurrRms[SAMPLE_PH_R], -10000, 10000U}, /* 逆变 R 相电流有效值 A */
+    {48U, MB_VAL_F32, MB_RW_READ_ONLY, (void *)&stSampleAvg.fBusVoltAvg200, 0, 10000U},    /* 母线电压 V */
+    {49U, MB_VAL_F32, MB_RW_READ_ONLY, (void *)&stSampleAvg.fPvVoltAvg8[SAMPLE_PV1], 0, 10000U},    /* PV1 电压 V */
 
     /* ---------- ATS 旁听镜像（50~57）：ARM<->ATS 链路上的实时量 ---------- */
     {50U, MB_VAL_F32, MB_RW_READ_ONLY, (void *)&gAtsInfo.fInFreq, 0, 100U},          /* 输入正序频率 Hz */

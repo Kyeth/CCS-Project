@@ -229,7 +229,7 @@ static void PvSmMpptRun(Uint16 u16Ch)
     if (pstCh->u16MpptCnt == (Uint16)PV_SM_MPPT_PERIOD)
     {
         /* EP5K BusOVFlag：母线过压时只往“升压、减小功率”方向扰动 */
-        if (gAdcPub.fBusVoltSlow > PV_SM_BUS_DUTY_REF)
+        if (stSampleAvg.fBusVoltAvg200 > PV_SM_BUS_DUTY_REF)
         {
             pstCh->u16DisturbDir = 1U;
         }
@@ -286,9 +286,9 @@ static void PvSmMpptRun(Uint16 u16Ch)
         }
 
         /* 电压指令必须比母线低一截（升压电路无法把 PV 电压推到母线之上） */
-        if (pstCh->fVset > (gAdcPub.fBusVoltSlow - PV_SM_BUS_HEAD))
+        if (pstCh->fVset > (stSampleAvg.fBusVoltAvg200 - PV_SM_BUS_HEAD))
         {
-            pstCh->fVset = gAdcPub.fBusVoltSlow - PV_SM_BUS_HEAD;
+            pstCh->fVset = stSampleAvg.fBusVoltAvg200 - PV_SM_BUS_HEAD;
         }
         pstCh->fVset = PvSmSat(pstCh->fVset, PV_SM_VOLT_MAX, PV_SM_VOLT_MIN);
 
@@ -302,7 +302,7 @@ static void PvSmMpptRun(Uint16 u16Ch)
 static void PvSmLoopRun(Uint16 u16Ch)
 {
     ST_PV_SM_CH *pstCh = &gPvSm.stCh[u16Ch];
-    float fBus = gAdcPub.fBusVoltSlow;
+    float fBus = stSampleAvg.fBusVoltAvg200;
     float fDutyFrac;
     float fDutyOfs;
     float fBusLimit;
@@ -408,7 +408,7 @@ static void PvSmLoopRun(Uint16 u16Ch)
 static void PvSmCheckFault(Uint16 u16Ch)
 {
     ST_PV_SM_CH *pstCh = &gPvSm.stCh[u16Ch];
-    float fBus = gAdcPub.fBusVoltSlow;
+    float fBus = stSampleAvg.fBusVoltAvg200;
 
     if (pstCh->fIpv > PV_SM_OC_A)
     {
@@ -438,7 +438,7 @@ static void PvSmCheckFault(Uint16 u16Ch)
 static void PvSmChannel(Uint16 u16Ch)
 {
     ST_PV_SM_CH *pstCh = &gPvSm.stCh[u16Ch];
-    float fBus = gAdcPub.fBusVoltSlow;
+    float fBus = stSampleAvg.fBusVoltAvg200;
     Uint16 u16BusOk;
 
     /* 电压与电流的窗口宽度不同，与 EP5K 保持一致：
@@ -542,15 +542,15 @@ void PvSmInit(void)
     gPvSm.u16PwmId[2] = (Uint16)HW_PWM_ID4;
     gPvSm.u16PwmId[3] = (Uint16)HW_PWM_ID5;
 
-    sPvVoltPtr[0] = &gAdcIns.fPvVolt1;
-    sPvVoltPtr[1] = &gAdcIns.fPvVolt2;
-    sPvVoltPtr[2] = &gAdcIns.fPvVolt3;
-    sPvVoltPtr[3] = &gAdcIns.fPvVolt4;
+    sPvVoltPtr[0] = &stSampleIns.fPvVoltIns[SAMPLE_PV1];
+    sPvVoltPtr[1] = &stSampleIns.fPvVoltIns[SAMPLE_PV2];
+    sPvVoltPtr[2] = &stSampleIns.fPvVoltIns[SAMPLE_PV3];
+    sPvVoltPtr[3] = &stSampleIns.fPvVoltIns[SAMPLE_PV4];
 
-    sPvCurPtr[0] = &gAdcIns.fPvCur1;
-    sPvCurPtr[1] = &gAdcIns.fPvCur2;
-    sPvCurPtr[2] = &gAdcIns.fPvCur3;
-    sPvCurPtr[3] = &gAdcIns.fPvCur4;
+    sPvCurPtr[0] = &stSampleIns.fPvCurrIns[SAMPLE_PV1];
+    sPvCurPtr[1] = &stSampleIns.fPvCurrIns[SAMPLE_PV2];
+    sPvCurPtr[2] = &stSampleIns.fPvCurrIns[SAMPLE_PV3];
+    sPvCurPtr[3] = &stSampleIns.fPvCurrIns[SAMPLE_PV4];
 
     for (i = 0U; i < (Uint16)PV_SM_CH_NUM; i++)
     {

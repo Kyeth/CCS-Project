@@ -98,7 +98,7 @@ extern volatile Uint16 gSoftOscGroupSel;   /* 单边模式下发哪一组：0 = 
 #define SOFT_OSC_SRC_BUS_VOLT_L     (27U)
 #define SOFT_OSC_SRC_BUS_VOLT_H     (28U)
 
-/* ---- 对外稳定量（AdcSample 的 gAdcPub，1kHz 刷新，已在工频周期上平均）---- */
+/* ---- 对外稳定量（SampleData 的 stSampleRms/stSampleAvg，1kHz 刷新，已在工频周期上平均）---- */
 #define SOFT_OSC_SRC_GRID_VOLT_RMS_R (29U)
 #define SOFT_OSC_SRC_GRID_VOLT_RMS_S (30U)
 #define SOFT_OSC_SRC_GRID_VOLT_RMS_T (31U)

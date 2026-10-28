@@ -56,6 +56,7 @@ User_App/Comm/src/SoftOsc.obj: D:\2026WorkPlace\EP15K_2026_0.1\EP15K_2026\User_A
 User_App/Comm/src/SoftOsc.obj: D:\2026WorkPlace\EP15K_2026_0.1\EP15K_2026\User_App\Comm\inc\ArmPointTable.h
 User_App/Comm/src/SoftOsc.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/AdcCalib.h
 User_App/Comm/src/SoftOsc.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/AdcSample.h
+User_App/Comm/src/SoftOsc.obj: D:\2026WorkPlace\EP15K_2026_0.1\EP15K_2026\User_App\LoopCtrl\inc\SampleData.h
 User_App/Comm/src/SoftOsc.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Platform/Common/inc/AtsProto.h
 User_App/Comm/src/SoftOsc.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F28x_Project.h
 User_App/Comm/src/SoftOsc.obj: D:\2026WorkPlace\EP15K_2026_0.1\EP15K_2026\device\common\include\F2837xS_Cla_typedefs.h
