@@ -36,7 +36,7 @@ typedef struct
     volatile Uint16 u16TotalSign;                     /* 存在未屏蔽的 STOP 及以上 */
     Uint16          u16MaskAgeMs;                     /* 屏蔽字心跳计时 */
     Uint16          u16MaskShadow[PROTECT_WORD_NUM];  /* 屏蔽字影子，用于检测上位机改写 */
-    volatile Uint16 u16MaskKeepAlive;                 /* 上位机心跳，值变化即续期 */
+    volatile Uint16 u16MaskKeepAlive;                 /* 上位机心跳，值变化即续期（重复写同值无效） */
     Uint16          u16MaskKeepAliveLast;             /* 心跳影子 */
 }ST_PROTECT_STATE;
 

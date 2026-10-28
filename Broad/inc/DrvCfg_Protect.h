@@ -26,21 +26,27 @@
 #define PROTECT_AGG_SRC_NUM     (3U)
 
 /* 内部故障字第号 */
-#define PROTECT_W_INV           (0U)
-#define PROTECT_W_PV            (1U)
-#define PROTECT_W_GRID          (2U)
-#define PROTECT_W_DC            (3U)
-#define PROTECT_W_SYS           (4U)
-#define PROTECT_W_DETAIL        (5U)
+typedef enum
+{
+    PROTECT_W_INV = 0,
+    PROTECT_W_PV,
+    PROTECT_W_GRID,
+    PROTECT_W_DC,
+    PROTECT_W_SYS,
+    PROTECT_W_DETAIL
+}E_PROTECT_W;
 
 /* 协议故障字第号 */
-#define PROTECT_PW_5030         (0U)
-#define PROTECT_PW_5031         (1U)
-#define PROTECT_PW_5032         (2U)
-#define PROTECT_PW_5033         (3U)
-#define PROTECT_PW_5034         (4U)
-#define PROTECT_PW_5054         (5U)
-#define PROTECT_PW_5060         (6U)
+typedef enum
+{
+    PROTECT_PW_5030 = 0,
+    PROTECT_PW_5031,
+    PROTECT_PW_5032,
+    PROTECT_PW_5033,
+    PROTECT_PW_5034,
+    PROTECT_PW_5054,
+    PROTECT_PW_5060
+}E_PROTECT_PW;
 
 /* 功能域，用于状态机按域查询：PV 故障不拦 INV，反之亦然 */
 typedef enum

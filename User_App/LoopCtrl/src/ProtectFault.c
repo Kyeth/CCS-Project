@@ -26,9 +26,10 @@ void ProtectInit(void)
 
     for (i = 0U; i < PROTECT_WORD_NUM; i++)
     {
-        stProtect.u16Status[i]  = 0U;
-        stProtect.u16Pending[i] = 0U;
-        stProtect.u16Mask[i]    = 0U;
+        stProtect.u16Status[i]      = 0U;
+        stProtect.u16Pending[i]     = 0U;
+        stProtect.u16Mask[i]        = 0U;
+        stProtect.u16MaskShadow[i]  = 0U;
     }
 
     for (i = 0U; i < PROTECT_PROTO_WORD_NUM; i++)
@@ -41,9 +42,11 @@ void ProtectInit(void)
         stProtect.u16DebounceCnt[i] = 0U;
     }
 
-    stProtect.u16ActionLevel = (Uint16)PROTECT_SEV_INFO;
-    stProtect.u16TotalSign   = 0U;
-    stProtect.u16MaskAgeMs   = PROTECT_MASK_HEARTBEAT_MS;
+    stProtect.u16ActionLevel       = (Uint16)PROTECT_SEV_INFO;
+    stProtect.u16TotalSign         = 0U;
+    stProtect.u16MaskKeepAlive     = 0U;
+    stProtect.u16MaskKeepAliveLast = 0U;
+    stProtect.u16MaskAgeMs         = PROTECT_MASK_HEARTBEAT_MS;
 }
 
 void ProtectTrigger(E_PROTECT_FAULT eFault)

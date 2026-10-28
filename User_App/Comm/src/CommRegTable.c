@@ -193,7 +193,9 @@ const ST_MB_REG_ITEM stMbRegItemPc[MB_PC_REG_MAX] =
     {104U, MB_VAL_U16, MB_RW_WRITE, (void *)&stProtect.u16Mask[4], 0, 65535U},  /* W4 系统域 */
     {105U, MB_VAL_U16, MB_RW_WRITE, (void *)&stProtect.u16Mask[5], 0, 65535U},  /* W5 内部细分 */
 
-    /* ---------- 106：屏蔽字心跳，写完屏蔽字后 500ms 内至少改写一次 ---------- */
+    /* ---------- 106：屏蔽字心跳 ----------
+     * 注意读的是"值是否变化"：500ms 内必须写一个与上次不同的值（0/1 交替最省事），
+     * 重复写同一个值不算续期。超时后 100~105 自动全清。 */
     {106U, MB_VAL_U16, MB_RW_WRITE, (void *)&stProtect.u16MaskKeepAlive, 0, 65535U},
 
     /* ---------- 107~108：保护动作汇总（只读）---------- */
