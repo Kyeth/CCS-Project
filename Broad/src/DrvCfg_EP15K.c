@@ -90,7 +90,7 @@ ST_GPIO_CFG_ITEM stGpioCfgItem[] =
      * 列1 在 GPIO16 上是 SPISIMOA（本设计的 SPI-A 已挪到 GPIO54~57），
      * EPWM9A 落在第 5 列 (GMUX=01,MUX=01) = HW_GPIO_FUNC_PERIPH5，
      * 选错列时该脚输出的是静态电平，表现为"这一路 PWM 完全没有驱动"。
-     * 该结论由台架复用位巡游实测确认（候选 5 出 20kHz/30% 波形）。 */
+     * 该结论由引脚复用位巡游实测确认（候选 5 出 20kHz/30% 波形）。 */
     {16, HW_GPIO_FUNC_PERIPH5, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_OD_DISABLE, HW_GPIO_PUD_DISABLE, HW_GPIO_QUAL_SYNC},  // EPWM9A — PV2 Boost，错相90°（第5列复用）。
     {18, HW_GPIO_FUNC_PERIPH5, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_OD_DISABLE, HW_GPIO_PUD_DISABLE, HW_GPIO_QUAL_SYNC},  // EPWM10A — S竖管S4，同步于EPWM1A。
     {19, HW_GPIO_FUNC_PERIPH5, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_OD_DISABLE, HW_GPIO_PUD_DISABLE, HW_GPIO_QUAL_SYNC},  // EPWM10B — S横管S2，互补于EPWM10A。
@@ -304,15 +304,16 @@ volatile ST_SYS_TIMER stSysCpuTimer1 =
     1U                              /* u16TickDivCoef */
 };
 
-/* 辅助定时器：1ms，200MHz/1kHz = 200000个时钟，PRD = 199999
- * 若希望改为"100us硬件中断 + 分频10出1ms心跳"，把周期换成PERIOD_100US、分频系数改成10即可 */
+/* 计时基准：Timer2 作 200MHz 自由运行递减计数器，不产生中断。
+ * 控制中断在入口与出口各读一次 TIM 寄存器，差值即该拍占用周期数；
+ * 周期 0xFFFFFFFF 约 21.5s 才回绕，远大于单拍 50us，无需处理溢出。 */
 volatile ST_SYS_TIMER stSysCpuTimer2 =
 {
     (Uint16)HW_CPUTIMER_ID2,        /* u16TimerId     */
     0U,                             /* u16Prescaler   */
-    1U,                             /* bEnableInt     */
+    0U,                             /* bEnableInt     */
     1U,                             /* bEmuStop       */
-    DRVCFG_TIMER_PERIOD_1MS,        /* u32Period      */
+    0xFFFFFFFFUL,                   /* u32Period      */
     0UL,                            /* u32Tick        */
     0U,                             /* u16TickDivCnt  */
     1U                              /* u16TickDivCoef */
@@ -362,8 +363,8 @@ const ST_ADC_CH_CFG_ITEM stAdcChCfgItem[] =
     {5, 60,  5}, {0, 0,  0}, {0, 0,  0}, {5, 30,  4},   /* SOC5  : A5 R相电网电压                                  D4 平衡电路电流 */
     {5, 60,  0}, {0, 0,  0}, {0, 0,  0}, {5, 30, 15},   /* SOC6  : A0 T相逆变电压                                  D15 PV4电流 */
     {5, 60,  1}, {0, 0,  0}, {0, 0,  0}, {0, 0,  0},   /* SOC7  : A1 S相电网电压 */
-    {6, 100, 2}, {0, 0,  0}, {0, 0,  0}, {6, 30,  2},   /* SOC8  : A2/D2 逆变电流第二采（PRD），A2 放慢作 ADCINT2 锚点 */
-    {0, 0,  0}, {0, 0,  0}, {0, 0,  0}, {6, 30, 14},   /* SOC9  : D14 R相逆变电流第二采（PRD） */
+    {6, 30,  2}, {0, 0,  0}, {0, 0,  0}, {6, 30,  2},   /* SOC8  : A2/D2 逆变电流第二采（PRD，ACQPS 与 R/S 相同，保证三相对齐） */
+    {6, 120, 0}, {0, 0,  0}, {0, 0,  0}, {6, 30, 14},   /* SOC9  : A0 占位锚点（PRD，2.7us 慢转）+ D14 R相逆变电流第二采（PRD） */
     {0, 0,  0}, {0, 0,  0}, {0, 0,  0}, {0, 0,  0},   /* SOC10 */
     {0, 0,  0}, {0, 0,  0}, {0, 0,  0}, {0, 0,  0},   /* SOC11 */
     {0, 0,  0}, {0, 0,  0}, {0, 0,  0}, {0, 0,  0},   /* SOC12 */
@@ -386,7 +387,7 @@ const ST_ADC_CH_CFG_ITEM stAdcChCfgItem[] =
 const ST_ADC_CFG_ITEM stAdcCfgItem[] =
 {
     /* ADC-A：12位单端，SOC15转换完成产生ADCINT1，用于触发CLA Task1 */
-    {HW_ADC_ID0, &stAdcChCfgItem[0], HW_ADC_RESOLUTION_12BIT, HW_ADC_SIGNALMODE_SINGLE, 1U, 15U, 1U, 8U},
+    {HW_ADC_ID0, &stAdcChCfgItem[0], HW_ADC_RESOLUTION_12BIT, HW_ADC_SIGNALMODE_SINGLE, 1U, 15U, 1U, 9U},
 
     /* ADC-B：12位单端，不使用ADC中断 */
     {HW_ADC_ID1, &stAdcChCfgItem[1], HW_ADC_RESOLUTION_12BIT, HW_ADC_SIGNALMODE_SINGLE, 0U, 0U},
@@ -475,8 +476,9 @@ ST_INV_CFG stInvCfg =
  *          TVS 返回相位差信息，用于并网前的频率调节
  * - SCI-D：GPIO93(TX) / GPIO94(RX)
  *
- * 三个模块先按同一参数配置：115200-8-N-1，开 16 级 FIFO，
- * 接收中断暂不打开（先在任务里轮询），需要中断时把 bRxIntEnable 置 1
+ * 三个模块统一 8-N-1、开 16 级 FIFO，波特率按对端设备分别设定：
+ * SCIA 19200（ARM）、SCID 38400（上位机）、SCIC 115200（TVS）。
+ * 接收走 100us 轮询，不占中断；需要中断时把 bRxIntEnable 置 1
  * 并在 InterruptCfg 里注册 SCI 的 PIE 中断。
  ******************************************************************************/
 
@@ -613,7 +615,7 @@ ST_FM24C128D_CFG stFm24c128dCfg =
 };
 
 /* ============ 掉电保存参数 ============ */
-/* 三张点表全部参与扫描，属性里带 MB_ATTR_SAVE 的行才进保存清单。
+/* 三张点表全部参与扫描，属性里带 MB_RW_SAVE 的行才进保存清单。
  * 窗口参数的含义见 EepromParam.h 头注释：
  *   500ms   最后一次写之后静默多久落盘（合并窗口）
  *   5000ms  一直有写也要在 5s 内落盘（最长等待）

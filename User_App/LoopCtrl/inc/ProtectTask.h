@@ -71,26 +71,37 @@ extern "C" {
 #define PROTECT_FAULT_INV_OC            (0x0001U)   /* bit0：逆变过流 */
 #define PROTECT_FAULT_SHORT             (0x0002U)   /* bit1：硬件短路 */
 
+/* ==================== 保护任务运行状态 ====================
+ * 漏桶、窗口、半波自适应、锁存与对外观测量全部收在一个结构体里，
+ * 函数内一律经 stProtectState 访问；点表直接取成员地址，不再另设镜像变量。 */
+typedef struct
+{
+    Uint16 u16InvOcCnt;         // 逆变过流漏桶累计事件数
+    Uint16 u16InvOcCleanTick;   // 距上次事件的静默拍数
+    Uint16 u16ShortCnt;         // 短路窗口内事件次数
+    Uint16 u16ShortWindowTick;  // 短路观察窗口已走拍数
+    Uint16 u16HalfWaveJudge;    // 半波判据连续超限拍数
+    Uint16 u16HalfWaveMode;     // 1 = 半波自适应生效
+    Uint16 u16FaultLatch;       // 已锁存的故障位
+    Uint16 u16Tick;             // 已运行判定拍数
+    float  fInvDcAvg[3];        // 三相直流分量 EMA 状态 A
+    int16  i16InvDc[3];         // 三相直流分量 0.1A，供上位机观察与标定
+} ST_PROTECT_TASK_STATE;
+
+/* 实例定义在 ProtectTask.c */
+extern ST_PROTECT_TASK_STATE stProtectState;
+
 /* 初始化：清漏桶与锁存，需在 EINT 之后、任务启动之前调用 */
 extern void ProtectTaskInit(void);
 
-/* 10kHz 判定任务，挂 Task_Start(&ProtectTask, NULL, 1U, 3U) */
-extern void ProtectTask(void *pArgV);
+/* 10kHz 判定：由 20kHz 控制中断 ÷2 驱动，不再挂后台任务 */
+extern void RunProtectTask(void);
 
 /* 查询故障锁存位（Modbus 只读镜像也读这个） */
 extern Uint16 ProtectGetFaultFlags(void);
 
 /* 清故障锁存（同时清控制中断里的故障位），返回清除前的故障位 */
 extern Uint16 ProtectClearFault(void);
-
-/* 只读镜像：给 Modbus 点表直接取地址用 */
-extern volatile Uint16 gProtectInvOcCnt;        /* 当前漏桶计数 */
-extern volatile Uint16 gProtectShortCnt;        /* 当前窗口内短路次数 */
-extern volatile Uint16 gProtectFaultFlags;      /* 故障锁存位 */
-extern volatile Uint16 gProtectTick;            /* 已运行拍数（10kHz） */
-extern volatile Uint16 gProtectHalfWaveMode;    /* 1：半波自适应模式生效 */
-extern volatile Uint16 gProtectHalfWaveJudge;   /* 连续超限拍数（10kHz） */
-extern volatile int16  gProtectInvDc[3];        /* 三相直流分量 R/S/T，0.1A 有符号 */
 
 #ifdef __cplusplus
 }

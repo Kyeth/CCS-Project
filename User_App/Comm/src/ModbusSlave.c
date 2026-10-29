@@ -25,8 +25,8 @@ typedef union
 
 /* 运行时状态 */
 static const ST_MB_CFG *gMbCfg = (const ST_MB_CFG *)0;
-static Uint16 gMbFrame[MB_FRAME_MAX];
-static Uint16 gMbResp[MB_FRAME_MAX];
+static Uint16 gMbFrame[MB_LIMIT_FRAME_MAX];
+static Uint16 gMbResp[MB_LIMIT_FRAME_MAX];
 static Uint16 gMbFrameCnt[MB_SLAVE_MAX];
 static Uint16 gMbErrCnt[MB_SLAVE_MAX];
 static Uint16 gMbLastFunc[MB_SLAVE_MAX];
@@ -37,8 +37,8 @@ static Uint16 gMbNoResp = 0U;
 /* 一个表项占用几个寄存器 */
 static Uint16 MbRegCount(Uint16 u16ValType)
 {
-    if ((u16ValType == MB_TYPE_U32) || (u16ValType == MB_TYPE_I32) ||
-        (u16ValType == MB_TYPE_F32))
+    if ((u16ValType == MB_VAL_U32) || (u16ValType == MB_VAL_I32) ||
+        (u16ValType == MB_VAL_F32))
     {
         return 2U;
     }
@@ -54,23 +54,63 @@ static Uint16 MbRegCount(Uint16 u16ValType)
 static Uint16 MbFindReg(const ST_MB_SLAVE_CFG *pstSlave, Uint16 u16Addr,
                         const ST_MB_REG_ITEM **ppstItem, Uint16 *pu16Offset)
 {
-    Uint16 u16Idx;
+    Uint16 u16Lo = 0U;
+    Uint16 u16Hi;
+    Uint16 u16Mid;
     Uint16 u16Cnt;
 
-    for (u16Idx = 0U; u16Idx < pstSlave->u16RegNum; u16Idx++)
+    if (pstSlave->u16RegNum == 0U)
     {
-        u16Cnt = MbRegCount(pstSlave->pstRegItem[u16Idx].u16ValType);
+        return 0U;
+    }
 
-        if ((u16Addr >= pstSlave->pstRegItem[u16Idx].u16RegAddr) &&
-            (u16Addr < (Uint16)(pstSlave->pstRegItem[u16Idx].u16RegAddr + u16Cnt)))
+    // 表按起始地址升序排列：先二分到最后一个首地址 <= u16Addr 的表项
+    u16Hi = (Uint16)(pstSlave->u16RegNum - 1U);
+    while (u16Lo < u16Hi)
+    {
+        u16Mid = (Uint16)((u16Lo + u16Hi + 1U) >> 1);
+        if (pstSlave->pstRegItem[u16Mid].u16RegAddr <= u16Addr)
         {
-            *ppstItem = &pstSlave->pstRegItem[u16Idx];
-            *pu16Offset = (Uint16)(u16Addr - pstSlave->pstRegItem[u16Idx].u16RegAddr);
-            return 1U;
+            u16Lo = u16Mid;
+        }
+        else
+        {
+            u16Hi = (Uint16)(u16Mid - 1U);
         }
     }
 
+    u16Cnt = MbRegCount(pstSlave->pstRegItem[u16Lo].u16ValType);
+    if ((u16Addr >= pstSlave->pstRegItem[u16Lo].u16RegAddr) &&
+        (u16Addr < (Uint16)(pstSlave->pstRegItem[u16Lo].u16RegAddr + u16Cnt)))
+    {
+        *ppstItem = &pstSlave->pstRegItem[u16Lo];
+        *pu16Offset = (Uint16)(u16Addr - pstSlave->pstRegItem[u16Lo].u16RegAddr);
+        return 1U;
+    }
+
     return 0U;
+}
+
+/**
+ * @brief 按地址反查表项
+ * @return 表项指针，未命中返回 0
+ */
+const ST_MB_REG_ITEM *MbResolveByAddr(Uint16 u16SlaveIdx, Uint16 u16Addr)
+{
+    const ST_MB_REG_ITEM *pstItem = (const ST_MB_REG_ITEM *)0;
+    Uint16 u16Offset = 0U;
+
+    if ((gMbCfg == (const ST_MB_CFG *)0) || (u16SlaveIdx >= gMbCfg->u16SlaveNum))
+    {
+        return (const ST_MB_REG_ITEM *)0;
+    }
+
+    if (MbFindReg(&gMbCfg->pstSlaveCfg[u16SlaveIdx], u16Addr, &pstItem, &u16Offset) == 0U)
+    {
+        return (const ST_MB_REG_ITEM *)0;
+    }
+
+    return pstItem;
 }
 
 /* 读表项的第 u16Offset 个寄存器（16 位切片） */
@@ -90,21 +130,21 @@ static Uint16 MbReadWord(const ST_MB_REG_ITEM *pstItem, Uint16 u16Offset)
 
     switch (pstItem->u16ValType)
     {
-        case MB_TYPE_U16:
+        case MB_VAL_U16:
             return *pu16Ptr;
 
-        case MB_TYPE_I16:
+        case MB_VAL_I16:
             return (Uint16)(*((volatile int16 *)pstItem->pvData));
 
-        case MB_TYPE_U32:
+        case MB_VAL_U32:
             unVal.u32Val = *pu32Ptr;
             break;
 
-        case MB_TYPE_I32:
+        case MB_VAL_I32:
             unVal.u32Val = (Uint32)(*((volatile int32 *)pstItem->pvData));
             break;
 
-        case MB_TYPE_F32:
+        case MB_VAL_F32:
             unVal.f32Val = *((volatile float32 *)pstItem->pvData);
             break;
 
@@ -162,31 +202,31 @@ static Uint16 MbWriteWordRaw(const ST_MB_REG_ITEM *pstItem, Uint16 u16Offset, Ui
 
     if (pstItem->pvData == (void *)0)
     {
-        return MB_EX_SLAVE_FAIL;
+        return MB_EXC_SLAVE_FAIL;
     }
 
-    if ((pstItem->u16Attr & MB_ATTR_RW) == 0U)
+    if ((pstItem->u16RwAttr & MB_RW_WRITE) == 0U)
     {
         /* 只读寄存器按"非法数据地址"处理，与多数从机实现一致 */
-        return MB_EX_ILLEGAL_ADDR;
+        return MB_EXC_ILLEGAL_ADDR;
     }
 
     pu32Ptr = (volatile Uint32 *)pstItem->pvData;
 
     switch (pstItem->u16ValType)
     {
-        case MB_TYPE_U16:
+        case MB_VAL_U16:
             i32Val = MbClampI32(pstItem, (int32)u16Val);
             *((volatile Uint16 *)pstItem->pvData) = (Uint16)i32Val;
-            return MB_EX_NONE;
+            return MB_EXC_NONE;
 
-        case MB_TYPE_I16:
+        case MB_VAL_I16:
             i32Val = MbClampI32(pstItem, (int32)((int16)u16Val));
             *((volatile int16 *)pstItem->pvData) = (int16)i32Val;
-            return MB_EX_NONE;
+            return MB_EXC_NONE;
 
-        case MB_TYPE_U32:
-        case MB_TYPE_I32:
+        case MB_VAL_U32:
+        case MB_VAL_I32:
             unVal.u32Val = *pu32Ptr;
 #if (MB_WORD_HIGH_FIRST == 0)
             if (u16Offset == 0U)
@@ -209,7 +249,7 @@ static Uint16 MbWriteWordRaw(const ST_MB_REG_ITEM *pstItem, Uint16 u16Offset, Ui
 #endif
             i32Val = (int32)unVal.u32Val;
             i32Val = MbClampI32(pstItem, i32Val);
-            if (pstItem->u16ValType == MB_TYPE_U32)
+            if (pstItem->u16ValType == MB_VAL_U32)
             {
                 *pu32Ptr = (Uint32)i32Val;
             }
@@ -217,9 +257,9 @@ static Uint16 MbWriteWordRaw(const ST_MB_REG_ITEM *pstItem, Uint16 u16Offset, Ui
             {
                 *((volatile int32 *)pstItem->pvData) = i32Val;
             }
-            return MB_EX_NONE;
+            return MB_EXC_NONE;
 
-        case MB_TYPE_F32:
+        case MB_VAL_F32:
             unVal.f32Val = *((volatile float32 *)pstItem->pvData);
 #if (MB_WORD_HIGH_FIRST == 0)
             if (u16Offset == 0U)
@@ -250,10 +290,10 @@ static Uint16 MbWriteWordRaw(const ST_MB_REG_ITEM *pstItem, Uint16 u16Offset, Ui
                 f32Val = (float32)pstItem->u32Max;
             }
             *((volatile float32 *)pstItem->pvData) = f32Val;
-            return MB_EX_NONE;
+            return MB_EXC_NONE;
 
         default:
-            return MB_EX_SLAVE_FAIL;
+            return MB_EXC_SLAVE_FAIL;
     }
 }
 
@@ -270,7 +310,7 @@ static Uint16 MbWriteWord(const ST_MB_REG_ITEM *pstItem, Uint16 u16Offset, Uint1
 
     u16Ex = MbWriteWordRaw(pstItem, u16Offset, u16Val);
 
-    if ((u16Ex == MB_EX_NONE) && ((pstItem->u16Attr & MB_ATTR_SAVE) != 0U))
+    if ((u16Ex == MB_EXC_NONE) && ((pstItem->u16RwAttr & MB_RW_SAVE) != 0U))
     {
         (void)EepromParamMarkDirty(pstItem->pvData);
     }
@@ -325,16 +365,16 @@ static void MbReadHolding(Uint16 u16SlaveIdx, Uint16 u16Len)
 
     if (u16Len != 8U)
     {
-        MbSendException(u16SlaveIdx, MB_FUNC_READ_HOLDING, MB_EX_ILLEGAL_VALUE);
+        MbSendException(u16SlaveIdx, MB_FUNC_READ_HOLDING, MB_EXC_ILLEGAL_VALUE);
         return;
     }
 
     u16Start = (Uint16)((gMbFrame[2] << 8U) | (gMbFrame[3] & 0x00FFU));
     u16Qty = (Uint16)((gMbFrame[4] << 8U) | (gMbFrame[5] & 0x00FFU));
 
-    if ((u16Qty == 0U) || (u16Qty > MB_READ_REG_MAX))
+    if ((u16Qty == 0U) || (u16Qty > MB_LIMIT_READ_MAX))
     {
-        MbSendException(u16SlaveIdx, MB_FUNC_READ_HOLDING, MB_EX_ILLEGAL_VALUE);
+        MbSendException(u16SlaveIdx, MB_FUNC_READ_HOLDING, MB_EXC_ILLEGAL_VALUE);
         return;
     }
 
@@ -343,7 +383,7 @@ static void MbReadHolding(Uint16 u16SlaveIdx, Uint16 u16Len)
     {
         if (MbFindReg(pstSlave, (Uint16)(u16Start + u16Idx), &pstItem, &u16Offset) == 0U)
         {
-            MbSendException(u16SlaveIdx, MB_FUNC_READ_HOLDING, MB_EX_ILLEGAL_ADDR);
+            MbSendException(u16SlaveIdx, MB_FUNC_READ_HOLDING, MB_EXC_ILLEGAL_ADDR);
             return;
         }
     }
@@ -380,7 +420,7 @@ static void MbWriteSingle(Uint16 u16SlaveIdx, Uint16 u16Len)
 
     if (u16Len != 8U)
     {
-        MbSendException(u16SlaveIdx, MB_FUNC_WRITE_SINGLE, MB_EX_ILLEGAL_VALUE);
+        MbSendException(u16SlaveIdx, MB_FUNC_WRITE_SINGLE, MB_EXC_ILLEGAL_VALUE);
         return;
     }
 
@@ -389,12 +429,12 @@ static void MbWriteSingle(Uint16 u16SlaveIdx, Uint16 u16Len)
 
     if (MbFindReg(pstSlave, u16Addr, &pstItem, &u16Offset) == 0U)
     {
-        MbSendException(u16SlaveIdx, MB_FUNC_WRITE_SINGLE, MB_EX_ILLEGAL_ADDR);
+        MbSendException(u16SlaveIdx, MB_FUNC_WRITE_SINGLE, MB_EXC_ILLEGAL_ADDR);
         return;
     }
 
     u16Ex = MbWriteWord(pstItem, u16Offset, u16Val);
-    if (u16Ex != MB_EX_NONE)
+    if (u16Ex != MB_EXC_NONE)
     {
         MbSendException(u16SlaveIdx, MB_FUNC_WRITE_SINGLE, u16Ex);
         return;
@@ -435,7 +475,7 @@ static void MbWriteMulti(Uint16 u16SlaveIdx, Uint16 u16Len)
 
     if (u16Len < 9U)
     {
-        MbSendException(u16SlaveIdx, MB_FUNC_WRITE_MULTI, MB_EX_ILLEGAL_VALUE);
+        MbSendException(u16SlaveIdx, MB_FUNC_WRITE_MULTI, MB_EXC_ILLEGAL_VALUE);
         return;
     }
 
@@ -443,11 +483,11 @@ static void MbWriteMulti(Uint16 u16SlaveIdx, Uint16 u16Len)
     u16Qty = (Uint16)((gMbFrame[4] << 8U) | (gMbFrame[5] & 0x00FFU));
     u16ByteCnt = (Uint16)(gMbFrame[6] & 0x00FFU);
 
-    if ((u16Qty == 0U) || (u16Qty > MB_WRITE_REG_MAX) ||
+    if ((u16Qty == 0U) || (u16Qty > MB_LIMIT_WRITE_MAX) ||
         (u16ByteCnt != (Uint16)(u16Qty * 2U)) ||
         (u16Len != (Uint16)(9U + u16ByteCnt)))
     {
-        MbSendException(u16SlaveIdx, MB_FUNC_WRITE_MULTI, MB_EX_ILLEGAL_VALUE);
+        MbSendException(u16SlaveIdx, MB_FUNC_WRITE_MULTI, MB_EXC_ILLEGAL_VALUE);
         return;
     }
 
@@ -456,13 +496,13 @@ static void MbWriteMulti(Uint16 u16SlaveIdx, Uint16 u16Len)
     {
         if (MbFindReg(pstSlave, (Uint16)(u16Start + u16Idx), &pstItem, &u16Offset) == 0U)
         {
-            MbSendException(u16SlaveIdx, MB_FUNC_WRITE_MULTI, MB_EX_ILLEGAL_ADDR);
+            MbSendException(u16SlaveIdx, MB_FUNC_WRITE_MULTI, MB_EXC_ILLEGAL_ADDR);
             return;
         }
 
-        if ((pstItem->u16Attr & MB_ATTR_RW) == 0U)
+        if ((pstItem->u16RwAttr & MB_RW_WRITE) == 0U)
         {
-            MbSendException(u16SlaveIdx, MB_FUNC_WRITE_MULTI, MB_EX_ILLEGAL_ADDR);
+            MbSendException(u16SlaveIdx, MB_FUNC_WRITE_MULTI, MB_EXC_ILLEGAL_ADDR);
             return;
         }
     }
@@ -473,7 +513,7 @@ static void MbWriteMulti(Uint16 u16SlaveIdx, Uint16 u16Len)
         u16Val = (Uint16)((gMbFrame[7U + (u16Idx * 2U)] << 8U) |
                           (gMbFrame[8U + (u16Idx * 2U)] & 0x00FFU));
         u16Ex = MbWriteWord(pstItem, u16Offset, u16Val);
-        if (u16Ex != MB_EX_NONE)
+        if (u16Ex != MB_EXC_NONE)
         {
             MbSendException(u16SlaveIdx, MB_FUNC_WRITE_MULTI, u16Ex);
             return;
@@ -553,7 +593,7 @@ static void MbHandleFrame(Uint16 u16SlaveIdx, Uint16 u16Len)
             break;
 
         default:
-            MbSendException(u16SlaveIdx, u16Func, MB_EX_ILLEGAL_FUNC);
+            MbSendException(u16SlaveIdx, u16Func, MB_EXC_ILLEGAL_FUNC);
             break;
     }
 }
@@ -593,7 +633,7 @@ void ModbusTask(void *pArgV)
         }
 
         u16Len = Hw_SciFrameRead(gMbCfg->pstSlaveCfg[u16Idx].u16SciId,
-                                 gMbFrame, MB_FRAME_MAX);
+                                 gMbFrame, MB_LIMIT_FRAME_MAX);
         if (u16Len == 0U)
         {
             continue;

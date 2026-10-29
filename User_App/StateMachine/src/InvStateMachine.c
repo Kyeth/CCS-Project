@@ -45,8 +45,8 @@ static void InvSmFault(Uint16 u16Fault)
 /* 刷新电压快照：桥臂侧取逆变电压 RMS，负载侧取电网电压 RMS（ATS 闭合时即电网） */
 static void InvSmSample(void)
 {
-    gInvSm.fVoutRms = gAdcPub.fInvVoltRmsR;
-    gInvSm.fLoadRms = gAdcPub.fGridVoltRmsR;
+    gInvSm.fVoutRms = stSampleRms.fInvVoltRms[SAMPLE_PH_R];
+    gInvSm.fLoadRms = stSampleRms.fGridVoltRms[SAMPLE_PH_R];
 }
 
 /* 绝对值（避免引入 math.h） */
@@ -150,10 +150,8 @@ Uint16 InvSmGetFault(void)
 /******************************************************************************
  * 主任务：10kHz
  ******************************************************************************/
-void InvSmTask(void *pArgV)
+void RunInvStateMachine(void)
 {
-    (void)pArgV;
-
     if (gInvSm.u16Cnt < 0xFFFFU)
     {
         gInvSm.u16Cnt++;

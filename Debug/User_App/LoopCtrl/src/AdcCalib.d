@@ -3,20 +3,20 @@
 User_App/LoopCtrl/src/AdcCalib.obj: ../User_App/LoopCtrl/src/AdcCalib.c
 User_App/LoopCtrl/src/AdcCalib.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/AdcCalib.h
 User_App/LoopCtrl/src/AdcCalib.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/headers/include/F2837xS_device.h
-User_App/LoopCtrl/src/AdcCalib.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/assert.h
-User_App/LoopCtrl/src/AdcCalib.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/_ti_config.h
-User_App/LoopCtrl/src/AdcCalib.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/linkage.h
-User_App/LoopCtrl/src/AdcCalib.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/stdarg.h
-User_App/LoopCtrl/src/AdcCalib.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/sys/_types.h
-User_App/LoopCtrl/src/AdcCalib.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/sys/cdefs.h
-User_App/LoopCtrl/src/AdcCalib.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/machine/_types.h
-User_App/LoopCtrl/src/AdcCalib.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/stdbool.h
-User_App/LoopCtrl/src/AdcCalib.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/stddef.h
-User_App/LoopCtrl/src/AdcCalib.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/stdint.h
-User_App/LoopCtrl/src/AdcCalib.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/_stdint40.h
-User_App/LoopCtrl/src/AdcCalib.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/sys/stdint.h
-User_App/LoopCtrl/src/AdcCalib.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/machine/_stdint.h
-User_App/LoopCtrl/src/AdcCalib.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/sys/_stdint.h
+User_App/LoopCtrl/src/AdcCalib.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/assert.h
+User_App/LoopCtrl/src/AdcCalib.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/_ti_config.h
+User_App/LoopCtrl/src/AdcCalib.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/linkage.h
+User_App/LoopCtrl/src/AdcCalib.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/stdarg.h
+User_App/LoopCtrl/src/AdcCalib.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/sys/_types.h
+User_App/LoopCtrl/src/AdcCalib.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/sys/cdefs.h
+User_App/LoopCtrl/src/AdcCalib.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/machine/_types.h
+User_App/LoopCtrl/src/AdcCalib.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/stdbool.h
+User_App/LoopCtrl/src/AdcCalib.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/stddef.h
+User_App/LoopCtrl/src/AdcCalib.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/stdint.h
+User_App/LoopCtrl/src/AdcCalib.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/_stdint40.h
+User_App/LoopCtrl/src/AdcCalib.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/sys/stdint.h
+User_App/LoopCtrl/src/AdcCalib.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/machine/_stdint.h
+User_App/LoopCtrl/src/AdcCalib.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/sys/_stdint.h
 User_App/LoopCtrl/src/AdcCalib.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/headers/include/F2837xS_adc.h
 User_App/LoopCtrl/src/AdcCalib.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/headers/include/F2837xS_analogsubsys.h
 User_App/LoopCtrl/src/AdcCalib.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/headers/include/F2837xS_cla.h
@@ -58,33 +58,33 @@ D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/AdcCalib.h:
 
 D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/headers/include/F2837xS_device.h:
 
-D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/assert.h:
+C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/assert.h:
 
-D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/_ti_config.h:
+C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/_ti_config.h:
 
-D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/linkage.h:
+C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/linkage.h:
 
-D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/stdarg.h:
+C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/stdarg.h:
 
-D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/sys/_types.h:
+C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/sys/_types.h:
 
-D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/sys/cdefs.h:
+C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/sys/cdefs.h:
 
-D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/machine/_types.h:
+C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/machine/_types.h:
 
-D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/stdbool.h:
+C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/stdbool.h:
 
-D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/stddef.h:
+C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/stddef.h:
 
-D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/stdint.h:
+C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/stdint.h:
 
-D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/_stdint40.h:
+C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/_stdint40.h:
 
-D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/sys/stdint.h:
+C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/sys/stdint.h:
 
-D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/machine/_stdint.h:
+C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/machine/_stdint.h:
 
-D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/sys/_stdint.h:
+C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/sys/_stdint.h:
 
 D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/headers/include/F2837xS_adc.h:
 

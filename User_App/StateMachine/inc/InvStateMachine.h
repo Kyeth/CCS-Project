@@ -15,8 +15,8 @@
  *       - ATS 断开（负载侧无电网）：先闭合逆变继电器，再启 PWM，否则负载侧悬空。
  *
  *       自检（INV_ST_CHK）用桥臂自己建压来做：继电器保持断开，桥臂发一个小
- *       调制比，读桥臂侧电压（A0/C3/C4 -> gAdcPub.fInvVoltRmsR）判断驱动与采样
- *       通路是否正常；同时读负载侧电压（A5/A1/A3 -> gAdcPub.fGridVoltRmsR），
+ *       调制比，读桥臂侧电压（A0/C3/C4 -> stSampleRms.fInvVoltRms[SAMPLE_PH_R]）判断驱动与采样
+ *       通路是否正常；同时读负载侧电压（A5/A1/A3 -> stSampleRms.fGridVoltRms[SAMPLE_PH_R]），
  *       ATS 断开时负载侧若跟着起压就说明继电器粘连。
  */
 
@@ -96,7 +96,7 @@ extern ST_INV_SM gInvSm;
  * API
  ******************************************************************************/
 void InvSmInit(void);
-void InvSmTask(void *pArgV);        /* 10kHz（调度 Time=1） */
+void RunInvStateMachine(void);      /* 20kHz 控制中断 ÷2 = 10kHz */
 void InvSmStart(void);
 void InvSmStop(void);
 void InvSmReset(void);              /* 清故障，需故障源已消失 */

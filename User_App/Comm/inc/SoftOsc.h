@@ -10,20 +10,24 @@
  *       于是把 2 路塞进 29 位扩展帧 ID，4 路塞进 8 字节数据，一帧 6 路，
  *       两组帧交替发送（400us 一帧 → 每组 800us 刷新一次）。
  *
- * @note 一帧的字节布局（扩展帧，DLC = 8）：
+ * @note 一帧的字节布局（扩展帧，DLC = 8，单帧 6 路）：
  *
- *       位域                              内容
+ *       位置                              内容
  *       --------------------------------  ------------------------------
  *       ID[28]                            组别：0 = 第 1~6 路，1 = 第 7~12 路
- *       ID[15:0]                          第 3、第 4 路（低 16 位 = 第 3 路）
- *       ID[27:16] + ID[15:0]            第 1、第 2 路（ID = 第1路<<16 | 第2路）
- *       Data_0 / Data_1                  第 5 路高字节 / 低字节
- *       Data_2 / Data_3                  第 6 路高字节 / 低字节
- *       Data_4 / Data_5                  第 3 路高字节 / 低字节
- *       Data_6 / Data_7                  第 4 路高字节 / 低字节
+ *       ID[27:16]                         第 1 路，无符号 12 位（0 ~ 4095）
+ *       ID[15:0]                          第 2 路，16 位有符号（-32768 ~ 32767）
+ *       Data[0] / Data[1]                 第 6 路 高字节 / 低字节
+ *       Data[2] / Data[3]                 第 5 路 高字节 / 低字节
+ *       Data[4] / Data[5]                 第 4 路 高字节 / 低字节
+ *       Data[6] / Data[7]                 第 3 路 高字节 / 低字节
  *
- *       即：DATA_32 = (ch5 << 16) | ch6，DATB_32 = (ch3 << 16) | ch4，
- *       每个 16 位值先发高字节，与 IB800 的 U16tobp32 完全一致。
+ *       即：ID = (第1路 << 16) | 第2路，DATA = (第6路 << 16) | 第5路，
+ *           DATB = (第4路 << 16) | 第3路，每个 16 位值先发高字节。
+ *
+ * @warning 第 1 路（组 0 的第 1 路、组 1 的第 7 路）只占 ID[27:16]，
+ *          有效范围 0 ~ 4095：超过 4095 或为负数都会按 4096 取模回绕。
+ *          给这两路配源时务必选量纲小的量，或把倍数调小。
  */
 #ifndef SOFT_OSC_H
 #define SOFT_OSC_H
@@ -98,7 +102,7 @@ extern volatile Uint16 gSoftOscGroupSel;   /* 单边模式下发哪一组：0 = 
 #define SOFT_OSC_SRC_BUS_VOLT_L     (27U)
 #define SOFT_OSC_SRC_BUS_VOLT_H     (28U)
 
-/* ---- 对外稳定量（AdcSample 的 gAdcPub，1kHz 刷新，已在工频周期上平均）---- */
+/* ---- 对外稳定量（SampleData 的 stSampleRms/stSampleAvg，1kHz 刷新，已在工频周期上平均）---- */
 #define SOFT_OSC_SRC_GRID_VOLT_RMS_R (29U)
 #define SOFT_OSC_SRC_GRID_VOLT_RMS_S (30U)
 #define SOFT_OSC_SRC_GRID_VOLT_RMS_T (31U)
@@ -123,6 +127,10 @@ extern volatile Uint16 gSoftOscGroupSel;   /* 单边模式下发哪一组：0 = 
 
 /* 点表里写"源编号/寄存器地址"时允许的最大值 */
 #define SOFT_OSC_SRC_ID_MAX         (65535U)
+
+/* 地址模式标志：源编号最高位写 1，低 15 位按"点表寄存器地址"反查。
+ * 有了它，点表里 0~99 这些地址也能被观测（0~99 与内置源编号 1~38 冲突）。 */
+#define SOFT_OSC_SRC_ADDR_FLAG      (0x8000U)
 
 /* 一个通道的可写配置：观测源编号 + 定点放大倍数 */
 typedef struct

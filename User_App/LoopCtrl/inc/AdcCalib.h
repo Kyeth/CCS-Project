@@ -159,13 +159,30 @@ typedef enum
 /******************************************************************************
  * 对外观测：每拍刷新后的工程值（A / V），供软示波器、Modbus 直接取地址
  ******************************************************************************/
-extern volatile float gAdcCalValue[ADC_CAL_CH_NUM];
+/* ==================== 采样标定运行状态 ====================
+ * 工程值、生效零点/系数、零漂累加缓冲与自适应状态全部收在一个结构体里，
+ * 函数内一律经 stAdcCalib 访问；点表直接取成员地址，不再另设镜像变量。 */
+typedef struct
+{
+    volatile float fValue[ADC_CAL_CH_NUM];  // 每拍换算出的工程值 A / V
+    float  fZeroCode[ADC_CAL_CH_NUM];       // 生效零点码值
+    float  fScale[ADC_CAL_CH_NUM];          // 生效标定系数
+    float  fCode12[ADC_CAL_CH_NUM];         // 本拍码值，12 位域
+    float  fZeroSum[ADC_CAL_CH_NUM];        // 零漂累加缓冲
 
-/* 只读镜像：给 Modbus 点表直接取地址用（0.1 单位，避免上位机做换算） */
-extern volatile Uint16 gAdcCalZeroState;    /* 零漂检测状态，见 E_ADC_CAL_ZERO_STATE */
-extern volatile Uint16 gAdcCalTrackCnt;     /* 已累加拍数 */
-extern volatile int16  gAdcCalObsGfciMa;    /* GFCI 电流，mA */
-extern volatile int16  gAdcCalObsBalCur;    /* 平衡电路电流，0.1A */
+    volatile Uint16 u16ZeroState;           // 零漂检测状态 E_ADC_CAL_ZERO_STATE
+    volatile Uint16 u16TrackCnt;            // 已累加拍数
+    volatile int16  i16ObsGfciMa;           // GFCI 电流 mA，供观察
+    volatile int16  i16ObsBalCur;           // 平衡电路电流 0.1A，供观察
+
+    Uint16 u16SkipCnt;                      // 跳过拍数计数
+    Uint16 u16TrackCntRaw;                  // 累加拍数计数
+    E_ADC_CAL_ZERO_STATE eZeroState;        // 标定内部状态机
+    Uint16 u16TrackEnable;                  // 1 = 允许自动检测
+} ST_ADC_CALIB_STATE;
+
+/* 实例定义在 AdcCalib.c */
+extern ST_ADC_CALIB_STATE stAdcCalib;
 
 /******************************************************************************
  * 接口
@@ -211,7 +228,7 @@ extern float AdcCalibDc(Uint16 u16Idx);
 
 /**
  * @brief  读/写零点（码值）、读写系数（工程值/码值）
- * @note   写入后立即生效，下一拍刷新即用新值；用于台架标定（接标准源，
+ * @note   写入后立即生效，下一拍刷新即用新值；用于现场标定（接标准源，
  *         先用 AdcCalibSetScale 修系数，再用 AdcCalibSetZeroCode 修零点）
  */
 extern float AdcCalibGetZeroCode(Uint16 u16Ch);

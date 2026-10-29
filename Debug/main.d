@@ -2,20 +2,20 @@
 
 main.obj: ../main.c
 main.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/headers/include/F2837xS_Device.h
-main.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/assert.h
-main.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/_ti_config.h
-main.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/linkage.h
-main.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/stdarg.h
-main.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/sys/_types.h
-main.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/sys/cdefs.h
-main.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/machine/_types.h
-main.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/stdbool.h
-main.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/stddef.h
-main.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/stdint.h
-main.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/_stdint40.h
-main.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/sys/stdint.h
-main.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/machine/_stdint.h
-main.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/sys/_stdint.h
+main.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/assert.h
+main.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/_ti_config.h
+main.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/linkage.h
+main.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/stdarg.h
+main.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/sys/_types.h
+main.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/sys/cdefs.h
+main.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/machine/_types.h
+main.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/stdbool.h
+main.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/stddef.h
+main.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/stdint.h
+main.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/_stdint40.h
+main.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/sys/stdint.h
+main.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/machine/_stdint.h
+main.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/sys/_stdint.h
 main.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/headers/include/F2837xS_adc.h
 main.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/headers/include/F2837xS_analogsubsys.h
 main.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/headers/include/F2837xS_cla.h
@@ -63,8 +63,8 @@ main.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837
 main.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_SysCtrl_defines.h
 main.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Upp_defines.h
 main.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_defaultisr.h
-main.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/string.h
-main.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/xlocale/_string.h
+main.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/string.h
+main.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/xlocale/_string.h
 main.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Broad/inc/DrvCfg_EP15K.h
 main.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_GpioDriver.h
 main.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_PwmDriver.h
@@ -91,7 +91,9 @@ main.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/Schedule/inc/Sched
 main.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/CtrlIsr.h
 main.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/AdcCalib.h
 main.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/AdcSample.h
+main.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/SampleData.h
 main.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/Comm/inc/SoftOsc.h
+main.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/Comm/inc/DataExchange.h
 main.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/ProtectTask.h
 main.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Platform/Common/inc/AtsCtl.h
 main.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/StateMachine/inc/RelayCtl.h
@@ -103,33 +105,33 @@ main.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/StateMachine/inc/P
 
 D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/headers/include/F2837xS_Device.h:
 
-D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/assert.h:
+C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/assert.h:
 
-D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/_ti_config.h:
+C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/_ti_config.h:
 
-D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/linkage.h:
+C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/linkage.h:
 
-D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/stdarg.h:
+C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/stdarg.h:
 
-D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/sys/_types.h:
+C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/sys/_types.h:
 
-D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/sys/cdefs.h:
+C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/sys/cdefs.h:
 
-D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/machine/_types.h:
+C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/machine/_types.h:
 
-D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/stdbool.h:
+C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/stdbool.h:
 
-D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/stddef.h:
+C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/stddef.h:
 
-D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/stdint.h:
+C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/stdint.h:
 
-D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/_stdint40.h:
+C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/_stdint40.h:
 
-D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/sys/stdint.h:
+C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/sys/stdint.h:
 
-D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/machine/_stdint.h:
+C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/machine/_stdint.h:
 
-D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/sys/_stdint.h:
+C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/sys/_stdint.h:
 
 D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/headers/include/F2837xS_adc.h:
 
@@ -225,9 +227,9 @@ D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Upp_def
 
 D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_defaultisr.h:
 
-D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/string.h:
+C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/string.h:
 
-D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/xlocale/_string.h:
+C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/xlocale/_string.h:
 
 D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Broad/inc/DrvCfg_EP15K.h:
 
@@ -281,7 +283,11 @@ D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/AdcCalib.h:
 
 D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/AdcSample.h:
 
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/SampleData.h:
+
 D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/Comm/inc/SoftOsc.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/Comm/inc/DataExchange.h:
 
 D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/ProtectTask.h:
 

@@ -94,10 +94,8 @@ Uint16 SysSmIsRun(void)
 /******************************************************************************
  * 主任务：1kHz
  ******************************************************************************/
-void SysSmTask(void *pArgV)
+void RunSysStateMachine(void)
 {
-    (void)pArgV;
-
     if (gSysSm.u16Cnt < 0xFFFFU)
     {
         gSysSm.u16Cnt++;

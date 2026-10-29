@@ -18,7 +18,7 @@
  * @note    与 EP5K 的对应关系：
  *          EP5K《Sample.c》用 int16 系数 K，换算 (K*raw>>12)*0.1；
  *          本工程用 float 系数，换算 (raw-zero)*scale，两者数学等价，
- *          但本工程把"零点"与"比例"解耦，台架标定时可以分别修。
+ *          但本工程把零点与比例解耦，现场标定时可以分别修。
  *
  * @copyright Copyright (c) 2026
  ******************************************************************************/
@@ -87,27 +87,8 @@ static const Uint16 sTrackMask[ADC_CAL_CH_NUM] =
 /******************************************************************************
  * 运行时状态
  ******************************************************************************/
-/* 每拍刷新后的工程值（A / V），软示波器/Modbus 直接取地址 */
-volatile float gAdcCalValue[ADC_CAL_CH_NUM];
-
-/* 只读镜像（Modbus 用） */
-volatile Uint16 gAdcCalZeroState = ADC_CAL_ZERO_PENDING;
-volatile Uint16 gAdcCalTrackCnt  = 0U;
-volatile int16  gAdcCalObsGfciMa = 0;
-volatile int16  gAdcCalObsBalCur = 0;
-
-/* 生效中的零点与系数（初值来自标称表，运行中可被台架标定改写） */
-static float sZeroCode[ADC_CAL_CH_NUM];
-static float sScale[ADC_CAL_CH_NUM];
-/* 本拍码值（12 位域） */
-static float sCode12[ADC_CAL_CH_NUM];
-/* 零漂累加缓冲 */
-static float sZeroSum[ADC_CAL_CH_NUM];
-/* 状态机计数 */
-static Uint16 sSkipCnt;         /* 跳过拍数计数 */
-static Uint16 sTrackCnt;        /* 累加拍数计数 */
-static E_ADC_CAL_ZERO_STATE sZeroState;  /* 见 E_ADC_CAL_ZERO_STATE */
-static Uint16 sTrackEnable;     /* 1 = 允许自动检测 */
+/* 采样标定全部运行状态：单个实例 stAdcCalib，函数内一律经结构体访问 */
+ST_ADC_CALIB_STATE stAdcCalib;
 
 /******************************************************************************
  * @brief  取某通道的本拍码值（12 位域）
@@ -170,43 +151,43 @@ static void AdcCalibZeroTrackStep(void)
     float  fDiff;
     Uint16 u16Fail;
 
-    if (sTrackEnable == 0U)
+    if (stAdcCalib.u16TrackEnable == 0U)
     {
-        sZeroState = ADC_CAL_ZERO_FROZEN;
+        stAdcCalib.eZeroState = ADC_CAL_ZERO_FROZEN;
         return;
     }
 
-    if (sZeroState == ADC_CAL_ZERO_PENDING)
+    if (stAdcCalib.eZeroState == ADC_CAL_ZERO_PENDING)
     {
         /* 先跳过一段时间，等 CLA 低通从初值收敛到真实偏置 */
-        if (sSkipCnt < ADC_CAL_TRACK_SKIP)
+        if (stAdcCalib.u16SkipCnt < ADC_CAL_TRACK_SKIP)
         {
-            sSkipCnt++;
+            stAdcCalib.u16SkipCnt++;
             return;
         }
 
         for (i = 0U; i < ADC_CAL_CH_NUM; i++)
         {
-            sZeroSum[i] = 0.0f;
+            stAdcCalib.fZeroSum[i] = 0.0f;
         }
-        sTrackCnt  = 0U;
-        sZeroState = ADC_CAL_ZERO_TRACKING;
+        stAdcCalib.u16TrackCntRaw  = 0U;
+        stAdcCalib.eZeroState = ADC_CAL_ZERO_TRACKING;
         return;
     }
 
-    if (sZeroState == ADC_CAL_ZERO_TRACKING)
+    if (stAdcCalib.eZeroState == ADC_CAL_ZERO_TRACKING)
     {
         for (i = 0U; i < ADC_CAL_CH_NUM; i++)
         {
             if (sTrackMask[i] != 0U)
             {
-                sZeroSum[i] += sCode12[i];
+                stAdcCalib.fZeroSum[i] += stAdcCalib.fCode12[i];
             }
         }
 
-        sTrackCnt++;
+        stAdcCalib.u16TrackCntRaw++;
 
-        if (sTrackCnt >= ADC_CAL_TRACK_SAMPLES)
+        if (stAdcCalib.u16TrackCntRaw >= ADC_CAL_TRACK_SAMPLES)
         {
             u16Fail = 0U;
 
@@ -217,7 +198,7 @@ static void AdcCalibZeroTrackStep(void)
                     continue;
                 }
 
-                fMean = sZeroSum[i] / (float)ADC_CAL_TRACK_SAMPLES;
+                fMean = stAdcCalib.fZeroSum[i] / (float)ADC_CAL_TRACK_SAMPLES;
                 fDiff = fMean - sNominalZero[i];
                 if (fDiff < 0.0f)
                 {
@@ -226,16 +207,16 @@ static void AdcCalibZeroTrackStep(void)
 
                 if (fDiff <= ADC_CAL_ZERO_TOL)
                 {
-                    sZeroCode[i] = fMean;
+                    stAdcCalib.fZeroCode[i] = fMean;
                 }
                 else
                 {
-                    /* 超差：保留标称零点，等台架标定，状态置 FAILED */
+                    /* 超差：保留标称零点，等现场标定，状态置 FAILED */
                     u16Fail = 1U;
                 }
             }
 
-            sZeroState = (u16Fail != 0U) ? ADC_CAL_ZERO_FAILED : ADC_CAL_ZERO_DONE;
+            stAdcCalib.eZeroState = (u16Fail != 0U) ? ADC_CAL_ZERO_FAILED : ADC_CAL_ZERO_DONE;
         }
     }
 }
@@ -249,17 +230,17 @@ void AdcCalibInit(void)
 
     for (i = 0U; i < ADC_CAL_CH_NUM; i++)
     {
-        sZeroCode[i]   = sNominalZero[i];
-        sScale[i]      = sNominalScale[i];
-        sCode12[i]     = 0.0f;
-        sZeroSum[i]    = 0.0f;
-        gAdcCalValue[i] = 0.0f;
+        stAdcCalib.fZeroCode[i]   = sNominalZero[i];
+        stAdcCalib.fScale[i]      = sNominalScale[i];
+        stAdcCalib.fCode12[i]     = 0.0f;
+        stAdcCalib.fZeroSum[i]    = 0.0f;
+        stAdcCalib.fValue[i] = 0.0f;
     }
 
-    sSkipCnt     = 0U;
-    sTrackCnt    = 0U;
-    sTrackEnable = 1U;
-    sZeroState   = ADC_CAL_ZERO_PENDING;
+    stAdcCalib.u16SkipCnt     = 0U;
+    stAdcCalib.u16TrackCntRaw    = 0U;
+    stAdcCalib.u16TrackEnable = 1U;
+    stAdcCalib.eZeroState   = ADC_CAL_ZERO_PENDING;
 }
 
 void AdcCalibStartZeroTrack(void)
@@ -269,18 +250,18 @@ void AdcCalibStartZeroTrack(void)
     /* 保留当前零点直到检测完成；从头开始跳过 + 累加 */
     for (i = 0U; i < ADC_CAL_CH_NUM; i++)
     {
-        sZeroSum[i] = 0.0f;
+        stAdcCalib.fZeroSum[i] = 0.0f;
     }
 
-    sSkipCnt     = 0U;
-    sTrackCnt    = 0U;
-    sTrackEnable = 1U;
-    sZeroState   = ADC_CAL_ZERO_PENDING;
+    stAdcCalib.u16SkipCnt     = 0U;
+    stAdcCalib.u16TrackCntRaw    = 0U;
+    stAdcCalib.u16TrackEnable = 1U;
+    stAdcCalib.eZeroState   = ADC_CAL_ZERO_PENDING;
 }
 
 void AdcCalibSetTrackEnable(Uint16 u16Enable)
 {
-    sTrackEnable = (u16Enable != 0U) ? 1U : 0U;
+    stAdcCalib.u16TrackEnable = (u16Enable != 0U) ? 1U : 0U;
 }
 
 void AdcCalibRefresh(void)
@@ -291,26 +272,26 @@ void AdcCalibRefresh(void)
     for (i = 0U; i < ADC_CAL_CH_NUM; i++)
     {
         fCode       = AdcCalibReadCode12(i);
-        sCode12[i]  = fCode;
-        gAdcCalValue[i] = (fCode - sZeroCode[i]) * sScale[i];
+        stAdcCalib.fCode12[i]  = fCode;
+        stAdcCalib.fValue[i] = (fCode - stAdcCalib.fZeroCode[i]) * stAdcCalib.fScale[i];
     }
 
     AdcCalibZeroTrackStep();
 
     /* 状态镜像（Modbus 只读） */
-    gAdcCalZeroState = (Uint16)sZeroState;
-    gAdcCalTrackCnt  = sTrackCnt;
+    stAdcCalib.u16ZeroState = (Uint16)stAdcCalib.eZeroState;
+    stAdcCalib.u16TrackCnt  = stAdcCalib.u16TrackCntRaw;
 
     /* 两个慢变量转成 0.1 单位镜像，避免上位机做换算 */
-    fCode = gAdcCalValue[ADC_CAL_GFCI] * 1000.0f;
+    fCode = stAdcCalib.fValue[ADC_CAL_GFCI] * 1000.0f;
     if (fCode > 32767.0f)   { fCode = 32767.0f; }
     if (fCode < -32768.0f)  { fCode = -32768.0f; }
-    gAdcCalObsGfciMa = (int16)fCode;
+    stAdcCalib.i16ObsGfciMa = (int16)fCode;
 
-    fCode = gAdcCalValue[ADC_CAL_BAL_CUR] * 10.0f;
+    fCode = stAdcCalib.fValue[ADC_CAL_BAL_CUR] * 10.0f;
     if (fCode > 32767.0f)   { fCode = 32767.0f; }
     if (fCode < -32768.0f)  { fCode = -32768.0f; }
-    gAdcCalObsBalCur = (int16)fCode;
+    stAdcCalib.i16ObsBalCur = (int16)fCode;
 }
 
 float AdcCalibGet(Uint16 u16Ch)
@@ -319,7 +300,7 @@ float AdcCalibGet(Uint16 u16Ch)
     {
         return 0.0f;
     }
-    return gAdcCalValue[u16Ch];
+    return stAdcCalib.fValue[u16Ch];
 }
 
 float AdcCalibInvCur(Uint16 u16Idx)
@@ -353,7 +334,7 @@ float AdcCalibGetZeroCode(Uint16 u16Ch)
     {
         return 0.0f;
     }
-    return sZeroCode[u16Ch];
+    return stAdcCalib.fZeroCode[u16Ch];
 }
 
 void AdcCalibSetZeroCode(Uint16 u16Ch, float fCode)
@@ -362,7 +343,7 @@ void AdcCalibSetZeroCode(Uint16 u16Ch, float fCode)
     {
         return;
     }
-    sZeroCode[u16Ch] = fCode;
+    stAdcCalib.fZeroCode[u16Ch] = fCode;
 }
 
 float AdcCalibGetScale(Uint16 u16Ch)
@@ -371,7 +352,7 @@ float AdcCalibGetScale(Uint16 u16Ch)
     {
         return 0.0f;
     }
-    return sScale[u16Ch];
+    return stAdcCalib.fScale[u16Ch];
 }
 
 void AdcCalibSetScale(Uint16 u16Ch, float fScale)
@@ -380,7 +361,7 @@ void AdcCalibSetScale(Uint16 u16Ch, float fScale)
     {
         return;
     }
-    sScale[u16Ch] = fScale;
+    stAdcCalib.fScale[u16Ch] = fScale;
 }
 
 void AdcCalibRestoreNominal(void)
@@ -389,21 +370,21 @@ void AdcCalibRestoreNominal(void)
 
     for (i = 0U; i < ADC_CAL_CH_NUM; i++)
     {
-        sZeroCode[i] = sNominalZero[i];
-        sScale[i]    = sNominalScale[i];
+        stAdcCalib.fZeroCode[i] = sNominalZero[i];
+        stAdcCalib.fScale[i]    = sNominalScale[i];
     }
 
-    sZeroState = ADC_CAL_ZERO_PENDING;
+    stAdcCalib.eZeroState = ADC_CAL_ZERO_PENDING;
 }
 
 E_ADC_CAL_ZERO_STATE AdcCalibGetZeroState(void)
 {
-    return sZeroState;
+    return stAdcCalib.eZeroState;
 }
 
 Uint16 AdcCalibGetTrackCount(void)
 {
-    return sTrackCnt;
+    return stAdcCalib.u16TrackCntRaw;
 }
 
 //===========================================================================

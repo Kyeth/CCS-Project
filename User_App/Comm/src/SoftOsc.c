@@ -28,44 +28,44 @@ typedef struct
 
 static const ST_SOFT_OSC_SRC gSoftOscSrcTab[] =
 {
-    {SOFT_OSC_SRC_THETA,        SOFT_OSC_TYPE_FLOAT,  (void *)&gCtrlObsThetaDeg},
-    {SOFT_OSC_SRC_GRID_FREQ,    SOFT_OSC_TYPE_FLOAT,  (void *)&gCtrlObsGridFreq},
-    {SOFT_OSC_SRC_MOD_INDEX,    SOFT_OSC_TYPE_FLOAT,  (void *)&gCtrlObsModIndex},
-    {SOFT_OSC_SRC_FAULT,        SOFT_OSC_TYPE_UINT16, (void *)&gCtrlObsFault},
+    {SOFT_OSC_SRC_THETA,        SOFT_OSC_TYPE_FLOAT,  (void *)&stCtrlObs.fThetaDeg},
+    {SOFT_OSC_SRC_GRID_FREQ,    SOFT_OSC_TYPE_FLOAT,  (void *)&stCtrlObs.fGridFreq},
+    {SOFT_OSC_SRC_MOD_INDEX,    SOFT_OSC_TYPE_FLOAT,  (void *)&stCtrlObs.fModIndex},
+    {SOFT_OSC_SRC_FAULT,        SOFT_OSC_TYPE_UINT16, (void *)&stCtrlObs.u16Fault},
     {SOFT_OSC_SRC_SEQ,          SOFT_OSC_TYPE_UINT16, (void *)&Cla1ToCpuMsg.u16Seq},
     {SOFT_OSC_SRC_MUX_ADDR,     SOFT_OSC_TYPE_UINT16, (void *)&Cla1ToCpuMsg.u16MuxAddr},
-    {SOFT_OSC_SRC_INV_CUR_R,    SOFT_OSC_TYPE_FLOAT,  (void *)&gAdcCalValue[ADC_CAL_INV_CUR_R]},
-    {SOFT_OSC_SRC_INV_CUR_S,    SOFT_OSC_TYPE_FLOAT,  (void *)&gAdcCalValue[ADC_CAL_INV_CUR_S]},
-    {SOFT_OSC_SRC_INV_CUR_T,    SOFT_OSC_TYPE_FLOAT,  (void *)&gAdcCalValue[ADC_CAL_INV_CUR_T]},
-    {SOFT_OSC_SRC_INV_CUR_PK_R, SOFT_OSC_TYPE_FLOAT,  (void *)&gAdcCalValue[ADC_CAL_INV_CUR_PK_R]},
-    {SOFT_OSC_SRC_INV_CUR_PK_S, SOFT_OSC_TYPE_FLOAT,  (void *)&gAdcCalValue[ADC_CAL_INV_CUR_PK_S]},
-    {SOFT_OSC_SRC_INV_CUR_PK_T, SOFT_OSC_TYPE_FLOAT,  (void *)&gAdcCalValue[ADC_CAL_INV_CUR_PK_T]},
-    {SOFT_OSC_SRC_INV_VOLT_R,   SOFT_OSC_TYPE_FLOAT,  (void *)&gAdcCalValue[ADC_CAL_INV_VOLT_R]},
-    {SOFT_OSC_SRC_INV_VOLT_S,   SOFT_OSC_TYPE_FLOAT,  (void *)&gAdcCalValue[ADC_CAL_INV_VOLT_S]},
-    {SOFT_OSC_SRC_INV_VOLT_T,   SOFT_OSC_TYPE_FLOAT,  (void *)&gAdcCalValue[ADC_CAL_INV_VOLT_T]},
-    {SOFT_OSC_SRC_GRID_VOLT_R,  SOFT_OSC_TYPE_FLOAT,  (void *)&gAdcCalValue[ADC_CAL_GRID_VOLT_R]},
-    {SOFT_OSC_SRC_GRID_VOLT_S,  SOFT_OSC_TYPE_FLOAT,  (void *)&gAdcCalValue[ADC_CAL_GRID_VOLT_S]},
-    {SOFT_OSC_SRC_GRID_VOLT_T,  SOFT_OSC_TYPE_FLOAT,  (void *)&gAdcCalValue[ADC_CAL_GRID_VOLT_T]},
-    {SOFT_OSC_SRC_PV_CUR1,      SOFT_OSC_TYPE_FLOAT,  (void *)&gAdcCalValue[ADC_CAL_PV_CUR1]},
-    {SOFT_OSC_SRC_PV_CUR2,      SOFT_OSC_TYPE_FLOAT,  (void *)&gAdcCalValue[ADC_CAL_PV_CUR2]},
-    {SOFT_OSC_SRC_PV_CUR3,      SOFT_OSC_TYPE_FLOAT,  (void *)&gAdcCalValue[ADC_CAL_PV_CUR3]},
-    {SOFT_OSC_SRC_PV_CUR4,      SOFT_OSC_TYPE_FLOAT,  (void *)&gAdcCalValue[ADC_CAL_PV_CUR4]},
-    {SOFT_OSC_SRC_PV_VOLT1,     SOFT_OSC_TYPE_FLOAT,  (void *)&gAdcCalValue[ADC_CAL_PV_VOLT1]},
-    {SOFT_OSC_SRC_PV_VOLT2,     SOFT_OSC_TYPE_FLOAT,  (void *)&gAdcCalValue[ADC_CAL_PV_VOLT2]},
-    {SOFT_OSC_SRC_PV_VOLT3,     SOFT_OSC_TYPE_FLOAT,  (void *)&gAdcCalValue[ADC_CAL_PV_VOLT3]},
-    {SOFT_OSC_SRC_PV_VOLT4,     SOFT_OSC_TYPE_FLOAT,  (void *)&gAdcCalValue[ADC_CAL_PV_VOLT4]},
-    {SOFT_OSC_SRC_BUS_VOLT_L,   SOFT_OSC_TYPE_FLOAT,  (void *)&gAdcCalValue[ADC_CAL_BUS_VOLT_L]},
-    {SOFT_OSC_SRC_BUS_VOLT_H,   SOFT_OSC_TYPE_FLOAT,  (void *)&gAdcCalValue[ADC_CAL_BUS_VOLT_H]},
+    {SOFT_OSC_SRC_INV_CUR_R,    SOFT_OSC_TYPE_FLOAT,  (void *)&stAdcCalib.fValue[ADC_CAL_INV_CUR_R]},
+    {SOFT_OSC_SRC_INV_CUR_S,    SOFT_OSC_TYPE_FLOAT,  (void *)&stAdcCalib.fValue[ADC_CAL_INV_CUR_S]},
+    {SOFT_OSC_SRC_INV_CUR_T,    SOFT_OSC_TYPE_FLOAT,  (void *)&stAdcCalib.fValue[ADC_CAL_INV_CUR_T]},
+    {SOFT_OSC_SRC_INV_CUR_PK_R, SOFT_OSC_TYPE_FLOAT,  (void *)&stAdcCalib.fValue[ADC_CAL_INV_CUR_PK_R]},
+    {SOFT_OSC_SRC_INV_CUR_PK_S, SOFT_OSC_TYPE_FLOAT,  (void *)&stAdcCalib.fValue[ADC_CAL_INV_CUR_PK_S]},
+    {SOFT_OSC_SRC_INV_CUR_PK_T, SOFT_OSC_TYPE_FLOAT,  (void *)&stAdcCalib.fValue[ADC_CAL_INV_CUR_PK_T]},
+    {SOFT_OSC_SRC_INV_VOLT_R,   SOFT_OSC_TYPE_FLOAT,  (void *)&stAdcCalib.fValue[ADC_CAL_INV_VOLT_R]},
+    {SOFT_OSC_SRC_INV_VOLT_S,   SOFT_OSC_TYPE_FLOAT,  (void *)&stAdcCalib.fValue[ADC_CAL_INV_VOLT_S]},
+    {SOFT_OSC_SRC_INV_VOLT_T,   SOFT_OSC_TYPE_FLOAT,  (void *)&stAdcCalib.fValue[ADC_CAL_INV_VOLT_T]},
+    {SOFT_OSC_SRC_GRID_VOLT_R,  SOFT_OSC_TYPE_FLOAT,  (void *)&stAdcCalib.fValue[ADC_CAL_GRID_VOLT_R]},
+    {SOFT_OSC_SRC_GRID_VOLT_S,  SOFT_OSC_TYPE_FLOAT,  (void *)&stAdcCalib.fValue[ADC_CAL_GRID_VOLT_S]},
+    {SOFT_OSC_SRC_GRID_VOLT_T,  SOFT_OSC_TYPE_FLOAT,  (void *)&stAdcCalib.fValue[ADC_CAL_GRID_VOLT_T]},
+    {SOFT_OSC_SRC_PV_CUR1,      SOFT_OSC_TYPE_FLOAT,  (void *)&stAdcCalib.fValue[ADC_CAL_PV_CUR1]},
+    {SOFT_OSC_SRC_PV_CUR2,      SOFT_OSC_TYPE_FLOAT,  (void *)&stAdcCalib.fValue[ADC_CAL_PV_CUR2]},
+    {SOFT_OSC_SRC_PV_CUR3,      SOFT_OSC_TYPE_FLOAT,  (void *)&stAdcCalib.fValue[ADC_CAL_PV_CUR3]},
+    {SOFT_OSC_SRC_PV_CUR4,      SOFT_OSC_TYPE_FLOAT,  (void *)&stAdcCalib.fValue[ADC_CAL_PV_CUR4]},
+    {SOFT_OSC_SRC_PV_VOLT1,     SOFT_OSC_TYPE_FLOAT,  (void *)&stAdcCalib.fValue[ADC_CAL_PV_VOLT1]},
+    {SOFT_OSC_SRC_PV_VOLT2,     SOFT_OSC_TYPE_FLOAT,  (void *)&stAdcCalib.fValue[ADC_CAL_PV_VOLT2]},
+    {SOFT_OSC_SRC_PV_VOLT3,     SOFT_OSC_TYPE_FLOAT,  (void *)&stAdcCalib.fValue[ADC_CAL_PV_VOLT3]},
+    {SOFT_OSC_SRC_PV_VOLT4,     SOFT_OSC_TYPE_FLOAT,  (void *)&stAdcCalib.fValue[ADC_CAL_PV_VOLT4]},
+    {SOFT_OSC_SRC_BUS_VOLT_L,   SOFT_OSC_TYPE_FLOAT,  (void *)&stAdcCalib.fValue[ADC_CAL_BUS_VOLT_L]},
+    {SOFT_OSC_SRC_BUS_VOLT_H,   SOFT_OSC_TYPE_FLOAT,  (void *)&stAdcCalib.fValue[ADC_CAL_BUS_VOLT_H]},
 
-    /* 对外稳定量：来自 AdcSample 的 gAdcPub（RMS / 慢速滤波后的物理量） */
-    {SOFT_OSC_SRC_GRID_VOLT_RMS_R, SOFT_OSC_TYPE_FLOAT,  (void *)&gAdcPub.fGridVoltRmsR},
-    {SOFT_OSC_SRC_GRID_VOLT_RMS_S, SOFT_OSC_TYPE_FLOAT,  (void *)&gAdcPub.fGridVoltRmsS},
-    {SOFT_OSC_SRC_GRID_VOLT_RMS_T, SOFT_OSC_TYPE_FLOAT,  (void *)&gAdcPub.fGridVoltRmsT},
-    {SOFT_OSC_SRC_INV_CUR_RMS_R,   SOFT_OSC_TYPE_FLOAT,  (void *)&gAdcPub.fInvCurRmsR},
-    {SOFT_OSC_SRC_INV_CUR_RMS_S,   SOFT_OSC_TYPE_FLOAT,  (void *)&gAdcPub.fInvCurRmsS},
-    {SOFT_OSC_SRC_INV_CUR_RMS_T,   SOFT_OSC_TYPE_FLOAT,  (void *)&gAdcPub.fInvCurRmsT},
-    {SOFT_OSC_SRC_BUS_VOLT_SLOW,   SOFT_OSC_TYPE_FLOAT,  (void *)&gAdcPub.fBusVoltSlow},
-    {SOFT_OSC_SRC_PV_VOLT1_SLOW,   SOFT_OSC_TYPE_FLOAT,  (void *)&gAdcPub.fPvVolt1Slow},
+    /* 对外稳定量：来自 SampleData 的 stSampleRms / stSampleAvg（RMS 与慢速滤波后的物理量） */
+    {SOFT_OSC_SRC_GRID_VOLT_RMS_R, SOFT_OSC_TYPE_FLOAT,  (void *)&stSampleRms.fGridVoltRms[SAMPLE_PH_R]},
+    {SOFT_OSC_SRC_GRID_VOLT_RMS_S, SOFT_OSC_TYPE_FLOAT,  (void *)&stSampleRms.fGridVoltRms[SAMPLE_PH_S]},
+    {SOFT_OSC_SRC_GRID_VOLT_RMS_T, SOFT_OSC_TYPE_FLOAT,  (void *)&stSampleRms.fGridVoltRms[SAMPLE_PH_T]},
+    {SOFT_OSC_SRC_INV_CUR_RMS_R,   SOFT_OSC_TYPE_FLOAT,  (void *)&stSampleRms.fInvCurrRms[SAMPLE_PH_R]},
+    {SOFT_OSC_SRC_INV_CUR_RMS_S,   SOFT_OSC_TYPE_FLOAT,  (void *)&stSampleRms.fInvCurrRms[SAMPLE_PH_S]},
+    {SOFT_OSC_SRC_INV_CUR_RMS_T,   SOFT_OSC_TYPE_FLOAT,  (void *)&stSampleRms.fInvCurrRms[SAMPLE_PH_T]},
+    {SOFT_OSC_SRC_BUS_VOLT_SLOW,   SOFT_OSC_TYPE_FLOAT,  (void *)&stSampleAvg.fBusVoltAvg200},
+    {SOFT_OSC_SRC_PV_VOLT1_SLOW,   SOFT_OSC_TYPE_FLOAT,  (void *)&stSampleAvg.fPvVoltAvg8[SAMPLE_PV1]},
     {SOFT_OSC_SRC_ATS_PHASE_DIFF,  SOFT_OSC_TYPE_FLOAT,  (void *)&gAtsInfo.fPhaseDiff},
     {SOFT_OSC_SRC_ATS_VOLT_DIFF,   SOFT_OSC_TYPE_FLOAT,  (void *)&gAtsInfo.fVoltDiff},
 };
@@ -268,11 +268,11 @@ static Uint16 SoftOscResolveByAddr(Uint16 u16RegAddr, Uint16 *pu16Type, void **p
 
     switch (pstItem->u16ValType)
     {
-        case MB_TYPE_U16: *pu16Type = SOFT_OSC_TYPE_UINT16; break;
-        case MB_TYPE_I16: *pu16Type = SOFT_OSC_TYPE_INT16;  break;
-        case MB_TYPE_U32: *pu16Type = SOFT_OSC_TYPE_UINT32; break;
-        case MB_TYPE_I32: *pu16Type = SOFT_OSC_TYPE_INT32;  break;
-        case MB_TYPE_F32: *pu16Type = SOFT_OSC_TYPE_FLOAT;  break;
+        case MB_VAL_U16: *pu16Type = SOFT_OSC_TYPE_UINT16; break;
+        case MB_VAL_I16: *pu16Type = SOFT_OSC_TYPE_INT16;  break;
+        case MB_VAL_U32: *pu16Type = SOFT_OSC_TYPE_UINT32; break;
+        case MB_VAL_I32: *pu16Type = SOFT_OSC_TYPE_INT32;  break;
+        case MB_VAL_F32: *pu16Type = SOFT_OSC_TYPE_FLOAT;  break;
         default:          *pu16Type = SOFT_OSC_TYPE_UINT16; break;
     }
 
@@ -295,9 +295,12 @@ void SoftOscApplyCfg(void)
     {
         u16Found = 0U;
 
-        /* 源编号 >= SOFT_OSC_SRC_ADDR_MIN 时按"寄存器地址"反查点表 */
-        if ((gSoftOscChCfg[u16Ch].u16SrcId >= SOFT_OSC_SRC_ADDR_MIN) &&
-            (SoftOscResolveByAddr(gSoftOscChCfg[u16Ch].u16SrcId,
+        /* 两种写法都按"寄存器地址"反查点表：
+         *   1) 编号 >= SOFT_OSC_SRC_ADDR_MIN（兼容旧用法，覆盖 ARM 段 5000+）；
+         *   2) 编号最高位带 SOFT_OSC_SRC_ADDR_FLAG，低 15 位为地址，可覆盖 0~99。 */
+        if (((gSoftOscChCfg[u16Ch].u16SrcId >= SOFT_OSC_SRC_ADDR_MIN) ||
+             ((gSoftOscChCfg[u16Ch].u16SrcId & SOFT_OSC_SRC_ADDR_FLAG) != 0U)) &&
+            (SoftOscResolveByAddr((Uint16)(gSoftOscChCfg[u16Ch].u16SrcId & 0x7FFFU),
                                   &u16RowType, &pvRowAddr) != 0U))
         {
             gSoftOscCh[u16Ch].u16Type = u16RowType;

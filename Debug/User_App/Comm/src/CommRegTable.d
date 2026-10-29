@@ -3,20 +3,20 @@
 User_App/Comm/src/CommRegTable.obj: ../User_App/Comm/src/CommRegTable.c
 User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/Comm/inc/CommRegTable.h
 User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/headers/include/F2837xS_device.h
-User_App/Comm/src/CommRegTable.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/assert.h
-User_App/Comm/src/CommRegTable.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/_ti_config.h
-User_App/Comm/src/CommRegTable.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/linkage.h
-User_App/Comm/src/CommRegTable.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/stdarg.h
-User_App/Comm/src/CommRegTable.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/sys/_types.h
-User_App/Comm/src/CommRegTable.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/sys/cdefs.h
-User_App/Comm/src/CommRegTable.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/machine/_types.h
-User_App/Comm/src/CommRegTable.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/stdbool.h
-User_App/Comm/src/CommRegTable.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/stddef.h
-User_App/Comm/src/CommRegTable.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/stdint.h
-User_App/Comm/src/CommRegTable.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/_stdint40.h
-User_App/Comm/src/CommRegTable.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/sys/stdint.h
-User_App/Comm/src/CommRegTable.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/machine/_stdint.h
-User_App/Comm/src/CommRegTable.obj: D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/sys/_stdint.h
+User_App/Comm/src/CommRegTable.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/assert.h
+User_App/Comm/src/CommRegTable.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/_ti_config.h
+User_App/Comm/src/CommRegTable.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/linkage.h
+User_App/Comm/src/CommRegTable.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/stdarg.h
+User_App/Comm/src/CommRegTable.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/sys/_types.h
+User_App/Comm/src/CommRegTable.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/sys/cdefs.h
+User_App/Comm/src/CommRegTable.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/machine/_types.h
+User_App/Comm/src/CommRegTable.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/stdbool.h
+User_App/Comm/src/CommRegTable.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/stddef.h
+User_App/Comm/src/CommRegTable.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/stdint.h
+User_App/Comm/src/CommRegTable.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/_stdint40.h
+User_App/Comm/src/CommRegTable.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/sys/stdint.h
+User_App/Comm/src/CommRegTable.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/machine/_stdint.h
+User_App/Comm/src/CommRegTable.obj: C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/sys/_stdint.h
 User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/headers/include/F2837xS_adc.h
 User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/headers/include/F2837xS_analogsubsys.h
 User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/headers/include/F2837xS_cla.h
@@ -51,6 +51,7 @@ User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/d
 User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/headers/include/F2837xS_xint.h
 User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/headers/include/F2837xS_can.h
 User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/Comm/inc/ModbusSlave.h
+User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/Comm/inc/ArmPointTable.h
 User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/StateMachine/inc/PvStateMachine.h
 User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/Comm/inc/SoftOsc.h
 User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Drivers/inc/Hw_CanDriver.h
@@ -58,6 +59,9 @@ User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/P
 User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/ProtectTask.h
 User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/AdcCalib.h
 User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/AdcSample.h
+User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/SampleData.h
+User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/ProtectFault.h
+User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Broad/inc/DrvCfg_Protect.h
 User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Platform/Common/inc/AtsProto.h
 User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F28x_Project.h
 User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/common/include/F2837xS_Cla_typedefs.h
@@ -79,6 +83,7 @@ User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/P
 User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/StateMachine/inc/SystemStateMachine.h
 User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/StateMachine/inc/InvStateMachine.h
 User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/CtrlIsr.h
+User_App/Comm/src/CommRegTable.obj: D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/User_ClaTask.h
 
 ../User_App/Comm/src/CommRegTable.c:
 
@@ -86,33 +91,33 @@ D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/Comm/inc/CommRegTable.h:
 
 D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/headers/include/F2837xS_device.h:
 
-D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/assert.h:
+C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/assert.h:
 
-D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/_ti_config.h:
+C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/_ti_config.h:
 
-D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/linkage.h:
+C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/linkage.h:
 
-D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/stdarg.h:
+C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/stdarg.h:
 
-D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/sys/_types.h:
+C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/sys/_types.h:
 
-D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/sys/cdefs.h:
+C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/sys/cdefs.h:
 
-D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/machine/_types.h:
+C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/machine/_types.h:
 
-D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/stdbool.h:
+C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/stdbool.h:
 
-D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/stddef.h:
+C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/stddef.h:
 
-D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/stdint.h:
+C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/stdint.h:
 
-D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/_stdint40.h:
+C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/_stdint40.h:
 
-D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/sys/stdint.h:
+C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/sys/stdint.h:
 
-D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/machine/_stdint.h:
+C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/machine/_stdint.h:
 
-D:/ti/CCS1110/ccs/tools/compiler/ti-cgt-c2000_22.6.2.LTS/include/sys/_stdint.h:
+C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include/sys/_stdint.h:
 
 D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/headers/include/F2837xS_adc.h:
 
@@ -182,6 +187,8 @@ D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/device/headers/include/F2837xS_can.h:
 
 D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/Comm/inc/ModbusSlave.h:
 
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/Comm/inc/ArmPointTable.h:
+
 D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/StateMachine/inc/PvStateMachine.h:
 
 D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/Comm/inc/SoftOsc.h:
@@ -195,6 +202,12 @@ D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/ProtectTask.h:
 D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/AdcCalib.h:
 
 D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/AdcSample.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/SampleData.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/ProtectFault.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Broad/inc/DrvCfg_Protect.h:
 
 D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/Platform/Common/inc/AtsProto.h:
 
@@ -237,4 +250,6 @@ D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/StateMachine/inc/SystemState
 D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/StateMachine/inc/InvStateMachine.h:
 
 D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/CtrlIsr.h:
+
+D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026/User_App/LoopCtrl/inc/User_ClaTask.h:
 

@@ -8,12 +8,12 @@
  *
  * @note ======================= 怎么用 =======================
  *        1. 变量照常定义，挂进任意一张 Modbus 点表；
- *        2. 想让这个变量掉电保存，就把该行的读写属性从 MB_ATTR_RW 改成
- *           MB_ATTR_RW_SAVE（= MB_ATTR_RW | MB_ATTR_SAVE，多一个 SAVE 位）；
+ *        2. 想让这个变量掉电保存，就把该行的读写属性从 MB_RW_WRITE 改成
+ *           MB_RW_WRITE_SAVE（= MB_RW_WRITE | MB_RW_SAVE，多一个 SAVE 位）；
  *        3. 其余什么都不用改：上电自动回填，Modbus 写入成功后自动标脏、定时落盘。
  *
  *        例：
- *            {31U, MB_TYPE_U16, MB_ATTR_RW_SAVE, (void *)&gDemoSavedWord, 0, 1000U},
+ *            {31U, MB_VAL_U16, MB_RW_WRITE_SAVE, (void *)&gDemoSavedWord, 0, 1000U},
  *
  *        业务里非 Modbus 触发的保存（比如某个状态机自己算出来的参数）：
  *            改完变量后调 EepromParamMarkDirty(&gDemoSavedWord);      // 只标脏
@@ -157,7 +157,7 @@ extern void EepromParamTask(void *pArgV);
 /**
  * @brief 标记某个变量为脏（Modbus 写入后由协议层调用）
  *
- * @param pvData 变量地址，必须是点表里带 MB_ATTR_SAVE 的项
+ * @param pvData 变量地址，必须是点表里带 MB_RW_SAVE 的项
  * @return 1 标记成功，0 该变量不在保存清单里
  */
 extern Uint16 EepromParamMarkDirty(const void *pvData);
@@ -176,11 +176,18 @@ extern Uint16 EepromParamSaveVar(const void *pvData);
 extern void EepromParamMarkAllDirty(void);
 
 /**
- * @brief 立刻落盘，忽略合并窗口与限速（掉电前/关机流程用）
+ * @brief 非阻塞落盘推进，每次只推进一步（后台调度按拍调用）
  *
- * @return 落盘后的状态：EEPROM_PARAM_ST_IDLE 表示成功或本来就无需写
+ * @return EEPROM_PARAM_ST_WRITING 表示还要继续调用；ST_IDLE 表示写完
  */
 extern Uint16 EepromParamFlush(void);
+
+/**
+ * @brief 强制落盘：内部循环调用 EepromParamFlush 直到写完（掉电前/关机流程用）
+ *
+ * @return 落盘结束时的状态：EEPROM_PARAM_ST_IDLE 表示成功
+ */
+extern Uint16 EepromParamFlushBlocking(void);
 
 /**
  * @brief 恢复出厂值：清掉参数头，复位后按初值重新生成

@@ -87,7 +87,7 @@ extern ST_SYS_SM gSysSm;
  * API
  ******************************************************************************/
 void SysSmInit(void);
-void SysSmTask(void *pArgV);        /* 1kHz（调度 Time=10） */
+void RunSysStateMachine(void);      /* 20kHz 控制中断 ÷20 = 1kHz */
 Uint16 SysSmGetState(void);
 Uint16 SysSmGetFault(void);
 Uint16 SysSmIsRun(void);            /* 1 = 系统处于运行态 */

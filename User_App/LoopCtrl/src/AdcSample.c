@@ -1,34 +1,30 @@
 /**
  * @file AdcSample.c
- * @brief ADC 采样两层封装实现：瞬时值（20 kHz）+ 对外值（RMS / 慢速滤波，1 kHz）
  * @author yetingheng (004182)
+ * @brief 采样统计层：瞬时值、块平均、工频有效值、峰值与有功
  * @version 0.1
- * @date 2026-10-26
+ * @date 2026-10-28
  *
  * @copyright Copyright (c) 2026
- *
+ */
+
+/*
  * 数据流：
- *   ADC -> CLA（20 kHz）-> Cla1ToCpuMsg -> AdcCalib（码值转工程值）
- *        -> AdcSampleFast（20 kHz，CtrlIsr 末尾）-> gAdcIns + 累加器
- *        -> AdcSampleTask（1 kHz，调度任务）-> gAdcPub（Modbus / 软示波器 / ARM）
+ * ADC -> CLA（20 kHz）-> Cla1ToCpuMsg -> stSampleRaw（码值）
+ * -> AdcCalib（码值转工程值）-> stSampleIns（瞬时值）
+ * -> AdcSampleFast 累加 -> stSampleAvg / stSampleRms
+ * -> AdcSampleTask（1 kHz）一阶滞后 -> 对外可读
  */
 #include "AdcSample.h"
 #include "AdcCalib.h"
 #include "CtrlIsr.h"
+#include "SampleData.h"
 #include "User_ClaTask.h"
 
 #include <math.h>
 #include <string.h>
 
-/******************************************************************************
- * 全局实例
- ******************************************************************************/
-ST_ADC_SAMPLE_INS gAdcIns;
-ST_ADC_SAMPLE_PUB gAdcPub;
-
-/******************************************************************************
- * 内部索引：需要做工频周期 RMS 的交流量
- ******************************************************************************/
+/* RMS 内部索引：需要做工频周期有效值的交流量 */
 enum
 {
     RMS_GRID_R = 0,
@@ -45,275 +41,296 @@ enum
     RMS_NUM
 };
 
-/******************************************************************************
- * 内部索引：需要块平均 + 一阶滞后的直流量
- ******************************************************************************/
+/* Avg8（400us）块平均内部索引 */
 enum
 {
-    SLOW_BUS_L = 0,
-    SLOW_BUS_H,
-    SLOW_DC_R,
-    SLOW_DC_S,
-    SLOW_DC_T,
-    SLOW_BAL_CUR,
-    SLOW_PV_CUR1,
-    SLOW_PV_CUR2,
-    SLOW_PV_CUR3,
-    SLOW_PV_CUR4,
-    SLOW_PV_VOLT1,
-    SLOW_PV_VOLT2,
-    SLOW_PV_VOLT3,
-    SLOW_PV_VOLT4,
-    SLOW_NUM
+    AVG8_BUS_POS = 0,
+    AVG8_BUS_NEG,
+    AVG8_PV_VOLT1,
+    AVG8_PV_VOLT2,
+    AVG8_PV_VOLT3,
+    AVG8_PV_VOLT4,
+    AVG8_PV_CUR1,
+    AVG8_PV_CUR2,
+    AVG8_PV_CUR3,
+    AVG8_PV_CUR4,
+    AVG8_NUM
 };
 
-/******************************************************************************
- * 状态
- ******************************************************************************/
-/* 交流 RMS 的平方和 / 本周期的原始 RMS / 峰值 */
-static float sRmsAcc[RMS_NUM];
-static float sRmsRaw[RMS_NUM];
-static float sPkAcc[3];
-static float sPkRaw[3];
-
-/* 直流块累加与块平均值 */
-static float sSlowAcc[SLOW_NUM];
-static float sSlowAvg[SLOW_NUM];
-
-/* 计数与标志 */
-static Uint16 sWinCnt;          /* 当前 RMS 窗口内的样本数 */
-static Uint16 sSlowCnt;         /* 当前块平均窗口内的样本数 */
-static Uint16 sRmsFresh;        /* 有一个周期 RMS 待刷新（Fast 置位，Task 消费） */
-static Uint16 sSlowFresh;       /* 有一块平均值待刷新 */
-static float  sThetaPrev;       /* 上一拍的锁相角，用于找过零点 */
-
-/* 对外字段的地址表：滤波状态直接存在 gAdcPub 里，省一层镜像 */
-static float * const sRmsPubPtr[RMS_NUM] =
+/* Avg200（10ms）块平均内部索引 */
+enum
 {
-    &gAdcPub.fGridVoltRmsR,
-    &gAdcPub.fGridVoltRmsS,
-    &gAdcPub.fGridVoltRmsT,
-    &gAdcPub.fInvVoltRmsR,
-    &gAdcPub.fInvVoltRmsS,
-    &gAdcPub.fInvVoltRmsT,
-    &gAdcPub.fInvCurRmsR,
-    &gAdcPub.fInvCurRmsS,
-    &gAdcPub.fInvCurRmsT,
-    &gAdcPub.fBalCurRms,
-    &gAdcPub.fGfciRms
+    AVG200_BUS_POS = 0,
+    AVG200_BUS_NEG,
+    AVG200_DC_R,
+    AVG200_DC_S,
+    AVG200_DC_T,
+    AVG200_BAL,
+    AVG200_NUM
 };
 
-static float * const sPkPubPtr[3] =
-{
-    &gAdcPub.fInvCurPkR,
-    &gAdcPub.fInvCurPkS,
-    &gAdcPub.fInvCurPkT
-};
+/* 统计层全部内部状态：单个实例 stAdcSampleAcc，函数内一律经结构体访问 */
+ST_ADC_SAMPLE_ACC stAdcSampleAcc;
 
-static float * const sSlowPubPtr[SLOW_NUM] =
-{
-    &gAdcPub.fBusVoltLSlow,
-    &gAdcPub.fBusVoltHSlow,
-    &gAdcPub.fDcCurSlowR,
-    &gAdcPub.fDcCurSlowS,
-    &gAdcPub.fDcCurSlowT,
-    &gAdcPub.fBalCurSlow,
-    &gAdcPub.fPvCur1Slow,
-    &gAdcPub.fPvCur2Slow,
-    &gAdcPub.fPvCur3Slow,
-    &gAdcPub.fPvCur4Slow,
-    &gAdcPub.fPvVolt1Slow,
-    &gAdcPub.fPvVolt2Slow,
-    &gAdcPub.fPvVolt3Slow,
-    &gAdcPub.fPvVolt4Slow
-};
-
-/* 每路直流量的滞后系数：母线要快（中点平衡），PV / 直流分量可以慢 */
-static const float sSlowAlpha[SLOW_NUM] =
-{
-    ADC_SAMPLE_ALPHA_BUS,       /* BUS_L */
-    ADC_SAMPLE_ALPHA_BUS,       /* BUS_H */
-    ADC_SAMPLE_ALPHA_SLOW,      /* DC_R */
-    ADC_SAMPLE_ALPHA_SLOW,      /* DC_S */
-    ADC_SAMPLE_ALPHA_SLOW,      /* DC_T */
-    ADC_SAMPLE_ALPHA_SLOW,      /* BAL_CUR */
-    ADC_SAMPLE_ALPHA_SLOW,      /* PV_CUR1 */
-    ADC_SAMPLE_ALPHA_SLOW,      /* PV_CUR2 */
-    ADC_SAMPLE_ALPHA_SLOW,      /* PV_CUR3 */
-    ADC_SAMPLE_ALPHA_SLOW,      /* PV_CUR4 */
-    ADC_SAMPLE_ALPHA_SLOW,      /* PV_VOLT1 */
-    ADC_SAMPLE_ALPHA_SLOW,      /* PV_VOLT2 */
-    ADC_SAMPLE_ALPHA_SLOW,      /* PV_VOLT3 */
-    ADC_SAMPLE_ALPHA_SLOW       /* PV_VOLT4 */
-};
-
-/******************************************************************************
- * 初始化
- ******************************************************************************/
+/**
+ * @brief 初始化统计层，清零全部累加器与实例
+ */
 void AdcSampleInit(void)
 {
-    (void)memset(&gAdcIns, 0, sizeof(gAdcIns));
-    (void)memset(&gAdcPub, 0, sizeof(gAdcPub));
-    (void)memset(sRmsAcc, 0, sizeof(sRmsAcc));
-    (void)memset(sRmsRaw, 0, sizeof(sRmsRaw));
-    (void)memset(sPkAcc, 0, sizeof(sPkAcc));
-    (void)memset(sPkRaw, 0, sizeof(sPkRaw));
-    (void)memset(sSlowAcc, 0, sizeof(sSlowAcc));
-    (void)memset(sSlowAvg, 0, sizeof(sSlowAvg));
+    (void)memset(stAdcSampleAcc.fRmsAcc, 0, sizeof(stAdcSampleAcc.fRmsAcc));
+    (void)memset(stAdcSampleAcc.fRmsRaw, 0, sizeof(stAdcSampleAcc.fRmsRaw));
+    (void)memset(stAdcSampleAcc.fRmsPubPtr, 0, sizeof(stAdcSampleAcc.fRmsPubPtr));
+    (void)memset(stAdcSampleAcc.fPkAcc, 0, sizeof(stAdcSampleAcc.fPkAcc));
+    (void)memset(stAdcSampleAcc.fAvg8Acc, 0, sizeof(stAdcSampleAcc.fAvg8Acc));
+    (void)memset(stAdcSampleAcc.fAvg200Acc, 0, sizeof(stAdcSampleAcc.fAvg200Acc));
+    (void)memset(stAdcSampleAcc.fPwrAcc8, 0, sizeof(stAdcSampleAcc.fPwrAcc8));
+    (void)memset(stAdcSampleAcc.fPwrAcc200, 0, sizeof(stAdcSampleAcc.fPwrAcc200));
 
-    sWinCnt   = 0U;
-    sSlowCnt  = 0U;
-    sRmsFresh = 0U;
-    sSlowFresh = 0U;
-    sThetaPrev = 0.0f;
+    stAdcSampleAcc.u16WinCnt    = 0U;
+    stAdcSampleAcc.u16Avg8Cnt   = 0U;
+    stAdcSampleAcc.u16Avg200Cnt = 0U;
+    stAdcSampleAcc.u16RmsFresh  = 0U;
+    stAdcSampleAcc.fThetaPrev = 0.0f;
+
+    SampleDataInit();
 }
 
-/******************************************************************************
- * 20 kHz：瞬时值快照 + 累加（CtrlIsrRun 末尾调用）
- ******************************************************************************/
+/**
+ * @brief 把 CLA 输出的码值原样搬进 stSampleRaw，供标定调试与点表回读
+ */
+static void AdcSampleRawSnapshot(void)
+{
+    stSampleRaw.fInvCurrRaw[SAMPLE_PH_R]   = Cla1ToCpuMsg.fInvCur[CLA_IDX_R];
+    stSampleRaw.fInvCurrRaw[SAMPLE_PH_S]   = Cla1ToCpuMsg.fInvCur[CLA_IDX_S];
+    stSampleRaw.fInvCurrRaw[SAMPLE_PH_T]   = Cla1ToCpuMsg.fInvCur[CLA_IDX_T];
+    stSampleRaw.fInvCurrPkRaw[SAMPLE_PH_R] = Cla1ToCpuMsg.fInvCurPeak[CLA_IDX_R];
+    stSampleRaw.fInvCurrPkRaw[SAMPLE_PH_S] = Cla1ToCpuMsg.fInvCurPeak[CLA_IDX_S];
+    stSampleRaw.fInvCurrPkRaw[SAMPLE_PH_T] = Cla1ToCpuMsg.fInvCurPeak[CLA_IDX_T];
+
+    stSampleRaw.fInvVoltRaw[SAMPLE_PH_R]   = Cla1ToCpuMsg.fInvVolt[CLA_IDX_R];
+    stSampleRaw.fInvVoltRaw[SAMPLE_PH_S]   = Cla1ToCpuMsg.fInvVolt[CLA_IDX_S];
+    stSampleRaw.fInvVoltRaw[SAMPLE_PH_T]   = Cla1ToCpuMsg.fInvVolt[CLA_IDX_T];
+
+    stSampleRaw.fGridVoltRaw[SAMPLE_PH_R]  = Cla1ToCpuMsg.fGridVolt[CLA_IDX_R];
+    stSampleRaw.fGridVoltRaw[SAMPLE_PH_S]  = Cla1ToCpuMsg.fGridVolt[CLA_IDX_S];
+    stSampleRaw.fGridVoltRaw[SAMPLE_PH_T]  = Cla1ToCpuMsg.fGridVolt[CLA_IDX_T];
+
+    stSampleRaw.fInvDcOfsRaw[SAMPLE_PH_R]  = Cla1ToCpuMsg.fDc[CLA_IDX_R];
+    stSampleRaw.fInvDcOfsRaw[SAMPLE_PH_S]  = Cla1ToCpuMsg.fDc[CLA_IDX_S];
+    stSampleRaw.fInvDcOfsRaw[SAMPLE_PH_T]  = Cla1ToCpuMsg.fDc[CLA_IDX_T];
+
+    stSampleRaw.fBalCurrRaw  = Cla1ToCpuMsg.fBalCur;
+    stSampleRaw.fGfciCurrRaw = Cla1ToCpuMsg.fGfciCur;
+
+    stSampleRaw.fPvCurrRaw[SAMPLE_PV1] = Cla1ToCpuMsg.fPvCur[0];
+    stSampleRaw.fPvCurrRaw[SAMPLE_PV2] = Cla1ToCpuMsg.fPvCur[1];
+    stSampleRaw.fPvCurrRaw[SAMPLE_PV3] = Cla1ToCpuMsg.fPvCur[2];
+    stSampleRaw.fPvCurrRaw[SAMPLE_PV4] = Cla1ToCpuMsg.fPvCur[3];
+
+    stSampleRaw.fMuxB3Raw  = Cla1ToCpuMsg.fMuxB3;
+    stSampleRaw.fMuxD3Raw  = Cla1ToCpuMsg.fMuxD3;
+    stSampleRaw.u16MuxAddr = Cla1ToCpuMsg.u16MuxAddr;
+    stSampleRaw.u16Seq     = Cla1ToCpuMsg.u16Seq;
+}
+
+/**
+ * @brief 20 kHz 采样统计：瞬时值快照 + 各类累加（CtrlIsrRun 末尾调用）
+ */
 void AdcSampleFast(void)
 {
     float fTheta;
     float fPk;
     Uint16 i;
 
-    /* ---------- 1. 瞬时值快照：一次读 gAdcCalValue，保证同拍一致 ---------- */
-    gAdcIns.fGridVoltR = gAdcCalValue[ADC_CAL_GRID_VOLT_R];
-    gAdcIns.fGridVoltS = gAdcCalValue[ADC_CAL_GRID_VOLT_S];
-    gAdcIns.fGridVoltT = gAdcCalValue[ADC_CAL_GRID_VOLT_T];
-    gAdcIns.fInvVoltR  = gAdcCalValue[ADC_CAL_INV_VOLT_R];
-    gAdcIns.fInvVoltS  = gAdcCalValue[ADC_CAL_INV_VOLT_S];
-    gAdcIns.fInvVoltT  = gAdcCalValue[ADC_CAL_INV_VOLT_T];
-    gAdcIns.fInvCurR   = gAdcCalValue[ADC_CAL_INV_CUR_R];
-    gAdcIns.fInvCurS   = gAdcCalValue[ADC_CAL_INV_CUR_S];
-    gAdcIns.fInvCurT   = gAdcCalValue[ADC_CAL_INV_CUR_T];
+    AdcSampleRawSnapshot();
 
-    gAdcIns.fDcCurR    = gAdcCalValue[ADC_CAL_DC_R];
-    gAdcIns.fDcCurS    = gAdcCalValue[ADC_CAL_DC_S];
-    gAdcIns.fDcCurT    = gAdcCalValue[ADC_CAL_DC_T];
-    gAdcIns.fBalCur    = gAdcCalValue[ADC_CAL_BAL_CUR];
-    gAdcIns.fGfciCur   = gAdcCalValue[ADC_CAL_GFCI];
+    /* ---------- 1. 瞬时值快照：一次读 stAdcCalib.fValue，保证同拍一致 ---------- */
+    stSampleIns.fGridVoltIns[SAMPLE_PH_R] = stAdcCalib.fValue[ADC_CAL_GRID_VOLT_R];
+    stSampleIns.fGridVoltIns[SAMPLE_PH_S] = stAdcCalib.fValue[ADC_CAL_GRID_VOLT_S];
+    stSampleIns.fGridVoltIns[SAMPLE_PH_T] = stAdcCalib.fValue[ADC_CAL_GRID_VOLT_T];
 
-    gAdcIns.fBusVoltL  = gAdcCalValue[ADC_CAL_BUS_VOLT_L];
-    gAdcIns.fBusVoltH  = gAdcCalValue[ADC_CAL_BUS_VOLT_H];
-    gAdcIns.fBusVolt   = gAdcIns.fBusVoltL + gAdcIns.fBusVoltH;
+    stSampleIns.fInvVoltIns[SAMPLE_PH_R] = stAdcCalib.fValue[ADC_CAL_INV_VOLT_R];
+    stSampleIns.fInvVoltIns[SAMPLE_PH_S] = stAdcCalib.fValue[ADC_CAL_INV_VOLT_S];
+    stSampleIns.fInvVoltIns[SAMPLE_PH_T] = stAdcCalib.fValue[ADC_CAL_INV_VOLT_T];
 
-    gAdcIns.fPvCur1    = gAdcCalValue[ADC_CAL_PV_CUR1];
-    gAdcIns.fPvCur2    = gAdcCalValue[ADC_CAL_PV_CUR2];
-    gAdcIns.fPvCur3    = gAdcCalValue[ADC_CAL_PV_CUR3];
-    gAdcIns.fPvCur4    = gAdcCalValue[ADC_CAL_PV_CUR4];
-    gAdcIns.fPvVolt1   = gAdcCalValue[ADC_CAL_PV_VOLT1];
-    gAdcIns.fPvVolt2   = gAdcCalValue[ADC_CAL_PV_VOLT2];
-    gAdcIns.fPvVolt3   = gAdcCalValue[ADC_CAL_PV_VOLT3];
-    gAdcIns.fPvVolt4   = gAdcCalValue[ADC_CAL_PV_VOLT4];
+    stSampleIns.fInvCurrIns[SAMPLE_PH_R] = stAdcCalib.fValue[ADC_CAL_INV_CUR_R];
+    stSampleIns.fInvCurrIns[SAMPLE_PH_S] = stAdcCalib.fValue[ADC_CAL_INV_CUR_S];
+    stSampleIns.fInvCurrIns[SAMPLE_PH_T] = stAdcCalib.fValue[ADC_CAL_INV_CUR_T];
 
-    /* MUX 上的瞬时电压：具体是哪一路由 u16MuxAddr 解释 */
-    gAdcIns.fMuxVoltB3 = Cla1ToCpuMsg.fMuxB3;
-    gAdcIns.fMuxVoltD3 = Cla1ToCpuMsg.fMuxD3;
+    stSampleIns.fInvDcOfsIns[SAMPLE_PH_R] = stAdcCalib.fValue[ADC_CAL_DC_R];
+    stSampleIns.fInvDcOfsIns[SAMPLE_PH_S] = stAdcCalib.fValue[ADC_CAL_DC_S];
+    stSampleIns.fInvDcOfsIns[SAMPLE_PH_T] = stAdcCalib.fValue[ADC_CAL_DC_T];
+
+    stSampleIns.fBalCurrIns  = stAdcCalib.fValue[ADC_CAL_BAL_CUR];
+    stSampleIns.fGfciCurrIns = stAdcCalib.fValue[ADC_CAL_GFCI];
+
+    stSampleIns.fBusPosVoltIns = stAdcCalib.fValue[ADC_CAL_BUS_VOLT_H];
+    stSampleIns.fBusNegVoltIns = stAdcCalib.fValue[ADC_CAL_BUS_VOLT_L];
+    stSampleIns.fBusVoltIns = stSampleIns.fBusPosVoltIns + stSampleIns.fBusNegVoltIns;
+
+    stSampleIns.fPvCurrIns[SAMPLE_PV1] = stAdcCalib.fValue[ADC_CAL_PV_CUR1];
+    stSampleIns.fPvCurrIns[SAMPLE_PV2] = stAdcCalib.fValue[ADC_CAL_PV_CUR2];
+    stSampleIns.fPvCurrIns[SAMPLE_PV3] = stAdcCalib.fValue[ADC_CAL_PV_CUR3];
+    stSampleIns.fPvCurrIns[SAMPLE_PV4] = stAdcCalib.fValue[ADC_CAL_PV_CUR4];
+
+    stSampleIns.fPvVoltIns[SAMPLE_PV1] = stAdcCalib.fValue[ADC_CAL_PV_VOLT1];
+    stSampleIns.fPvVoltIns[SAMPLE_PV2] = stAdcCalib.fValue[ADC_CAL_PV_VOLT2];
+    stSampleIns.fPvVoltIns[SAMPLE_PV3] = stAdcCalib.fValue[ADC_CAL_PV_VOLT3];
+    stSampleIns.fPvVoltIns[SAMPLE_PV4] = stAdcCalib.fValue[ADC_CAL_PV_VOLT4];
 
     /* ---------- 2. 交流平方和 + 峰值 ---------- */
-    sRmsAcc[RMS_GRID_R] += gAdcIns.fGridVoltR * gAdcIns.fGridVoltR;
-    sRmsAcc[RMS_GRID_S] += gAdcIns.fGridVoltS * gAdcIns.fGridVoltS;
-    sRmsAcc[RMS_GRID_T] += gAdcIns.fGridVoltT * gAdcIns.fGridVoltT;
-    sRmsAcc[RMS_INV_VOLT_R] += gAdcIns.fInvVoltR * gAdcIns.fInvVoltR;
-    sRmsAcc[RMS_INV_VOLT_S] += gAdcIns.fInvVoltS * gAdcIns.fInvVoltS;
-    sRmsAcc[RMS_INV_VOLT_T] += gAdcIns.fInvVoltT * gAdcIns.fInvVoltT;
-    sRmsAcc[RMS_INV_CUR_R] += gAdcIns.fInvCurR * gAdcIns.fInvCurR;
-    sRmsAcc[RMS_INV_CUR_S] += gAdcIns.fInvCurS * gAdcIns.fInvCurS;
-    sRmsAcc[RMS_INV_CUR_T] += gAdcIns.fInvCurT * gAdcIns.fInvCurT;
-    sRmsAcc[RMS_BAL_CUR] += gAdcIns.fBalCur * gAdcIns.fBalCur;
-    sRmsAcc[RMS_GFCI] += gAdcIns.fGfciCur * gAdcIns.fGfciCur;
+    stAdcSampleAcc.fRmsAcc[RMS_GRID_R] += stSampleIns.fGridVoltIns[SAMPLE_PH_R] * stSampleIns.fGridVoltIns[SAMPLE_PH_R];
+    stAdcSampleAcc.fRmsAcc[RMS_GRID_S] += stSampleIns.fGridVoltIns[SAMPLE_PH_S] * stSampleIns.fGridVoltIns[SAMPLE_PH_S];
+    stAdcSampleAcc.fRmsAcc[RMS_GRID_T] += stSampleIns.fGridVoltIns[SAMPLE_PH_T] * stSampleIns.fGridVoltIns[SAMPLE_PH_T];
 
-    fPk = fabsf(gAdcIns.fInvCurR);
-    if (fPk > sPkAcc[0])
+    stAdcSampleAcc.fRmsAcc[RMS_INV_VOLT_R] += stSampleIns.fInvVoltIns[SAMPLE_PH_R] * stSampleIns.fInvVoltIns[SAMPLE_PH_R];
+    stAdcSampleAcc.fRmsAcc[RMS_INV_VOLT_S] += stSampleIns.fInvVoltIns[SAMPLE_PH_S] * stSampleIns.fInvVoltIns[SAMPLE_PH_S];
+    stAdcSampleAcc.fRmsAcc[RMS_INV_VOLT_T] += stSampleIns.fInvVoltIns[SAMPLE_PH_T] * stSampleIns.fInvVoltIns[SAMPLE_PH_T];
+
+    stAdcSampleAcc.fRmsAcc[RMS_INV_CUR_R] += stSampleIns.fInvCurrIns[SAMPLE_PH_R] * stSampleIns.fInvCurrIns[SAMPLE_PH_R];
+    stAdcSampleAcc.fRmsAcc[RMS_INV_CUR_S] += stSampleIns.fInvCurrIns[SAMPLE_PH_S] * stSampleIns.fInvCurrIns[SAMPLE_PH_S];
+    stAdcSampleAcc.fRmsAcc[RMS_INV_CUR_T] += stSampleIns.fInvCurrIns[SAMPLE_PH_T] * stSampleIns.fInvCurrIns[SAMPLE_PH_T];
+
+    stAdcSampleAcc.fRmsAcc[RMS_BAL_CUR] += stSampleIns.fBalCurrIns * stSampleIns.fBalCurrIns;
+    stAdcSampleAcc.fRmsAcc[RMS_GFCI]    += stSampleIns.fGfciCurrIns * stSampleIns.fGfciCurrIns;
+
+    for (i = 0U; i < (Uint16)SAMPLE_PH_NUM; i++)
     {
-        sPkAcc[0] = fPk;
-    }
+        fPk = fabsf(stSampleIns.fInvCurrIns[i]);
 
-    fPk = fabsf(gAdcIns.fInvCurS);
-    if (fPk > sPkAcc[1])
-    {
-        sPkAcc[1] = fPk;
-    }
-
-    fPk = fabsf(gAdcIns.fInvCurT);
-    if (fPk > sPkAcc[2])
-    {
-        sPkAcc[2] = fPk;
-    }
-
-    /* ---------- 3. 直流块累加 ---------- */
-    sSlowAcc[SLOW_BUS_L] += gAdcIns.fBusVoltL;
-    sSlowAcc[SLOW_BUS_H] += gAdcIns.fBusVoltH;
-    sSlowAcc[SLOW_DC_R] += gAdcIns.fDcCurR;
-    sSlowAcc[SLOW_DC_S] += gAdcIns.fDcCurS;
-    sSlowAcc[SLOW_DC_T] += gAdcIns.fDcCurT;
-    sSlowAcc[SLOW_BAL_CUR] += gAdcIns.fBalCur;
-    sSlowAcc[SLOW_PV_CUR1] += gAdcIns.fPvCur1;
-    sSlowAcc[SLOW_PV_CUR2] += gAdcIns.fPvCur2;
-    sSlowAcc[SLOW_PV_CUR3] += gAdcIns.fPvCur3;
-    sSlowAcc[SLOW_PV_CUR4] += gAdcIns.fPvCur4;
-    sSlowAcc[SLOW_PV_VOLT1] += gAdcIns.fPvVolt1;
-    sSlowAcc[SLOW_PV_VOLT2] += gAdcIns.fPvVolt2;
-    sSlowAcc[SLOW_PV_VOLT3] += gAdcIns.fPvVolt3;
-    sSlowAcc[SLOW_PV_VOLT4] += gAdcIns.fPvVolt4;
-
-    sSlowCnt++;
-    if (sSlowCnt >= (Uint16)ADC_SAMPLE_SLOW_DIV)
-    {
-        sSlowCnt = 0U;
-
-        for (i = 0U; i < (Uint16)SLOW_NUM; i++)
+        if (fPk > stAdcSampleAcc.fPkAcc[i])
         {
-            sSlowAvg[i] = sSlowAcc[i] * (1.0f / (float)ADC_SAMPLE_SLOW_DIV);
-            sSlowAcc[i] = 0.0f;
+            stAdcSampleAcc.fPkAcc[i] = fPk;
+        }
+    }
+
+    /* ---------- 3. 有功：逆变电压乘逆变电流，8 拍与 200 拍两档 ---------- */
+    for (i = 0U; i < (Uint16)SAMPLE_PH_NUM; i++)
+    {
+        fPk = stSampleIns.fInvVoltIns[i] * stSampleIns.fInvCurrIns[i];
+        stAdcSampleAcc.fPwrAcc8[i]   += fPk;
+        stAdcSampleAcc.fPwrAcc200[i] += fPk;
+    }
+
+    /* ---------- 4. Avg8 块累加，400us 收口 ---------- */
+    stAdcSampleAcc.fAvg8Acc[AVG8_BUS_POS] += stSampleIns.fBusPosVoltIns;
+    stAdcSampleAcc.fAvg8Acc[AVG8_BUS_NEG] += stSampleIns.fBusNegVoltIns;
+    stAdcSampleAcc.fAvg8Acc[AVG8_PV_VOLT1] += stSampleIns.fPvVoltIns[SAMPLE_PV1];
+    stAdcSampleAcc.fAvg8Acc[AVG8_PV_VOLT2] += stSampleIns.fPvVoltIns[SAMPLE_PV2];
+    stAdcSampleAcc.fAvg8Acc[AVG8_PV_VOLT3] += stSampleIns.fPvVoltIns[SAMPLE_PV3];
+    stAdcSampleAcc.fAvg8Acc[AVG8_PV_VOLT4] += stSampleIns.fPvVoltIns[SAMPLE_PV4];
+    stAdcSampleAcc.fAvg8Acc[AVG8_PV_CUR1] += stSampleIns.fPvCurrIns[SAMPLE_PV1];
+    stAdcSampleAcc.fAvg8Acc[AVG8_PV_CUR2] += stSampleIns.fPvCurrIns[SAMPLE_PV2];
+    stAdcSampleAcc.fAvg8Acc[AVG8_PV_CUR3] += stSampleIns.fPvCurrIns[SAMPLE_PV3];
+    stAdcSampleAcc.fAvg8Acc[AVG8_PV_CUR4] += stSampleIns.fPvCurrIns[SAMPLE_PV4];
+
+    stAdcSampleAcc.u16Avg8Cnt++;
+    if (stAdcSampleAcc.u16Avg8Cnt >= (Uint16)SAMPLE_AVG8_DIV)
+    {
+        stAdcSampleAcc.u16Avg8Cnt = 0U;
+
+        stSampleAvg.fBusPosVoltAvg8 = stAdcSampleAcc.fAvg8Acc[AVG8_BUS_POS] * (1.0f / (float)SAMPLE_AVG8_DIV);
+        stSampleAvg.fBusNegVoltAvg8 = stAdcSampleAcc.fAvg8Acc[AVG8_BUS_NEG] * (1.0f / (float)SAMPLE_AVG8_DIV);
+        stSampleAvg.fBusVoltAvg8 = stSampleAvg.fBusPosVoltAvg8 + stSampleAvg.fBusNegVoltAvg8;
+
+        stSampleAvg.fPvVoltAvg8[SAMPLE_PV1] = stAdcSampleAcc.fAvg8Acc[AVG8_PV_VOLT1] * (1.0f / (float)SAMPLE_AVG8_DIV);
+        stSampleAvg.fPvVoltAvg8[SAMPLE_PV2] = stAdcSampleAcc.fAvg8Acc[AVG8_PV_VOLT2] * (1.0f / (float)SAMPLE_AVG8_DIV);
+        stSampleAvg.fPvVoltAvg8[SAMPLE_PV3] = stAdcSampleAcc.fAvg8Acc[AVG8_PV_VOLT3] * (1.0f / (float)SAMPLE_AVG8_DIV);
+        stSampleAvg.fPvVoltAvg8[SAMPLE_PV4] = stAdcSampleAcc.fAvg8Acc[AVG8_PV_VOLT4] * (1.0f / (float)SAMPLE_AVG8_DIV);
+
+        stSampleAvg.fPvCurrAvg8[SAMPLE_PV1] = stAdcSampleAcc.fAvg8Acc[AVG8_PV_CUR1] * (1.0f / (float)SAMPLE_AVG8_DIV);
+        stSampleAvg.fPvCurrAvg8[SAMPLE_PV2] = stAdcSampleAcc.fAvg8Acc[AVG8_PV_CUR2] * (1.0f / (float)SAMPLE_AVG8_DIV);
+        stSampleAvg.fPvCurrAvg8[SAMPLE_PV3] = stAdcSampleAcc.fAvg8Acc[AVG8_PV_CUR3] * (1.0f / (float)SAMPLE_AVG8_DIV);
+        stSampleAvg.fPvCurrAvg8[SAMPLE_PV4] = stAdcSampleAcc.fAvg8Acc[AVG8_PV_CUR4] * (1.0f / (float)SAMPLE_AVG8_DIV);
+
+        for (i = 0U; i < (Uint16)SAMPLE_PH_NUM; i++)
+        {
+            stSampleAvg.fInvPwrAvg8[i] = stAdcSampleAcc.fPwrAcc8[i] * (1.0f / (float)SAMPLE_AVG8_DIV);
+            stAdcSampleAcc.fPwrAcc8[i] = 0.0f;
         }
 
-        sSlowFresh = 1U;
+        (void)memset(stAdcSampleAcc.fAvg8Acc, 0, sizeof(stAdcSampleAcc.fAvg8Acc));
     }
 
-    /* ---------- 4. 交流 RMS 窗口收口：锁相角过零 ----------
+    /* ---------- 5. Avg200 块累加，10ms 收口 ---------- */
+    stAdcSampleAcc.fAvg200Acc[AVG200_BUS_POS] += stSampleIns.fBusPosVoltIns;
+    stAdcSampleAcc.fAvg200Acc[AVG200_BUS_NEG] += stSampleIns.fBusNegVoltIns;
+    stAdcSampleAcc.fAvg200Acc[AVG200_DC_R] += stSampleIns.fInvDcOfsIns[SAMPLE_PH_R];
+    stAdcSampleAcc.fAvg200Acc[AVG200_DC_S] += stSampleIns.fInvDcOfsIns[SAMPLE_PH_S];
+    stAdcSampleAcc.fAvg200Acc[AVG200_DC_T] += stSampleIns.fInvDcOfsIns[SAMPLE_PH_T];
+    stAdcSampleAcc.fAvg200Acc[AVG200_BAL]  += stSampleIns.fBalCurrIns;
+
+    stAdcSampleAcc.u16Avg200Cnt++;
+    if (stAdcSampleAcc.u16Avg200Cnt >= (Uint16)SAMPLE_AVG200_DIV)
+    {
+        stAdcSampleAcc.u16Avg200Cnt = 0U;
+
+        stSampleAvg.fBusPosVoltAvg200 = stAdcSampleAcc.fAvg200Acc[AVG200_BUS_POS] * (1.0f / (float)SAMPLE_AVG200_DIV);
+        stSampleAvg.fBusNegVoltAvg200 = stAdcSampleAcc.fAvg200Acc[AVG200_BUS_NEG] * (1.0f / (float)SAMPLE_AVG200_DIV);
+        stSampleAvg.fBusVoltAvg200 = stSampleAvg.fBusPosVoltAvg200 + stSampleAvg.fBusNegVoltAvg200;
+
+        stSampleAvg.fInvDcOfsAvg200[SAMPLE_PH_R] = stAdcSampleAcc.fAvg200Acc[AVG200_DC_R] * (1.0f / (float)SAMPLE_AVG200_DIV);
+        stSampleAvg.fInvDcOfsAvg200[SAMPLE_PH_S] = stAdcSampleAcc.fAvg200Acc[AVG200_DC_S] * (1.0f / (float)SAMPLE_AVG200_DIV);
+        stSampleAvg.fInvDcOfsAvg200[SAMPLE_PH_T] = stAdcSampleAcc.fAvg200Acc[AVG200_DC_T] * (1.0f / (float)SAMPLE_AVG200_DIV);
+
+        stSampleAvg.fBalCurrAvg200 = stAdcSampleAcc.fAvg200Acc[AVG200_BAL] * (1.0f / (float)SAMPLE_AVG200_DIV);
+
+        for (i = 0U; i < (Uint16)SAMPLE_PH_NUM; i++)
+        {
+            stSampleAvg.fInvPwrAvg200[i] = stAdcSampleAcc.fPwrAcc200[i] * (1.0f / (float)SAMPLE_AVG200_DIV);
+            stAdcSampleAcc.fPwrAcc200[i] = 0.0f;
+        }
+
+        stSampleAvg.fInvPwrTotal = stSampleAvg.fInvPwrAvg200[SAMPLE_PH_R]
+                                 + stSampleAvg.fInvPwrAvg200[SAMPLE_PH_S]
+                                 + stSampleAvg.fInvPwrAvg200[SAMPLE_PH_T];
+
+        (void)memset(stAdcSampleAcc.fAvg200Acc, 0, sizeof(stAdcSampleAcc.fAvg200Acc));
+    }
+
+    /* ---------- 6. 交流 RMS 窗口收口：锁相角过零 ----------
      * theta 由软件积分产生，离网时按程序自身的 50Hz 自由运行，并网后跟随电网，
-     * 两种情况过零点都对得上一个工频周期，所以不需要额外的过零捕获。 */
-    sWinCnt++;
+     * 两种情况过零点都对得上一个工频周期，不需要额外的过零捕获。 */
+    stAdcSampleAcc.u16WinCnt++;
     fTheta = CtrlGetTheta();
 
-    if ((fTheta < sThetaPrev) || (sWinCnt >= (Uint16)ADC_SAMPLE_RMS_WIN_MAX))
+    if ((fTheta < stAdcSampleAcc.fThetaPrev) || (stAdcSampleAcc.u16WinCnt >= (Uint16)ADC_SAMPLE_RMS_WIN_MAX))
     {
-        if (sWinCnt >= (Uint16)ADC_SAMPLE_RMS_WIN_MIN)
+        if (stAdcSampleAcc.u16WinCnt >= (Uint16)ADC_SAMPLE_RMS_WIN_MIN)
         {
             for (i = 0U; i < (Uint16)RMS_NUM; i++)
             {
-                sRmsRaw[i] = sqrtf(sRmsAcc[i] / (float)sWinCnt);
-                sRmsAcc[i] = 0.0f;
+                stAdcSampleAcc.fRmsRaw[i] = sqrtf(stAdcSampleAcc.fRmsAcc[i] / (float)stAdcSampleAcc.u16WinCnt);
+                stAdcSampleAcc.fRmsAcc[i] = 0.0f;
             }
 
-            sPkRaw[0] = sPkAcc[0];
-            sPkRaw[1] = sPkAcc[1];
-            sPkRaw[2] = sPkAcc[2];
-
-            sRmsFresh = 1U;
+            stAdcSampleAcc.u16RmsFresh = 1U;
         }
         else
         {
             for (i = 0U; i < (Uint16)RMS_NUM; i++)
             {
-                sRmsAcc[i] = 0.0f;
+                stAdcSampleAcc.fRmsAcc[i] = 0.0f;
             }
         }
 
-        sPkAcc[0] = 0.0f;
-        sPkAcc[1] = 0.0f;
-        sPkAcc[2] = 0.0f;
-        sWinCnt = 0U;
+        /* 峰值逐周期收口：本周期最大值写进结构体后累加器归零。
+         * 峰值不参与保护（保护走 RMS + 时间去抖），只供显示与软示波器。 */
+        for (i = 0U; i < (Uint16)SAMPLE_PH_NUM; i++)
+        {
+            stSampleRms.fInvCurrPk[i] = stAdcSampleAcc.fPkAcc[i];
+            stAdcSampleAcc.fPkAcc[i] = 0.0f;
+        }
+
+        stAdcSampleAcc.u16WinCnt = 0U;
     }
 
-    sThetaPrev = fTheta;
+    stAdcSampleAcc.fThetaPrev = fTheta;
 }
 
-/******************************************************************************
- * 1 kHz：对外值刷新（块平均 + 一阶滞后 + 峰值保持）
- ******************************************************************************/
+/**
+ * @brief 1 kHz 对外刷新：RMS 一阶滞后 + 状态位
+ */
 void AdcSampleTask(void *pArgV)
 {
     Uint16 i;
@@ -321,55 +338,42 @@ void AdcSampleTask(void *pArgV)
 
     (void)pArgV;
 
-    /* ---------- 1. 交流：周期 RMS 的一阶滞后 + 峰值保持 ---------- */
-    if (sRmsFresh != 0U)
+    if (stAdcSampleAcc.u16RmsFresh != 0U)
     {
-        sRmsFresh = 0U;
+        stAdcSampleAcc.u16RmsFresh = 0U;
 
         for (i = 0U; i < (Uint16)RMS_NUM; i++)
         {
-            fVal = *sRmsPubPtr[i];
-            *sRmsPubPtr[i] = fVal + (ADC_SAMPLE_ALPHA_RMS * (sRmsRaw[i] - fVal));
+            fVal = stAdcSampleAcc.fRmsPubPtr[i];
+            stAdcSampleAcc.fRmsPubPtr[i] = fVal + (ADC_SAMPLE_ALPHA_RMS * (stAdcSampleAcc.fRmsRaw[i] - fVal));
         }
 
-        for (i = 0U; i < 3U; i++)
-        {
-            /* 上一周期的保持值先按系数衰减，再被本周期最大值顶上去 */
-            fVal = (*sPkPubPtr[i]) * ADC_SAMPLE_PK_DECAY;
+        stSampleRms.fGridVoltRms[SAMPLE_PH_R] = stAdcSampleAcc.fRmsPubPtr[RMS_GRID_R];
+        stSampleRms.fGridVoltRms[SAMPLE_PH_S] = stAdcSampleAcc.fRmsPubPtr[RMS_GRID_S];
+        stSampleRms.fGridVoltRms[SAMPLE_PH_T] = stAdcSampleAcc.fRmsPubPtr[RMS_GRID_T];
 
-            if (sPkRaw[i] > fVal)
-            {
-                fVal = sPkRaw[i];
-            }
+        stSampleRms.fInvVoltRms[SAMPLE_PH_R] = stAdcSampleAcc.fRmsPubPtr[RMS_INV_VOLT_R];
+        stSampleRms.fInvVoltRms[SAMPLE_PH_S] = stAdcSampleAcc.fRmsPubPtr[RMS_INV_VOLT_S];
+        stSampleRms.fInvVoltRms[SAMPLE_PH_T] = stAdcSampleAcc.fRmsPubPtr[RMS_INV_VOLT_T];
 
-            *sPkPubPtr[i] = fVal;
-        }
+        stSampleRms.fInvCurrRms[SAMPLE_PH_R] = stAdcSampleAcc.fRmsPubPtr[RMS_INV_CUR_R];
+        stSampleRms.fInvCurrRms[SAMPLE_PH_S] = stAdcSampleAcc.fRmsPubPtr[RMS_INV_CUR_S];
+        stSampleRms.fInvCurrRms[SAMPLE_PH_T] = stAdcSampleAcc.fRmsPubPtr[RMS_INV_CUR_T];
 
-        gAdcPub.u16Valid |= (Uint16)ADC_SAMPLE_VALID_RMS;
+        stSampleRms.fBalCurrRms  = stAdcSampleAcc.fRmsPubPtr[RMS_BAL_CUR];
+        stSampleRms.fGfciCurrRms = stAdcSampleAcc.fRmsPubPtr[RMS_GFCI];
+
+        stSampleStatus.u16Valid |= (Uint16)SAMPLE_VALID_RMS;
     }
 
-    /* ---------- 2. 直流：块平均 + 一阶滞后 ---------- */
-    if (sSlowFresh != 0U)
-    {
-        sSlowFresh = 0U;
-
-        for (i = 0U; i < (Uint16)SLOW_NUM; i++)
-        {
-            fVal = *sSlowPubPtr[i];
-            *sSlowPubPtr[i] = fVal + (sSlowAlpha[i] * (sSlowAvg[i] - fVal));
-        }
-    }
-
-    /* ---------- 3. 派生量 / 状态位 ---------- */
-    gAdcPub.fBusVoltSlow = gAdcPub.fBusVoltLSlow + gAdcPub.fBusVoltHSlow;
-    gAdcPub.fGridFreq = CtrlGetGridFreq();
+    stSampleStatus.fGridFreq = CtrlGetGridFreq();
 
     if (AdcCalibGetZeroState() == (Uint16)ADC_CAL_ZERO_DONE)
     {
-        gAdcPub.u16Valid |= (Uint16)ADC_SAMPLE_VALID_ZERO;
+        stSampleStatus.u16Valid |= (Uint16)SAMPLE_VALID_ZERO;
     }
     else
     {
-        gAdcPub.u16Valid &= (Uint16)(~ADC_SAMPLE_VALID_ZERO);
+        stSampleStatus.u16Valid &= (Uint16)(~SAMPLE_VALID_ZERO);
     }
 }

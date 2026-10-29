@@ -126,6 +126,23 @@ extern Uint16 Fm24c128dIsReady(void);
  */
 extern Uint16 Fm24c128dSelfTest(void);
 
+#define FM24C128D_ASYNC_BUSY        (5U)        /* 异步写未完成，下一拍继续轮询 */
+#define FM24C128D_ASYNC_CHUNK_WORDS (32U)       /* 单次轮询最多送出的字数，限制单次阻塞时间 */
+#define FM24C128D_ASYNC_RETRY_MAX   (100U)      /* 等芯片就绪的最大轮询次数 */
+
+/**
+ * @brief 异步写：启动后每拍调用一次 Fm24c128dWriteAsyncPoll 推进
+ *
+ * @return 启动结果：FM24C128D_ASYNC_BUSY 表示已开始，错误码表示未能启动
+ */
+extern Uint16 Fm24c128dWriteAsyncStart(Uint16 u16Addr, const Uint16 *pu16Buf, Uint16 u16Len);
+
+/**
+ * @brief 异步写推进：送一片数据或等待上一片烧完
+ *
+ * @return FM24C128D_OK 全部写完；FM24C128D_ASYNC_BUSY 未完成；其它为错误码
+ */
+extern Uint16 Fm24c128dWriteAsyncPoll(void);
 /**
  * @brief 统计量
  */

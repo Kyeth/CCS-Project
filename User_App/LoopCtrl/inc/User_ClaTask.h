@@ -165,8 +165,8 @@ typedef struct
  ******************************************************************************/
 /* 消息 RAM 的段归属与定义放在 User_ClaTaskMsgRam.c（CPU 侧编译单元），
  * .cla 只做 extern 引用——这样两侧的数据模型假设一致 */
-extern ST_CLA_TO_CPU Cla1ToCpuMsg;
-extern ST_CPU_TO_CLA CpuToCla1Msg;
+extern volatile ST_CLA_TO_CPU Cla1ToCpuMsg;
+extern volatile ST_CPU_TO_CLA CpuToCla1Msg;
 extern ST_CLA_FILT   stClaFilt;
 
 /******************************************************************************
