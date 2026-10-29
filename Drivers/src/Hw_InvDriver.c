@@ -21,6 +21,7 @@ static const ST_INV_CFG *gInvCfg = (const ST_INV_CFG *)0;
 static Uint16 gInvChop[HW_INV_PHASE_MAX];       /* 当前斩波模块编号 */
 static Uint16 gInvPending[HW_INV_PHASE_MAX];    /* 1 = 两拍换相的第二拍待完成 */
 static float  gInvDuty[HW_INV_PHASE_MAX];       /* 当前已下发占空比 */
+static Uint16 gInvActive[HW_INV_PHASE_MAX];     /* 斩波路已解除AQ钳位 */
 
 /* 取单相配置表项。 */
 static const ST_INV_PHASE_CFG *Hw_InvGetPhaseCfg(Uint16 u16Phase)
@@ -59,6 +60,7 @@ void Hw_InvInit(const ST_INV_CFG *pstInvCfg)
         gInvChop[i] = (Uint16)HW_PWM_ID_NULL;
         gInvPending[i] = 0U;
         gInvDuty[i] = 0.0f;
+        gInvActive[i] = 0U;
     }
 
     if ((pstInvCfg == (const ST_INV_CFG *)0) || (pstInvCfg->pstPhaseCfg == (const ST_INV_PHASE_CFG *)0))
@@ -121,12 +123,14 @@ void Hw_InvSetDuty(Uint16 u16Phase, float fDuty, Uint16 u16Positive)
             gInvChop[u16Phase] = u16NewChop;
             gInvDuty[u16Phase] = 0.0f;
             gInvPending[u16Phase] = 1U;
+            gInvActive[u16Phase] = 0U;
             return;
         }
 
         /* 正常路径：单拍换相。切出路先归零钳位，切入路直接释放。 */
         Hw_InvForceHold(u16OldChop, pstPhaseCfg->u16Period);
         Hw_PwmReleaseForce(u16NewChop);
+        gInvActive[u16Phase] = 1U;
 
         gInvChop[u16Phase] = u16NewChop;
         gInvPending[u16Phase] = 0U;
@@ -135,11 +139,17 @@ void Hw_InvSetDuty(Uint16 u16Phase, float fDuty, Uint16 u16Positive)
     {
         /* 两拍换相的第二拍：释放新的斩波模块。 */
         Hw_PwmReleaseForce(u16NewChop);
+        gInvActive[u16Phase] = 1U;
         gInvPending[u16Phase] = 0U;
     }
     else
     {
-        /* 同半周，无需换相。 */
+        /* Init/Stop后首次同半周调用也必须解除钳位。 */
+        if (gInvActive[u16Phase] == 0U)
+        {
+            Hw_PwmReleaseForce(u16NewChop);
+            gInvActive[u16Phase] = 1U;
+        }
     }
 
     /* 保持路始终钳位（幂等，保证其影子 CMPA 一直是周期值）。 */
@@ -176,6 +186,7 @@ void Hw_InvStop(Uint16 u16Phase)
 
     gInvDuty[u16Phase] = 0.0f;
     gInvPending[u16Phase] = 0U;
+    gInvActive[u16Phase] = 0U;
 
     /* 全局装载触发：INV 六路模块的 CMPA/AQCSFRC 均在 GLDCFG 中，
      * 且 GLDCTL2LINK 已挂到 EPWM1，切到这里触发一次即可让六路同步生效。 */

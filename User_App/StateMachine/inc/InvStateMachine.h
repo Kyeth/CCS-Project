@@ -62,15 +62,15 @@ typedef enum
 #define INV_SM_CLOSE_DIFF_V     (10.0f)     /* 闭合确认：继电器两端电压差门限 */
 #define INV_SM_MOD_MAX          (0.90f)     /* 调制比上限，与 CTRL_MOD_INDEX_MAX 一致 */
 #define INV_SM_MOD_MIN          (0.02f)
-#define INV_SM_RAMP_STEP        (0.0016f)   /* 每 100us 调制比增量，约 60ms 从 0 到 0.9 */
-#define INV_SM_RAMP_STEP_DN     (0.0040f)   /* 停机斜坡，约 25ms 到 0 */
-#define INV_SM_CHK_TICK         (3000U)     /* 自检建压 300ms（幅值闭环收口时间） */
+#define INV_SM_RAMP_STEP        (0.016f)    /* 1ms状态机，保持原60ms量级斜坡 */
+#define INV_SM_RAMP_STEP_DN     (0.040f)
+#define INV_SM_CHK_TICK         (300U)      /* 300ms */
 #define INV_SM_CHK_VOUT_MIN     (5.0f)      /* 建压判据：桥臂侧 RMS 必须 > 5V */
 #define INV_SM_CHK_STICK_VOLT   (50.0f)     /* 粘连判据：断开时两端压差应 >50V，否则判粘连 */
 #define INV_SM_AMP_REF          (230.0f)    /* 离网目标相电压 RMS */
 #define INV_SM_AMP_DIFF         (10.0f)     /* 并网前幅值差门限 */
-#define INV_SM_AMP_KP           (0.020f)    /* 幅值闭环比例，每 100us */
-#define INV_SM_GRIDON_TICK      (2000U)     /* 闭合后确认 200ms */
+#define INV_SM_AMP_KP           (0.020f)    /* 每1ms调用一次，仍需台架重新整定 */
+#define INV_SM_GRIDON_TICK      (200U)      /* 闭合后确认 200ms */
 #define INV_SM_GRIDON_MIN       (0.70f)     /* 闭合后电压不得低于目标的 70% */
 
 /******************************************************************************
@@ -86,7 +86,7 @@ typedef struct
     volatile float  fVoutRms;       /* 桥臂侧电压 RMS 快照 */
     volatile float  fLoadRms;       /* 负载侧电压 RMS 快照 */
     volatile float  fAmpTarget;     /* 幅值目标 */
-    Uint16 u16Cnt;                  /* 状态内计时（100us 拍） */
+    Uint16 u16Cnt;                  /* 状态内计时（1ms 拍） */
     Uint16 u16LastState;
 } ST_INV_SM;
 
@@ -96,7 +96,7 @@ extern ST_INV_SM gInvSm;
  * API
  ******************************************************************************/
 void InvSmInit(void);
-void RunInvStateMachine(void);      /* 20kHz 控制中断 ÷2 = 10kHz */
+void RunInvStateMachine(void);      /* 后台1ms状态管理；快环在ADC ISR */
 void InvSmStart(void);
 void InvSmStop(void);
 void InvSmReset(void);              /* 清故障，需故障源已消失 */

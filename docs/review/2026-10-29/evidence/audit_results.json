@@ -1,0 +1,77 @@
+{
+  "scope": "Static configuration replay and calculations, NOT DSP/peripheral emulation or hardware tests.",
+  "adc_table_items": 64,
+  "adc_mismatches": 54,
+  "intended_socb_count": 4,
+  "actual_socb_count": 0,
+  "adca_soc15_actual": [
+    5,
+    120,
+    3
+  ],
+  "adca_soc9_actual": [
+    5,
+    60,
+    1
+  ],
+  "frequency_hz_assuming_tbclk_100mhz": {
+    "inv_bus": 20000.0,
+    "pv": 19996.000799840032
+  },
+  "deadband_ns_assuming_halfcycle_0": 800.0,
+  "acquisition_ns_at_sysclk_200mhz": {
+    "30": 155.0,
+    "60": 305.0,
+    "120": 605.0
+  },
+  "watchdog_ms_wdps7_at_intosc1_10mhz": 838.8607999999999,
+  "filter_alpha006_fc_hz_at_20khz": 197.01839534103908,
+  "crc_table_matches_bit_reference": true,
+  "crc_123456789": "0x4b37",
+  "low_active_or_then_low_trip": [
+    {
+      "oc_n": 0,
+      "sc_n": 0,
+      "trip_current": true,
+      "trip_required": true
+    },
+    {
+      "oc_n": 0,
+      "sc_n": 1,
+      "trip_current": false,
+      "trip_required": true
+    },
+    {
+      "oc_n": 1,
+      "sc_n": 0,
+      "trip_current": false,
+      "trip_required": true
+    },
+    {
+      "oc_n": 1,
+      "sc_n": 1,
+      "trip_current": false,
+      "trip_required": false
+    }
+  ],
+  "excluded_can_suspect": "TRM CAN_IF1CMD.Control says CMD.TXRQST overrides IF1MCTL.TXRQST; current request is valid.",
+  "modbus_tables": {
+    "stMbRegItemArm": {
+      "entries": 399,
+      "overlap_or_unsorted": []
+    },
+    "stMbRegItemTvs": {
+      "entries": 1,
+      "overlap_or_unsorted": []
+    },
+    "stMbRegItemPc": {
+      "entries": 111,
+      "overlap_or_unsorted": []
+    }
+  },
+  "modbus_word_order": {
+    "declared_enum_HIGH_FIRST": 1,
+    "preprocessor_undefined_identifier_evaluates_to": 0,
+    "selected_branch": "low word first"
+  }
+}

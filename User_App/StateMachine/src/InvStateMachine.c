@@ -1,7 +1,7 @@
 /**
  * @file InvStateMachine.c
  * @author yetingheng (004182)
- * @brief 逆变状态机实现（10kHz）
+ * @brief 逆变状态机实现（后台1kHz）
  * @version 0.1
  * @date 2026-10-27
  *
@@ -36,7 +36,7 @@ static void InvSmFault(Uint16 u16Fault)
     gInvSm.u16Fault |= u16Fault;
     CtrlSetPwmEnable(0U);
     CtrlSetModIndex(0.0f);
-    Hw_InvStopAll();
+    Hw_InvTripAll();
     RelayCtlInvAll(0U);
     gInvSm.fModRef = 0.0f;
     InvSmEnter((Uint16)INV_ST_ERROR);
@@ -148,7 +148,7 @@ Uint16 InvSmGetFault(void)
 }
 
 /******************************************************************************
- * 主任务：10kHz
+ * 主任务：后台1kHz
  ******************************************************************************/
 void RunInvStateMachine(void)
 {
@@ -217,6 +217,12 @@ void RunInvStateMachine(void)
             break;
 
         case (Uint16)INV_ST_SOFT:
+            /* 并网电流环、PLL锁定与相位/频差许可尚未实现，禁止RMS相等即合闸。 */
+            if (AtsGetState() != 0U)
+            {
+                InvSmFault(INV_SM_FAULT_ATS);
+                break;
+            }
             InvSmAmpTarget();
 
             /* 离网：先闭合逆变继电器再升压；并网：保持断开，先建压 */
@@ -257,7 +263,7 @@ void RunInvStateMachine(void)
                 }
 
                 /* 建压 300ms 且幅值到位才进运行，避免带偏压进闭环 */
-                if ((gInvSm.u16Cnt >= 3000U) &&
+                if ((gInvSm.u16Cnt >= 300U) &&
                     ((gInvSm.fAmpTarget - gInvSm.fVoutRms) < INV_SM_AMP_DIFF))
                 {
                     gInvSm.u16Cnt = 0U;
@@ -284,6 +290,11 @@ void RunInvStateMachine(void)
             break;
 
         case (Uint16)INV_ST_RUN:
+            if (AtsGetState() != 0U)
+            {
+                InvSmFault(INV_SM_FAULT_ATS);
+                break;
+            }
             InvSmAmpTarget();
 
             /* 幅值闭环：调制比按 RMS 误差积分式修正，限幅在 [MIN, MAX] */

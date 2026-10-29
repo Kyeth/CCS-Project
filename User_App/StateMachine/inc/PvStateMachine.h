@@ -38,10 +38,10 @@ extern "C" {
 
 /* ==================== 通道与硬件参数 ==================== */
 #define PV_SM_CH_NUM            (4U)        /* PV1~PV4 */
-#define PV_SM_TBPRD             (5000U)     /* 20kHz UP，与 DrvCfg 一致 */
-#define PV_SM_CTL_HZ            (10000U)    /* 控制任务频率：10kHz（与 EP5K 相同） */
+#define PV_SM_TBPRD             (4999U)     /* 100MHz TBCLK / (4999+1) = 20kHz */
+#define PV_SM_CTL_HZ            (20000U)    /* ADC快环20kHz；状态机/MPPT为1kHz */
 /* 电压反馈 10 拍块平均（10kHz → 1kHz），再进 8 点滑窗 ≈ 8ms 窗口 */
-#define PV_SM_VOLT_DIV               (10U)
+#define PV_SM_VOLT_DIV               (20U)
 
 /* ==================== 输入判据（对齐 EP5K） ==================== */
 #define PV_SM_VOLT_MIN          (79.0f)     /* 低于此值认为无 PV（EP5K MpptOutMin） */
@@ -53,31 +53,31 @@ extern "C" {
 
 /* ==================== 电压环/电流环（EP5K 增益） ==================== */
 #define PV_SM_VOLT_KP           (0.05f)     /* EP5K VoltPIF.Kp */
-#define PV_SM_VOLT_KI           (0.005f)    /* EP5K VoltPIF.Ki（母线过压分支才用 0.00005） */
-#define PV_SM_VOLT_KI_BUS       (0.00005f)  /* 母线过压快环积分增益（EP5K 降到 1/100） */
+#define PV_SM_VOLT_KI           (0.0025f)   /* 10kHz原增益按20kHz周期折半 */
+#define PV_SM_VOLT_KI_BUS       (0.000025f)
 #define PV_SM_VOLT_UMAX         (30.0f)     /* 电压环输出上限 = 电流指令上限 A（本机 30A/路） */
 #define PV_SM_IPV_MAX           (30.0f)     /* 电流环上限 A（EP5K IPVmax=16.2，本机 30A/路） */
 #define PV_SM_VOLT_KP_ADAPT     (0.15f)     /* EP5K 低压大电流段的电压环 Kp */
 #define PV_SM_CURR_KP_ADAPT     (0.003f)    /* EP5K 低压大电流段的电流环 Kp */
 #define PV_SM_CURR_KP           (0.0009f)   /* EP5K CurrPIF.Kp */
-#define PV_SM_CURR_KI           (0.04f)     /* EP5K CurrPIF.Ki */
+#define PV_SM_CURR_KI           (0.02f)
 #define PV_SM_CURR_UMAX         (0.10f)     /* 电流环输出上限（占空比小数） */
 #define PV_SM_CURR_UMIN         (-0.10f)    /* 电流环输出下限 */
 #define PV_SM_DUTY_MAX          (0.95f)     /* 占空比硬限幅 */
-#define PV_SM_VSET_RAMP         (0.06f)     /* 电压指令斜坡 0.06V/100us = 600V/s（EP5K） */
+#define PV_SM_VSET_RAMP         (0.03f)     /* 20kHz下600V/s */
 #define PV_SM_BUS_DUTY_REF      (460.0f)    /* 母线限占空比的参考电压（EP5K VpvRef=460），本工程待按实际母线设定 */
 #define PV_SM_M_SLEW            (0.01f)     /* 前馈 M 每拍最大变化（EP5K __fsat(M1, M+0.01, M-0.01)） */
 
 /* ==================== MPPT（EP5K MpptFunc 参数） ==================== */
-#define PV_SM_MPPT_PERIOD       (7500U)     /* 扰动周期 = 750ms @10kHz（EP5K 30000/4） */
-#define PV_SM_MPPT_HALF         (3750U)     /* 半周期，后半周期累加功率 */
+#define PV_SM_MPPT_PERIOD       (750U)      /* 1kHz下750ms */
+#define PV_SM_MPPT_HALF         (375U)
 #define PV_SM_MPPT_STEP_MAX     (5.0f)      /* 扰动步长上限 V */
 #define PV_SM_MPPT_STEP_MIN     (1.0f)      /* 扰动步长下限 V */
 #define PV_SM_MPPT_STEP_VOLT    (0.6f)      /* 功率上升时步长增量 V */
 #define PV_SM_FAST_STEP         (5.0f)      /* 首次快速扰动步长 V（= 高压段 cMpptStepMax） */
-#define PV_SM_DELAY_CNT         (15000U)    /* 快速扰动后 1.5s 才开始正常扰动 */
+#define PV_SM_DELAY_CNT         (1500U)     /* 1kHz下1.5s */
 #define PV_SM_SOFT_MS           (500U)      /* 软启时间（电压指令爬升到目标） */
-#define PV_SM_FAULT_RETRY_TICK  (50000U)    /* 故障后重试间隔 5s @10kHz */
+#define PV_SM_FAULT_RETRY_TICK  (5000U)     /* 1kHz下5s */
 
 /* ==================== 状态 ==================== */
 typedef enum
@@ -157,7 +157,8 @@ extern ST_PV_SM gPvSm;
 
 /* ==================== 接口 ==================== */
 extern void PvSmInit(void);
-extern void RunPvStateMachine(void);             /* 20kHz 控制中断 ÷2 = 10kHz */
+extern void RunPvStateMachine(void);             /* 后台1ms状态迁移 */
+extern void PvSmFastRun(void);                   /* ADC完成后20kHz快环 */
 extern void PvSmSetEnable(Uint16 u16Enable);    /* 0=全部停机 */
 extern Uint16 PvSmGetEnable(void);
 

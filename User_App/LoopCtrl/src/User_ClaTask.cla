@@ -17,8 +17,8 @@
 
 /******************************************************************************
  * 段分配
- *   Cla1ToCpuMsg → CLA1_MSGRAMHIGH（CLA 写、CPU 读）
- *   CpuToCla1Msg → CLA1_MSGRAMLOW （CPU 写、CLA 读）
+ *   Cla1ToCpuMsg → 0x1480（CLA 写、CPU 读）
+ *   CpuToCla1Msg → 0x1500（CPU 写、CLA 读）
  *   stClaFilt    → RAMLS5         （CLA 私有滤波状态）
  *   Cla1Task1    → RAMLS0~RAMLS3  （运行时从 Flash 拷贝过来）
  ******************************************************************************/
@@ -51,9 +51,9 @@ static float Cla_Lpf(float fAlpha, float fPrev, float fIn)
  ******************************************************************************/
 __interrupt void Cla1Task2(void)
 {
-    Cla1ToCpuMsg.fInvCurPeak[CLA_IDX_T] = (float)CLA_RES_INV_CUR_T;
-    Cla1ToCpuMsg.fInvCurPeak[CLA_IDX_S] = (float)CLA_RES_INV_CUR_S;
-    Cla1ToCpuMsg.fInvCurPeak[CLA_IDX_R] = (float)CLA_RES_INV_CUR_R;
+    Cla1ToCpuMsg.fInvCurPeak[CLA_IDX_T] = (float)CLA_RES_INV_CUR_T_PRD;
+    Cla1ToCpuMsg.fInvCurPeak[CLA_IDX_S] = (float)CLA_RES_INV_CUR_S_PRD;
+    Cla1ToCpuMsg.fInvCurPeak[CLA_IDX_R] = (float)CLA_RES_INV_CUR_R_PRD;
 
     /* 清 ADC-A INT2 标志，允许下一个周期再次触发 */
     AdcaRegs.ADCINTFLGCLR.bit.ADCINT2 = 1U;
@@ -164,6 +164,16 @@ __interrupt void Cla1Task1(void)
     }
 
     Cla1ToCpuMsg.u16MuxAddr = u16Addr;
+    /* CLA负责轮询顺序；CPU在本次ISR结束时提交GPIO，下一ZERO前建立。 */
+    switch (u16Addr)
+    {
+        case CLA_MUX_ADDR_PV1: Cla1ToCpuMsg.u16NextMuxAddr = CLA_MUX_ADDR_PV2; break;
+        case CLA_MUX_ADDR_PV2: Cla1ToCpuMsg.u16NextMuxAddr = CLA_MUX_ADDR_PV3; break;
+        case CLA_MUX_ADDR_PV3: Cla1ToCpuMsg.u16NextMuxAddr = CLA_MUX_ADDR_PV4; break;
+        case CLA_MUX_ADDR_PV4: Cla1ToCpuMsg.u16NextMuxAddr = CLA_MUX_ADDR_BUSL; break;
+        case CLA_MUX_ADDR_BUSL: Cla1ToCpuMsg.u16NextMuxAddr = CLA_MUX_ADDR_BUSH; break;
+        default: Cla1ToCpuMsg.u16NextMuxAddr = CLA_MUX_ADDR_PV1; break;
+    }
     Cla1ToCpuMsg.fMuxB3 = (float)CLA_RES_MUX2;      /* 调试用：本周期的原始码值 */
     Cla1ToCpuMsg.fMuxD3 = (float)CLA_RES_MUX1;
 

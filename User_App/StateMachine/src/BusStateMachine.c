@@ -15,7 +15,7 @@ BUS_SYSTEM_DATA stBusSystem;
 BUS_STATE_DATA  stBusState;
 
 /* 压差慢平均系数：5kHz 调用，0.02 对应约 10ms 时间常数 */
-#define BUS_SM_ALPHA            (0.02f)
+#define BUS_SM_ALPHA            (0.095f)    /* 1kHz调用，约10ms时间常数 */
 
 static void BusSmEnterState(Uint16 u16State)
 {
@@ -50,12 +50,16 @@ void InitBusStateMachineData(void)
     stBusSystem.u16OcpCnt    = 0U;
 }
 
-void RunBusStateMachine(void)
+void BusSmFastRun(void)
 {
-    /* 压差测量：正母线减负母线，先做一阶慢平均滤掉开关纹波 */
     stBusSystem.fBusPosVolt = stSampleIns.fBusPosVoltIns;
     stBusSystem.fBusNegVolt = stSampleIns.fBusNegVoltIns;
-    stBusSystem.fBusDiff    = stBusSystem.fBusPosVolt - stBusSystem.fBusNegVolt;
+    stBusSystem.fBusDiff = stBusSystem.fBusPosVolt - stBusSystem.fBusNegVolt;
+}
+
+void RunBusStateMachine(void)
+{
+    /* 后台只处理慢滤波、状态迁移；瞬时压差由PRD快任务更新。 */
     stBusSystem.fBusDiffAvg += BUS_SM_ALPHA * (stBusSystem.fBusDiff - stBusSystem.fBusDiffAvg);
 
     if (stBusState.u16StateCnt < 0xFFFFU)

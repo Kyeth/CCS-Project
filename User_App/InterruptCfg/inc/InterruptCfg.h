@@ -11,6 +11,7 @@
  * | 中断源          | PIE 组/通道 | ISR 名称          | 状态   |
  * |-----------------|-------------|-------------------|--------|
  * | CLA1 Task1 完成 | INT11.1     | Isr_Cla1Task1     | 已完成 |
+ * | CLA1 Task2 完成 | INT11.2     | Isr_Cla1Task2     | 已完成 |
  * | CPU Timer1      | INT1.13     | Isr_CpuTimer1     | 已完成 |
  * | CPU Timer2      | INT1.14     | Isr_CpuTimer2     | 已完成 |
  * | ePWM TZ / ADC   | 待定        | 待定              | 待实现 |
@@ -33,6 +34,7 @@ extern __interrupt void Isr_CpuTimer2(void);
 
 /* CLA1 Task1 完成中断：20kHz 控制中断，PLL/环路/封波，内部调用 CtrlIsrRun() */
 extern __interrupt void Isr_Cla1Task1(void);
+extern __interrupt void Isr_Cla1Task2(void);
 
 /* SCI-A 接收中断：把 ARM 发来的字节搬进环形缓存 */
 extern __interrupt void Isr_SciaRx(void);

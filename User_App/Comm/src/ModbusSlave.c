@@ -153,7 +153,7 @@ static Uint16 MbReadWord(const ST_MB_REG_ITEM *pstItem, Uint16 u16Offset)
     }
 
     /* 32 位量按 MB_WORD_HIGH_FIRST 决定高低字顺序 */
-#if (MB_WORD_HIGH_FIRST == 0)
+#if (MB_WORD_ORDER_SEL == 0U)
     if (u16Offset == 0U)
     {
         return (Uint16)(unVal.u32Val & 0x0000FFFFUL);
@@ -228,7 +228,7 @@ static Uint16 MbWriteWordRaw(const ST_MB_REG_ITEM *pstItem, Uint16 u16Offset, Ui
         case MB_VAL_U32:
         case MB_VAL_I32:
             unVal.u32Val = *pu32Ptr;
-#if (MB_WORD_HIGH_FIRST == 0)
+#if (MB_WORD_ORDER_SEL == 0U)
             if (u16Offset == 0U)
             {
                 unVal.u32Val = (unVal.u32Val & 0xFFFF0000UL) | (Uint32)u16Val;
@@ -261,7 +261,7 @@ static Uint16 MbWriteWordRaw(const ST_MB_REG_ITEM *pstItem, Uint16 u16Offset, Ui
 
         case MB_VAL_F32:
             unVal.f32Val = *((volatile float32 *)pstItem->pvData);
-#if (MB_WORD_HIGH_FIRST == 0)
+#if (MB_WORD_ORDER_SEL == 0U)
             if (u16Offset == 0U)
             {
                 unVal.u32Val = (unVal.u32Val & 0xFFFF0000UL) | (Uint32)u16Val;

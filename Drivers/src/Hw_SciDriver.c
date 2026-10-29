@@ -476,13 +476,11 @@ Uint16 Hw_SciGetRxError(Uint16 u16SciId)
 
     u16Status = pstRegs->SCIRXST.all;
 
-    /* PE(bit2)/OE(bit3)/FE(bit4)/BRKDT(bit5)任一置位即为出错，写1清除 */
+    /* SCIRXST为只读状态；这里只报告错误，不向状态寄存器写入。 */
     if ((u16Status & 0x003CU) == 0U)
     {
         return 0U;
     }
-
-    pstRegs->SCIRXST.all = (Uint16)(u16Status & 0x003CU);
 
     return 1U;
 }
@@ -550,11 +548,6 @@ void Hw_SciRxIsr(Uint16 u16SciId)
 
         while (u16Count > 0U)
         {
-            if (pstRegs->SCIRXST.bit.RXRDY == 0U)
-            {
-                break;
-            }
-
             u16Data = pstRegs->SCIRXBUF.bit.SAR;
 
             /* 新的一帧刚开始：记下起点字节序号 */

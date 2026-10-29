@@ -76,7 +76,7 @@ typedef enum
 } E_MB_WORD_ORDER;
 
 /* 字序选择：与上位机默认浮点解码保持一致 */
-#define MB_WORD_ORDER_SEL           MB_WORD_HIGH_FIRST
+#define MB_WORD_ORDER_SEL           (1U) /* 1: 高字在前，必须是预处理可见的宏 */
 
 /* 一个寄存器表项 */
 typedef struct

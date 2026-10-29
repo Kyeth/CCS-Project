@@ -200,8 +200,7 @@ static Uint16 Hw_SpiXferChar(Uint16 u16SpiId, Uint16 u16Tx, Uint16 *pu16Rx)
     }
 
     /* 4. 右对齐读回，并清标志 */
-    u16Rx = (Uint16)(pstRegs->SPIRXBUF >> u16Shift);
-    pstRegs->SPISTS.bit.INT_FLAG = 1U;
+    u16Rx = (Uint16)(pstRegs->SPIRXBUF & ((1UL << gSpiCharLen[u16SpiId]) - 1UL));
 
     if (pstRegs->SPISTS.bit.OVERRUN_FLAG != 0U)
     {

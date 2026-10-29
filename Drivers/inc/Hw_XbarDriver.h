@@ -78,8 +78,8 @@ typedef enum
 
 /* MUX 的 2 位配置值（TRIPnMUX0TO15CFG 每个 MUX 占 2 位） */
 #define HW_XBAR_MUX_DISABLE     (0U)    /* 该 MUX 不参与本 TRIP */
-#define HW_XBAR_MUX_ENABLE      (1U)    /* 原样送进 TRIP（低有效） */
-#define HW_XBAR_MUX_INVERT      (2U)    /* 取反后送进 TRIP（兼容高有效信号） */
+#define HW_XBAR_MUX_ENABLE      (1U)    /* 选择该MUX的INPUTXBAR源（G1/G3/...），并使能 */
+#define HW_XBAR_MUX_INVERT      (2U)    /* 已废弃：反相应由独立TRIPOUTINV设置 */
 
 /* 引脚映射项：把某个 GPIO 接到某一路 INPUTx */
 typedef struct
@@ -92,8 +92,8 @@ typedef struct
 typedef struct
 {
     Uint16 u16TripId;       /* E_HW_XBAR_TRIP，目的 TRIPn */
-    Uint16 u16MuxNum;       /* 0~31：MUX0 对应 INPUT1，MUX13 对应 INPUT14 */
-    Uint16 u16MuxMode;      /* HW_XBAR_MUX_DISABLE / ENABLE / INVERT */
+    Uint16 u16MuxNum;       /* INPUT1~6对应MUX1/3/5/7/9/11 */
+    Uint16 u16MuxMode;      /* 当前板卡为1：选择INPUTXBAR源并使能 */
 } ST_XBAR_TRIP_MUX_CFG_ITEM;
 
 /* TRIP 输出极性项：TRIP 整体的输出是否取反 */

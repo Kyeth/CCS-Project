@@ -16,6 +16,7 @@
 #include "CtrlIsr.h"
 #include "RelayCtl.h"
 #include "AtsCtl.h"
+#include "PvStateMachine.h"
 
 ST_SYS_SM gSysSm;
 
@@ -32,6 +33,7 @@ static void SysSmEnter(Uint16 u16State)
 static void SysSmFault(Uint16 u16Fault)
 {
     gSysSm.u16Fault |= u16Fault;
+    PvSmSetEnable(0U);
     InvSmStop();
     CtrlSetPwmEnable(0U);
     CtrlSetModIndex(0.0f);
@@ -73,6 +75,7 @@ void SysSmInit(void)
     gSysSm.u16Cnt = 0U;
 
     CtrlSetPwmEnable(0U);
+    PvSmSetEnable(0U);
     RelayCtlInvAll(0U);
 }
 
@@ -107,6 +110,7 @@ void RunSysStateMachine(void)
     {
         case (Uint16)SYS_ST_INIT:
             CtrlSetPwmEnable(0U);
+            PvSmSetEnable(0U);
             RelayCtlInvAll(0U);
             if (gSysSm.u16Cnt >= SYS_SM_INIT_MS)
             {
@@ -153,12 +157,14 @@ void RunSysStateMachine(void)
 
         case (Uint16)SYS_ST_STANDBY:
             gSysSm.u32RunMs = 0UL;
+            PvSmSetEnable(0U);
             if (gSysSm.u16Fault != SYS_FAULT_NONE)
             {
                 SysSmEnter((Uint16)SYS_ST_FAULT);
             }
             else if (gSysSm.u16StartCmd != 0U)
             {
+                PvSmSetEnable(1U); /* 预充/启动阶段允许PV建立母线；各路仍受自身条件约束。 */
                 InvSmStart();
                 SysSmEnter((Uint16)SYS_ST_STARTUP);
             }
@@ -169,6 +175,7 @@ void RunSysStateMachine(void)
             break;
 
         case (Uint16)SYS_ST_STARTUP:
+            PvSmSetEnable(1U);
             if ((gSysSm.u16Fault & (SYS_FAULT_INV | SYS_FAULT_ATS)) != 0U)
             {
                 SysSmFault(gSysSm.u16Fault & (SYS_FAULT_INV | SYS_FAULT_ATS));
@@ -196,16 +203,18 @@ void RunSysStateMachine(void)
             }
             else if (gSysSm.u16StartCmd == 0U)
             {
+                PvSmSetEnable(0U);
                 InvSmStop();
                 SysSmEnter((Uint16)SYS_ST_STOPPING);
             }
             else
             {
-                /* 运行中 */
+                PvSmSetEnable(1U);
             }
             break;
 
         case (Uint16)SYS_ST_STOPPING:
+            PvSmSetEnable(0U);
             if (InvSmGetState() == (Uint16)INV_ST_SELF)
             {
                 SysSmEnter((Uint16)SYS_ST_STANDBY);
@@ -223,6 +232,7 @@ void RunSysStateMachine(void)
             break;
 
         case (Uint16)SYS_ST_FAULT:
+            PvSmSetEnable(0U);
             InvSmStop();
             CtrlSetPwmEnable(0U);
             CtrlSetModIndex(0.0f);
@@ -234,9 +244,12 @@ void RunSysStateMachine(void)
                 if (InvSmGetFault() == INV_SM_FAULT_NONE)
                 {
                     CtrlClearFault();
-                    gSysSm.u16Fault = SYS_FAULT_NONE;
-                    InvSmReset();
-                    SysSmEnter((Uint16)SYS_ST_RECOVER);
+                    if (CtrlGetFault() == 0U)
+                    {
+                        gSysSm.u16Fault = SYS_FAULT_NONE;
+                        InvSmReset();
+                        SysSmEnter((Uint16)SYS_ST_RECOVER);
+                    }
                 }
             }
             break;

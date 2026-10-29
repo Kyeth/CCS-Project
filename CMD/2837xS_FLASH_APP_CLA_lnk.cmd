@@ -182,8 +182,8 @@ SECTIONS
 
     Cla1DataRam      : > RAMLS5, PAGE = 0, ALIGN(4)
 
-    CpuToCla1MsgRAM  : > CLA1_MSGRAMLOW,  PAGE = 1
-    Cla1ToCpuMsgRAM  : > CLA1_MSGRAMHIGH, PAGE = 1
+    CpuToCla1MsgRAM  : > CLA1_MSGRAMHIGH, PAGE = 1
+    Cla1ToCpuMsgRAM  : > CLA1_MSGRAMLOW,  PAGE = 1
 
     /*  CLA 暂存段：CLA 编译器为每个函数生成 .scratchpad:Cla1Prog:<func>，
      *  由父段名 .scratchpad 统一收集，必须放在 CLA 可访问的 RAMLS5 中 */

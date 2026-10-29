@@ -17,6 +17,10 @@
 #include "Schedule.h"
 #include "CtrlIsr.h"
 #include "Hw_WatchDog.h"
+#include "Hw_PwmDriver.h"
+#include "Hw_GpioDriver.h"
+#include "PvStateMachine.h"
+#include "BusStateMachine.h"
 
 /* PIE 组 1：XINT1（1.4）/ XINT2（1.5） */
 #define ISR_PIE_GROUP1_MASK         (M_INT1)
@@ -57,6 +61,7 @@ void InterruptVectTableInit(void)
     EALLOW;
     PieVectTable.TIMER1_INT = &Isr_CpuTimer1;
     PieVectTable.CLA1_1_INT = &Isr_Cla1Task1;
+    PieVectTable.CLA1_2_INT = &Isr_Cla1Task2;
     PieVectTable.SCIA_RX_INT = &Isr_SciaRx;
     PieVectTable.SCIC_RX_INT = &Isr_ScicRx;
     PieVectTable.SCID_RX_INT = &Isr_ScidRx;
@@ -67,6 +72,7 @@ void InterruptVectTableInit(void)
     /* --- 使能 PIE 组内通道，并开放对应的 CPU 级中断 --- */
     /* CPU Timer1 / Timer2 不在 PIE 通道里，见下方 IER 置位 */
     PieCtrlRegs.PIEIER11.bit.INTx1 = 1U;    /* CLA1 Task1 完成 */
+    PieCtrlRegs.PIEIER11.bit.INTx2 = 1U;    /* CLA1 Task2 完成 */
     PieCtrlRegs.PIEIER9.bit.INTx1 = 1U;     /* SCIA 接收 */
     PieCtrlRegs.PIEIER8.bit.INTx5 = 1U;     /* SCIC 接收 */
     PieCtrlRegs.PIEIER8.bit.INTx7 = 1U;     /* SCID 接收 */
@@ -93,6 +99,7 @@ __interrupt void Isr_CpuTimer1(void)
 {
     static Uint16 sWdgCtrlCnt = 0U;
     static Uint16 sWdgGrace   = ISR_WDG_GRACE_TICK;
+    static Uint16 sSafetyTripped = 0U;
     Uint16 u16CtrlCnt;
 
     /* 清除定时器硬件中断标志 */
@@ -106,9 +113,9 @@ __interrupt void Isr_CpuTimer1(void)
 
         /* 喂狗条件：20kHz 控制链仍在推进。
          * 控制链停摆（CLA 不触发、ADC 无转换、中断被关）时这里停止喂狗，
-         * 由硬件看门狗按 1.6384ms 上限复位；后台任务停摆不在此复位，
+         * 由硬件看门狗按当前WDPS配置复位；后台任务停摆不在此复位，
          * 那属于 Task stall 故障，由控制中断封锁发波。
-         * 硬件看门狗最大超时仅 1.6384ms，喂狗点只能放在中断里。 */
+         * 看门狗喂狗点必须独立于后台任务。 */
         u16CtrlCnt = CtrlGetCycleCnt();
 
         if (u16CtrlCnt != sWdgCtrlCnt)
@@ -122,6 +129,13 @@ __interrupt void Isr_CpuTimer1(void)
             sWdgGrace--;    /* 启动与模式切换瞬态宽限 */
             Hw_FeedWatchDog();
         }
+        else if (sSafetyTripped == 0U)
+        {
+            /* 独立于CLA ISR：控制链失联先锁存全部ePWM，再让看门狗复位。 */
+            Hw_StopAllPWM();
+            Hw_GpioWritePin(88U, 0U);
+            sSafetyTripped = 1U;
+        }
     }
 
     /* 核心中断 INT13 不经 PIE，这里不写 PIEACK */
@@ -133,7 +147,7 @@ __interrupt void Isr_Cla1Task1(void)
     /* Timer2 自由运行计数器打点：入口 */
     CtrlIsrMarginBegin();
 
-    /* 控制主体：ADC->CLA 触发链已实测为通，20 kHz 主体就挂在这里 */
+    /* 控制主体：ADC->CLA触发链按配置连接，板上EOC/ISR时序仍待实测。 */
     CtrlIsrRun();
 
     /* 清 CLA 的 MIFR.INT1：CLA1_1 是电平式请求，不清标志会在 PIEACK 后立刻重入 */
@@ -143,6 +157,15 @@ __interrupt void Isr_Cla1Task1(void)
     CtrlIsrMarginEnd();
 
     /* 应答 PIE 组 11，允许下一拍 CLA1_1 中断进入 */
+    PieCtrlRegs.PIEACK.all = PIEACK_GROUP11;
+}
+
+/* PRD批次：与ZERO批次相隔约25us。PV快环每次处理上一ZERO发布的样本。 */
+__interrupt void Isr_Cla1Task2(void)
+{
+    PvSmFastRun();
+    BusSmFastRun();
+    Cla1Regs.MICLR.bit.INT2 = 1U;
     PieCtrlRegs.PIEACK.all = PIEACK_GROUP11;
 }
 

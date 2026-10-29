@@ -14,8 +14,8 @@
  *       把定义挪到 CPU 侧、.cla 只做 extern 引用，两侧模型即一致。
  *
  * @note 段归属必须是链接命令文件里 CLA 消息 RAM 的两个窗口：
- *       Cla1ToCpuMsgRAM → CLA1_MSGRAMHIGH (0x1500, CLA 写 / CPU 读)
- *       CpuToCla1MsgRAM → CLA1_MSGRAMLOW  (0x1480, CPU 写 / CLA 读)
+ *       Cla1ToCpuMsgRAM → CLA1_MSGRAMLOW  (0x1480, CLA 写 / CPU 读)
+ *       CpuToCla1MsgRAM → CLA1_MSGRAMHIGH (0x1500, CPU 写 / CLA 读)
  */
 #include "User_ClaTask.h"
 

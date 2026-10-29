@@ -17,6 +17,7 @@
 #include "User_ClaTask.h"
 #include "Hw_InvDriver.h"
 #include "Hw_PwmDriver.h"
+#include "Hw_GpioDriver.h"
 #include "AdcCalib.h"
 #include "AdcSample.h"
 #include "Schedule.h"
@@ -36,19 +37,6 @@
 #define CTRL_MUX_MASK_BIT2      (0x0400U)       /* GPIO42 */
 #define CTRL_MUX_MASK_ALL       (Uint16)(CTRL_MUX_MASK_BIT0 | CTRL_MUX_MASK_BIT1 | CTRL_MUX_MASK_BIT2)
 
-/* MUX 轮换顺序：PV1~PV4 电压、BUSL、BUSH（VISO 只在初始化阶段单独采，不进轮换） */
-static const Uint16 gCtrlMuxTable[] =
-{
-    CLA_MUX_ADDR_PV1,
-    CLA_MUX_ADDR_PV2,
-    CLA_MUX_ADDR_PV3,
-    CLA_MUX_ADDR_PV4,
-    CLA_MUX_ADDR_BUSL,
-    CLA_MUX_ADDR_BUSH
-};
-
-#define CTRL_MUX_TABLE_NUM      (sizeof(gCtrlMuxTable) / sizeof(gCtrlMuxTable[0]))
-
 /* 控制中断全部运行状态：单个实例 stCtrlState，函数内一律经结构体访问 */
 ST_CTRL_STATE stCtrlState;
 
@@ -57,6 +45,8 @@ ST_CTRL_OBS stCtrlObs;
 
 /* 中断执行周期占用量测 */
 ST_CTRL_MARGIN stCtrlMargin;
+/* 软件故障与硬件一次性跳闸同样锁存，只有重新上电初始化才解除。 */
+static Uint16 sCtrlTripLatched;
 
 /* 写三位 MUX 地址到 GPIO46/47/42，用 SET/CLEAR 寄存器避免读改写干扰其它引脚 */
 static void CtrlMuxWrite(Uint16 u16Addr)
@@ -102,48 +92,23 @@ static float CtrlWrapTheta(float fTheta)
     return fTheta;
 }
 
-/* ==================== 状态机分层调度 ====================
- * 20kHz 控制中断是唯一节拍源，状态机按固定整数拍分频，抖动由硬件保证。
- * 分频只决定状态机多久跑一次，控制环路（PLL + 调制 + 下发）仍每拍 20kHz。
- *   Protect÷2 -> 10kHz（软件保护判定，先于状态机执行）
- *   Inv    ÷2  -> 10kHz（含 PV 电压/电流环，环路上限要求 10kHz）
- *   Bus    ÷4  ->  5kHz
- *   Pv     ÷2  -> 10kHz（与 Inv 同拍，PI 环率不变；MPPT 外层由状态内计数器分频）
- *   Sys    ÷20 ->  1kHz
- */
-#define CTRL_SM_DIV_INV_PV      (2U)
-#define CTRL_SM_DIV_BUS         (4U)
-#define CTRL_SM_DIV_SYS         (20U)
+/* 状态迁移由后台1ms任务执行；ISR仅保留10kHz的软件保护检查。 */
+#define CTRL_PROTECT_DIV        (2U)
 
 static void CtrlSmSchedulerRun(void)
 {
     stCtrlState.u16SmDivInvPv++;
-    if (stCtrlState.u16SmDivInvPv >= CTRL_SM_DIV_INV_PV)
+    if (stCtrlState.u16SmDivInvPv >= CTRL_PROTECT_DIV)
     {
         stCtrlState.u16SmDivInvPv = 0U;
-        RunProtectTask();        /* 软件保护判定先跑，本拍结论供状态机读取 */
-        RunInvStateMachine();
-        RunPvStateMachine();
-    }
-
-    stCtrlState.u16SmDivBus++;
-    if (stCtrlState.u16SmDivBus >= CTRL_SM_DIV_BUS)
-    {
-        stCtrlState.u16SmDivBus = 0U;
-        RunBusStateMachine();
-    }
-
-    stCtrlState.u16SmDivSys++;
-    if (stCtrlState.u16SmDivSys >= CTRL_SM_DIV_SYS)
-    {
-        stCtrlState.u16SmDivSys = 0U;
-        RunSysStateMachine();
+        RunProtectTask();        /* 仍以10kHz检查硬件事件，状态迁移在后台。 */
     }
 }
 
 /* 初始化 */
 void CtrlIsrInit(void)
 {
+    sCtrlTripLatched = 0U;
     stCtrlState.fTheta = 0.0f;
     stCtrlState.fOmega = CTRL_TWO_PI * 50.0f;
     stCtrlState.fModIndex = 0.0f;
@@ -196,17 +161,13 @@ static void CtrlAuthBlock(void)
     stCtrlState.u16AuthState = (Uint16)CTRL_AUTH_OFF;
 }
 
-/* 把桥臂从"软件钳位"切到"正常斩波"。
- * Hw_InvSetDuty() 只在换相时释放模块，而 Hw_InvInit() 把正负两路都压低了：
- * 若放行后的第一拍正好落在正半周，正模块不会被释放，表现为"第一个正半周没有波形"。
- * 这里先按负半周、再按正半周各写一拍零占空比，让两路都走一遍释放流程。 */
+/* 在零占空比下准备桥臂。驱动现在负责首次解除AQ钳位。 */
 static void CtrlAuthArm(void)
 {
     Uint16 i;
 
     for (i = 0U; i < (Uint16)HW_INV_PHASE_MAX; i++)
     {
-        Hw_InvSetDuty(i, 0.0f, 0U);
         Hw_InvSetDuty(i, 0.0f, 1U);
     }
 }
@@ -334,15 +295,11 @@ void CtrlIsrRun(void)
     stCtrlState.u16CycleCnt++;
 
     /* ---------- 0. 保护框架：10ms 节拍推进记录、去抖与协议聚合 ---------- */
-    if (stCtrlState.u16ProtectDiv >= 200U)
+    if (++stCtrlState.u16ProtectDiv >= 200U)
     {
         stCtrlState.u16ProtectDiv = 0U;
         ProtectInputRun10ms();
         ProtectRun10ms();
-    }
-    else
-    {
-        stCtrlState.u16ProtectDiv++;
     }
 
     /* ---------- 0. ADC 标定刷新：码值 -> 工程值 ---------- */
@@ -425,7 +382,14 @@ void CtrlIsrRun(void)
 
     if (stCtrlState.u16Fault != (Uint16)CTRL_FAULT_NONE)
     {
-        /* 故障：三相封波到中点钳位，调制比清零，授权退回 OFF */
+        /* 软件故障必须覆盖PV/BUS；OST封锁全部PWM，驱动使能同时撤销。 */
+        if (sCtrlTripLatched == 0U)
+        {
+            sCtrlTripLatched = 1U;
+            Hw_StopAllPWM();
+            Hw_GpioWritePin(88U, 0U);
+            PvSmSetEnable(0U);
+        }
         CtrlAuthBlock();
         stCtrlState.fModIndex = 0.0f;
         stCtrlObs.u16Fault = stCtrlState.u16Fault;
@@ -504,7 +468,9 @@ void CtrlIsrRun(void)
     /* 只有授权态 ON 且实际调制比非 0 才写硬件：其余状态下桥臂由授权状态机
      * 负责压回钳位（CtrlAuthBlock / SOFT_OFF 归零时各做一次），这里不再每拍
      * 调 Hw_InvStopAll()，避免以 20kHz 反复写 AQCSFRC。 */
-    if ((stCtrlState.u16AuthState == (Uint16)CTRL_AUTH_ON) && (stCtrlState.fModActual > 0.0f))
+    if (((stCtrlState.u16AuthState == (Uint16)CTRL_AUTH_ON) ||
+         (stCtrlState.u16AuthState == (Uint16)CTRL_AUTH_SOFT_OFF)) &&
+        (stCtrlState.fModActual > 0.0f))
     {
         Hw_InvSetDuty((Uint16)HW_INV_PHASE_R, fabsf(fModR), (fModR >= 0.0f) ? 1U : 0U);
         Hw_InvSetDuty((Uint16)HW_INV_PHASE_S, fabsf(fModS), (fModS >= 0.0f) ? 1U : 0U);
@@ -516,13 +482,7 @@ void CtrlIsrRun(void)
     }
 
     /* ---------- 5. MUX 轮换（放在最后：本拍写入的地址供下一周期采样） ---------- */
-    stCtrlState.u16MuxIdx++;
-    if (stCtrlState.u16MuxIdx >= (Uint16)CTRL_MUX_TABLE_NUM)
-    {
-        stCtrlState.u16MuxIdx = 0U;
-    }
-
-    stCtrlState.u16MuxAddr = gCtrlMuxTable[stCtrlState.u16MuxIdx];
+    stCtrlState.u16MuxAddr = Cla1ToCpuMsg.u16NextMuxAddr;
 
     CtrlMuxWrite(stCtrlState.u16MuxAddr);
     CpuToCla1Msg.u16MuxAddr = stCtrlState.u16MuxAddr;
@@ -615,6 +575,10 @@ void CtrlSetFault(Uint16 u16Fault)
 /* 清故障码：同时把调制比清零，要求重新给授权才可能再发波。 */
 void CtrlClearFault(void)
 {
+    if (sCtrlTripLatched != 0U)
+    {
+        return; /* 故障跳闸后的重新投入须重新上电并完成硬件检查。 */
+    }
     ProtectReset();
     stCtrlState.u16Fault = (Uint16)CTRL_FAULT_NONE;
     stCtrlObs.u16Fault = stCtrlState.u16Fault;

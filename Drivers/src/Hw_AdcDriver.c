@@ -30,7 +30,7 @@
  * 注意：不要用device.h里的DEVICE_DELAY_US宏，它依赖的SysCtl_delay在本工程
  *      的device目录中既没有声明也没有实现，用了会链接失败 */
 #define HW_ADC_POWERUP_DELAY_CNT        (40000U)
-#define HW_ADC_CLK_PRESCALE_DIV_4_5     (6U)    /* ADCCTL2.PRESCALE: ADCCLK = SYSCLK/4.5 = 44.4MHz */
+#define HW_ADC_CLK_PRESCALE_DIV_4       (6U)    /* ADCCTL2.PRESCALE=6: ADCCLK=SYSCLK/4 */
 
 /* ADC寄存器基址表 */
 static volatile struct ADC_REGS * const gAdcRegs[HW_ADC_ID_MAX] =
@@ -184,9 +184,9 @@ void Hw_AdcSingleInit(const ST_ADC_CFG_ITEM *pstAdcCfgItem)
     /* 1. 设置分辨率与信号模式：AdcSetMode内部会重装INL trim、从OTP取偏置trim并
      *    写ADCINLTRIMx，这些寄存器都需要EALLOW；该函数自身没有EALLOW/EDIS */
     EALLOW;
-    /* 0. ADC时钟分频：ADCCLK = SYSCLK/4.5 = 44.4MHz（PRESCALE = 6）。
+    /* 0. ADC时钟分频：ADCCLK = SYSCLK/4 = 50MHz（PRESCALE = 6）。
      *    复位值为0即SYSCLK不分频，超过器件ADCCLK上限，必须先设置。 */
-    pstRegs->ADCCTL2.bit.PRESCALE = HW_ADC_CLK_PRESCALE_DIV_4_5;
+    pstRegs->ADCCTL2.bit.PRESCALE = HW_ADC_CLK_PRESCALE_DIV_4;
     AdcSetMode(pstAdcCfgItem->u16AdcId, pstAdcCfgItem->u16Resolution, pstAdcCfgItem->u16SignalMode);
     pstRegs->ADCCTL1.bit.ADCPWDNZ = 1U;
     EDIS;
@@ -204,21 +204,32 @@ void Hw_AdcSingleInit(const ST_ADC_CFG_ITEM *pstAdcCfgItem)
     pu32SocCtl = (volatile Uint32 *)&pstRegs->ADCSOC0CTL;
     pstChCfg = pstAdcCfgItem->pstAdcChCfgItem;
 
+    if (pstAdcCfgItem->u16SocStride == 0U)
+    {
+        EDIS;
+        return;
+    }
+
+    /* 全固定优先级：SOC15必须晚于本批SOC0~7，SOC9晚于SOC8。
+     * 默认round-robin会在PRD批后把SOC15放在下一ZERO批的最前面。 */
+    pstRegs->ADCSOCPRICTL.bit.SOCPRIORITY = 16U;
+
     for (u16Soc = 0U; u16Soc < HW_ADC_SOC_MAX; u16Soc++)
     {
-        if (0U != Hw_AdcChCfgIsUnused(&pstChCfg[u16Soc]))
+        const ST_ADC_CH_CFG_ITEM *pstSoc = &pstChCfg[(Uint32)u16Soc * pstAdcCfgItem->u16SocStride];
+        if (0U != Hw_AdcChCfgIsUnused(pstSoc))
         {
             continue;
         }
 
-        if (0U == Hw_AdcChCfgIsValid(&pstChCfg[u16Soc]))
+        if (0U == Hw_AdcChCfgIsValid(pstSoc))
         {
             continue;
         }
 
-        pu32SocCtl[u16Soc] = ((Uint32)pstChCfg[u16Soc].u16TrigSel << HW_ADC_SOCCTL_TRIGSEL_SHIFT)
-                           | ((Uint32)pstChCfg[u16Soc].u16ChSel << HW_ADC_SOCCTL_CHSEL_SHIFT)
-                           | ((Uint32)pstChCfg[u16Soc].u16Acqps << HW_ADC_SOCCTL_ACQPS_SHIFT);
+        pu32SocCtl[u16Soc] = ((Uint32)pstSoc->u16TrigSel << HW_ADC_SOCCTL_TRIGSEL_SHIFT)
+                           | ((Uint32)pstSoc->u16ChSel << HW_ADC_SOCCTL_CHSEL_SHIFT)
+                           | ((Uint32)pstSoc->u16Acqps << HW_ADC_SOCCTL_ACQPS_SHIFT);
         u16SocUsed = 1U;
     }
 

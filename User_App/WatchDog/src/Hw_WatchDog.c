@@ -10,13 +10,13 @@
  */
 #include "Hw_WatchDog.h"
 
-#define WDOG_CLOCK_HZ   (10000000UL)  /* 看门狗时钟固定为 10MHz */
+#define WDOG_CLOCK_HZ   (10000000UL)  /* INTOSC1标称10MHz，WDCLK固定先除512 */
 #define WDOG_CNT_MAX    (256UL)       /* 8 位计数器最大值 */
 
 /**
  * @brief 初始化看门狗，配置超时复位时间（纯整型运算，无浮点依赖）
  *
- * @param TimeOut 超时时间，单位 ms (若 > 1ms，在 28374S 上将自动取最大分频)
+ * @param TimeOut 期望超时时间ms；硬件8位计数不能实现小于约13.1ms
  */
 void Hw_WatchDogInit(Uint16 TimeOut)
 {
@@ -27,7 +27,7 @@ void Hw_WatchDogInit(Uint16 TimeOut)
     Uint32 u32Div;
 
     /* 计算目标计数值 (ms 转换为 10MHz 下的 tick 数) */
-    u32TargetTicks = (Uint32)TimeOut * (WDOG_CLOCK_HZ / 1000UL);
+    u32TargetTicks = ((Uint32)TimeOut * (WDOG_CLOCK_HZ / 512UL)) / 1000UL;
 
     /* 遍历 0~7 级预分频，寻找最接近或大于目标 tick 的分频系数 */
     for (i = 0U; i < 8U; i++)

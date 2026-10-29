@@ -132,7 +132,7 @@ void Hw_XbarSetTripMux(Uint16 u16TripId, Uint16 u16MuxNum, Uint16 u16MuxMode)
     u32Cfg |= ((Uint32)((Uint32)(u16MuxMode & 0x0003U) << u16Bit));
     *(pstCfgReg) = u32Cfg;
 
-    /* 使能位：除 DISABLE 之外都要点亮，取反只是 CFG 编码不同 */
+    /* CFG为该MUX的源选择；TRIPOUTINV才负责整个TRIP的极性。 */
     u32En = *(gXbarTripMuxEn[u16TripId]);
 
     if (u16MuxMode == HW_XBAR_MUX_DISABLE)

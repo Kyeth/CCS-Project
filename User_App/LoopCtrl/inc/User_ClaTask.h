@@ -87,6 +87,9 @@ extern "C" {
 /* —— ADC-D —— */
 #define CLA_RES_INV_CUR_S       (AdcdResultRegs.ADCRESULT0)    // ch2  S相逆变电流
 #define CLA_RES_INV_CUR_R       (AdcdResultRegs.ADCRESULT1)    // ch14 R相逆变电流
+#define CLA_RES_INV_CUR_T_PRD   (AdcaResultRegs.ADCRESULT8)
+#define CLA_RES_INV_CUR_S_PRD   (AdcdResultRegs.ADCRESULT8)
+#define CLA_RES_INV_CUR_R_PRD   (AdcdResultRegs.ADCRESULT9)
 #define CLA_RES_GFCI            (AdcdResultRegs.ADCRESULT2)    // ch1  GFCI电流
 #define CLA_RES_MUX1            (AdcdResultRegs.ADCRESULT3)    // ch3  多路选择器1
 #define CLA_RES_PV3_CUR         (AdcdResultRegs.ADCRESULT4)    // ch0  PV3电流
@@ -130,6 +133,7 @@ typedef struct
     float  fGfciCur;                    // GFCI 漏电流（已滤波，D1）
     Uint16 u16Seq;                      // 采样序号，每周期 +1
     Uint16 u16MuxAddr;                  // 本周期的选通地址（0~7）
+    Uint16 u16NextMuxAddr;              // CLA轮询器给出的下周期地址，CPU负责GPIO提交
 } ST_CLA_TO_CPU;
 
 /******************************************************************************

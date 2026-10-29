@@ -1,8 +1,8 @@
 /**
  * @file PvStateMachine.c
- * @brief PV Boost 通道状态机 + 电压环 / 电流环 + 扰动观察 MPPT（10kHz）
+ * @brief PV Boost 通道状态机（1kHz）+ 电压/电流快环（20kHz）+ MPPT
  *
- * 控制链（每个通道，10kHz 一次）：
+ * 控制链（每个通道，PRD批次后20kHz一次）：
  *   1. 采样：PV 电压/电流各做 8 点滑动平均（EP5K 用 Filter8，等价）
  *   2. MPPT（仅 MPPT 态）：扰动电压指令 fVset，判据是**半个扰动周期的功率累加值**
  *   3. 电压指令斜坡：fVsetRamp 以 600V/s 逼近 fVset
@@ -24,7 +24,7 @@ static float  sVpvSum[PV_SM_CH_NUM];
 static float  sIpvSum[PV_SM_CH_NUM];
 static Uint16 sVpvIdx[PV_SM_CH_NUM];
 static Uint16 sIpvIdx[PV_SM_CH_NUM];
-static float  sVrawSum[PV_SM_CH_NUM];     /* 电压 10 拍块累加（10kHz/10 → 1kHz） */
+static float  sVrawSum[PV_SM_CH_NUM];     /* 电压20拍块累加（20kHz/20→1kHz） */
 static Uint16 sVdivCnt[PV_SM_CH_NUM];
 
 /* 各通道采样量指针（AdcSample 20kHz 瞬时层） */
@@ -126,6 +126,8 @@ static void PvSmStop(Uint16 u16Ch, Uint16 u16Fault)
 {
     ST_PV_SM_CH *pstCh = &gPvSm.stCh[u16Ch];
 
+    Hw_PwmSetForce(gPvSm.u16PwmId[u16Ch], HW_PWM_FORCE_LOW, HW_PWM_FORCE_LOW);
+
     pstCh->fDuty = 0.0f;
     pstCh->fIref = 0.0f;
     pstCh->u16MpptCnt = 0U;
@@ -185,6 +187,7 @@ static void PvSmStart(Uint16 u16Ch)
     pstCh->fDuty = PV_SM_CURR_UMAX + pstCh->fM;
     pstCh->fDuty = PvSmSat(pstCh->fDuty, PV_SM_DUTY_MAX, 0.0f);
     PvSmApplyDuty(u16Ch);
+    Hw_PwmReleaseForce(gPvSm.u16PwmId[u16Ch]);
 }
 
 /******************************************************************************
@@ -433,7 +436,7 @@ static void PvSmCheckFault(Uint16 u16Ch)
 }
 
 /******************************************************************************
- * 单通道 10kHz 节拍
+ * 单通道后台1kHz节拍
  ******************************************************************************/
 static void PvSmChannel(Uint16 u16Ch)
 {
@@ -441,21 +444,15 @@ static void PvSmChannel(Uint16 u16Ch)
     float fBus = stSampleAvg.fBusVoltAvg200;
     Uint16 u16BusOk;
 
-    /* 电压与电流的窗口宽度不同，与 EP5K 保持一致：
-     *   电压：10 拍块平均(1kHz) + 8 点滑窗 ≈ 8ms，对齐 EP5K PVxVoltFilter8
-     *         （其实际窗口是 PeriodPoint>>2 ≈ 7.5ms，不是名字里的 8 点）；
-     *   电流：8 点滑窗 ≈ 0.8ms，对齐 EP5K PVxCurrFilter8（8 拍 1.2ms）。 */
-    sVrawSum[u16Ch] += *sPvVoltPtr[u16Ch];
-    if (++sVdivCnt[u16Ch] >= (Uint16)PV_SM_VOLT_DIV)
+    if (gPvSm.u16Enable == 0U)
     {
-        sVdivCnt[u16Ch] = 0U;
-        pstCh->fVpv = PvSmAvg8(sVpvBuf[u16Ch], &sVpvSum[u16Ch], &sVpvIdx[u16Ch],
-                               sVrawSum[u16Ch] * (1.0f / (float)PV_SM_VOLT_DIV));
-        sVrawSum[u16Ch] = 0.0f;
+        if (pstCh->u16State != (Uint16)PV_ST_IDLE)
+        {
+            PvSmStop(u16Ch, PV_SM_FAULT_NONE);
+        }
+        return;
     }
-    pstCh->fIpv = PvSmAvg8(sIpvBuf[u16Ch], &sIpvSum[u16Ch], &sIpvIdx[u16Ch], *sPvCurPtr[u16Ch]);
-    pstCh->fPower = pstCh->fVpv * pstCh->fIpv;
-    pstCh->u16Present = ((pstCh->fVpv > PV_SM_VOLT_MIN) && (pstCh->fVpv <= PV_SM_VOLT_MAX)) ? 1U : 0U;
+
     u16BusOk = (fBus > (pstCh->fVpv + PV_SM_BUS_MARGIN)) ? 1U : 0U;
 
     if (pstCh->u16Cnt < 0xFFFFU)
@@ -475,13 +472,11 @@ static void PvSmChannel(Uint16 u16Ch)
             break;
 
         case (Uint16)PV_ST_SOFT:
-            /* 软启：环路已投入，等 1.5s 后开始扰动（EP5K DelayCnt=15000） */
+            /* 软启：环路已投入，等1.5s后开始扰动。 */
             if (pstCh->u16DelayCnt < 0xFFFFU)
             {
                 pstCh->u16DelayCnt++;
             }
-            PvSmLoopRun(u16Ch);
-            PvSmCheckFault(u16Ch);
             if ((pstCh->u16State == (Uint16)PV_ST_SOFT) && (pstCh->u16DelayCnt >= (Uint16)PV_SM_DELAY_CNT))
             {
                 pstCh->u16DelayCnt = 0U;
@@ -501,8 +496,6 @@ static void PvSmChannel(Uint16 u16Ch)
             else
             {
                 PvSmMpptRun(u16Ch);
-                PvSmLoopRun(u16Ch);
-                PvSmCheckFault(u16Ch);
             }
             break;
 
@@ -524,6 +517,43 @@ static void PvSmChannel(Uint16 u16Ch)
     }
 }
 
+/* ADC/CLA新样本发布后执行快环。状态迁移和MPPT计时留在1ms后台任务。 */
+void PvSmFastRun(void)
+{
+    Uint16 i;
+    ST_PV_SM_CH *pstCh;
+
+    if (AdcCalibGetZeroState() != (Uint16)ADC_CAL_ZERO_DONE)
+    {
+        return;
+    }
+
+    for (i = 0U; i < (Uint16)PV_SM_CH_NUM; i++)
+    {
+        pstCh = &gPvSm.stCh[i];
+        sVrawSum[i] += *sPvVoltPtr[i];
+        if (++sVdivCnt[i] >= (Uint16)PV_SM_VOLT_DIV)
+        {
+            sVdivCnt[i] = 0U;
+            pstCh->fVpv = PvSmAvg8(sVpvBuf[i], &sVpvSum[i], &sVpvIdx[i],
+                                   sVrawSum[i] * (1.0f / (float)PV_SM_VOLT_DIV));
+            sVrawSum[i] = 0.0f;
+        }
+        pstCh->fIpv = PvSmAvg8(sIpvBuf[i], &sIpvSum[i], &sIpvIdx[i], *sPvCurPtr[i]);
+        pstCh->fPower = pstCh->fVpv * pstCh->fIpv;
+        pstCh->u16Present = ((pstCh->fVpv > PV_SM_VOLT_MIN) &&
+                             (pstCh->fVpv <= PV_SM_VOLT_MAX)) ? 1U : 0U;
+
+        if ((gPvSm.u16Enable != 0U) &&
+            ((pstCh->u16State == (Uint16)PV_ST_SOFT) ||
+             (pstCh->u16State == (Uint16)PV_ST_MPPT)))
+        {
+            PvSmLoopRun(i);
+            PvSmCheckFault(i);
+        }
+    }
+}
+
 /******************************************************************************
  * 初始化
  ******************************************************************************/
@@ -532,7 +562,7 @@ void PvSmInit(void)
     Uint16 i;
     Uint16 j;
 
-    gPvSm.u16Enable = 1U;
+    gPvSm.u16Enable = 0U; /* 系统状态机在STARTUP/RUN阶段授权PV。 */
     gPvSm.u16RunMask = 0U;
     gPvSm.u16MpptMask = 0U;
 
@@ -608,7 +638,7 @@ Uint16 PvSmGetEnable(void)
 }
 
 /******************************************************************************
- * 主任务：10kHz
+ * 主任务：后台1kHz
  ******************************************************************************/
 void RunPvStateMachine(void)
 {

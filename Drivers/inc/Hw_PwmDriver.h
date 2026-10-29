@@ -51,9 +51,8 @@ extern "C" {
 #define HW_EPWM_SYNC_IN_FROM_INPUTXBAR_OUT5      0x18U
 #define HW_EPWM_SYNC_IN_FROM_INPUTXBAR_OUT6      0x19U
 
-/* 根据 TRM 手册，直接访问被 TI 头文件隐藏的同步配置寄存器 */
-#define HW_REG_EPWMSYNCINSEL(pstRegs)   (*(volatile Uint16 *)((volatile Uint16 *)(pstRegs) + 3U))
-#define HW_REG_EPWMSYNCOUTEN(pstRegs)   (*(volatile Uint16 *)((volatile Uint16 *)(pstRegs) + 6U))
+/* F2837xS的同步由TBCTL.SYNCOSEL和SyncSocRegs.SYNCSELECT控制。
+ * 本代EPWM_REGS偏移+3/+6是保留地址，不可写入。 */
 
 typedef enum
 {

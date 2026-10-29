@@ -24,11 +24,11 @@
 
 #include "F2837xS_device.h"
 
-/* 状态内计时门限（20kHz ÷4 = 5kHz 调用，1 拍 = 200us） */
-#define BUS_SM_INIT_TICK        (500U)      /* 100ms：等采样稳定 */
+/* 状态内计时门限（后台1kHz，1拍=1ms） */
+#define BUS_SM_INIT_TICK        (100U)      /* 后台1ms，100ms */
 #define BUS_SM_DIFF_MIN_VOLT    (5.0f)      /* 压差小于该值认为已平衡 */
 #define BUS_SM_DIFF_MAX_VOLT    (80.0f)     /* 压差超过该值判异常 */
-#define BUS_SM_ERR_TICK         (1000U)     /* 200ms：异常确认后回 Init */
+#define BUS_SM_ERR_TICK         (200U)      /* 后台1ms，200ms */
 
 typedef enum
 {
@@ -60,5 +60,6 @@ extern BUS_STATE_DATA  stBusState;
 
 void InitBusStateMachineData(void);
 void RunBusStateMachine(void);
+void BusSmFastRun(void); /* PRD后20kHz快照；平衡调节输出尚未实现 */
 
 #endif /* BUS_STATE_MACHINE_H */

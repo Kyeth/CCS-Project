@@ -221,16 +221,33 @@ void Hw_SinglePwmInit(ST_PWM_CFG_ITEM *pstPwmCfgItem)
     pstPwmRegs->TBCTR = 0U;
     pstPwmRegs->TBPHS.bit.TBPHS = pstPwmCfgItem->u16Phase;
 
-    /* 4. 配置同步网络拓扑 */
-    HW_REG_EPWMSYNCINSEL(pstPwmRegs) = pstPwmCfgItem->u16SyncInSel;
-    HW_REG_EPWMSYNCOUTEN(pstPwmRegs) = pstPwmCfgItem->u16SyncOutSel;
+    /* 4. F2837xS同步链：1->2->3，4->5->6，7->8->9，10->11->12。
+     * 1与7在ZERO产生同步；4/5/8/10透传输入同步到下一个模块。 */
+    if ((pstPwmCfgItem->u16PwmId == HW_PWM_ID0) ||
+        (pstPwmCfgItem->u16PwmId == HW_PWM_ID6))
+    {
+        pstPwmRegs->TBCTL.bit.SYNCOSEL = TB_CTR_ZERO;
+    }
+    else if ((pstPwmCfgItem->u16PwmId == HW_PWM_ID3) ||
+             (pstPwmCfgItem->u16PwmId == HW_PWM_ID4) ||
+             (pstPwmCfgItem->u16PwmId == HW_PWM_ID7) ||
+             (pstPwmCfgItem->u16PwmId == HW_PWM_ID9))
+    {
+        pstPwmRegs->TBCTL.bit.SYNCOSEL = TB_SYNC_IN;
+    }
+    else
+    {
+        pstPwmRegs->TBCTL.bit.SYNCOSEL = TB_SYNC_DISABLE;
+    }
 
-    if (pstPwmCfgItem->u16SyncMode == HW_PWM_MASTER)
+    if ((pstPwmCfgItem->u16SyncMode == HW_PWM_MASTER) &&
+        (pstPwmCfgItem->u16PwmId == HW_PWM_ID0))
     {
         /* 主模块不接收外部相位加载，纯粹产生SYNCO */
         pstPwmRegs->TBCTL.bit.PHSEN = 0U;
     }
-    else if (pstPwmCfgItem->u16SyncMode == HW_PWM_SLAVE)
+    else if ((pstPwmCfgItem->u16SyncMode == HW_PWM_SLAVE) ||
+             (pstPwmCfgItem->u16PwmId == HW_PWM_ID6))
     {
         /* 从模块接收SYNCI，并将TBPHS加载到TBCTR */
         pstPwmRegs->TBCTL.bit.PHSEN = 1U;
@@ -287,24 +304,28 @@ void Hw_PwmInit(ST_PWM_CFG *pstPwmCfg)
     /* 1. 关闭 TBCLK 同步，允许配置期间时基停摆 */
     Hw_DisableAllPwmCLKSync();
 
+    EALLOW;
+    /* 三个跨组入口均选EPWM1SYNCOUT，避免依赖上电复位的隐含值。 */
+    SyncSocRegs.SYNCSELECT.bit.EPWM4SYNCIN = 0U;
+    SyncSocRegs.SYNCSELECT.bit.EPWM7SYNCIN = 0U;
+    SyncSocRegs.SYNCSELECT.bit.EPWM10SYNCIN = 0U;
+    EDIS;
+
     /* 2. 逐个配置 ePWM 模块的寄存器 */
     for (i = 0U; i < pstPwmCfg->u16ItemNum; i++)
     {
         Hw_SinglePwmInit(&pstPwmCfg->pstPwmCfgItem[i]);
     }
 
-    /* 3. 开启 TBCLK 同步，所有配置好的模块在此刻起跑，瞬间建立相位差 */
-    Hw_EnableAllPwmCLKSync();
+    /* TBCLKSYNC由StartSystem在ADC/CLA和全部状态初始化完成后统一放开。 */
 }
 
 /* 使能所需ePWM模块的时钟（需在 Hw_PwmInit 之前调用） */
 void Hw_EnablePwmClocks(void)
 {
     EALLOW;
-    /* PCLKCR2: Bit0~7 对应 EPWM1~8 */
-    CpuSysRegs.PCLKCR2.all |= 0x00FFU;
-    /* PCLKCR3: Bit0~3 对应 EPWM9~12 */
-    CpuSysRegs.PCLKCR3.all |= 0x000FU;
+    /* F2837xS的EPWM1~12门控全部在PCLKCR2。 */
+    CpuSysRegs.PCLKCR2.all |= 0x0FFFU;
     EDIS;
 }
 

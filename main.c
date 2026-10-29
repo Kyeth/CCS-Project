@@ -29,6 +29,7 @@
 #include "InvStateMachine.h"
 #include "SystemStateMachine.h"
 #include "PvStateMachine.h"
+#include "BusStateMachine.h"
 /**
  * @brief 芯片外设初始化
  *
@@ -42,8 +43,7 @@ void PeripheralsInit(void)
     InitSysCtrl();
     // 2. 初始化 PIE 控制器、向量表并注册中断（内部已完成 InitPieCtrl/InitPieVectTable）
     InterruptVectTableInit();    // 配置中断复位函数
-    /* 看门狗在 StartSystem() 末尾使能：必须在 100us 定时器与 20kHz 控制链
-     * 都已运行之后，否则初始化期间的毫秒级阻塞会被 1.6384ms 上限的看门狗复位。 */
+    /* 看门狗在StartSystem()末尾使能：初始化期间不启动超时监视。 */
 
 
 
@@ -77,8 +77,7 @@ void PeripheralsInit(void)
     Hw_CpuTimerStart((ST_SYS_TIMER *)&stSysCpuTimer1);   /* 100us 节拍，驱动 SYS_TICK */
     Hw_CpuTimerStart((ST_SYS_TIMER *)&stSysCpuTimer2);   /* 200MHz 自由运行计数器，供控制中断测余量 */
 
-    EINT;   // Enable Global interrupt INTM
-    ERTM;   // Enable Global real-time interrupt DBGM
+    /* 等PlatformInit和TaskCreate完成后，由StartSystem统一开放中断。 */
 }
 
 /**
@@ -108,6 +107,30 @@ void PlatformInit(void)
     EepromParamInit(&stEepromParamCfg);  /* 掉电保存：扫点表 -> 读芯片 -> 校验 -> 回填变量 */
     ProtectTaskInit();                    /* 硬件保护：清漏桶与故障锁存 */
     SoftOscInit();    /* 绑定软示波器默认的 12 路观测通道 */   /* 控制中断状态复位，并把 MUX 选通到 PV1 */
+}
+
+static void SystemStateTask(void *pArgV)
+{
+    (void)pArgV;
+    RunSysStateMachine();
+}
+
+static void InverterStateTask(void *pArgV)
+{
+    (void)pArgV;
+    RunInvStateMachine();
+}
+
+static void PvStateTask(void *pArgV)
+{
+    (void)pArgV;
+    RunPvStateMachine();
+}
+
+static void BusStateTask(void *pArgV)
+{
+    (void)pArgV;
+    RunBusStateMachine();
 }
 
 /**
@@ -141,8 +164,11 @@ void TaskCreate(void)
     Task_Start(&AdcSampleTask, NULL, 10U, 5U);
     Task_Start(&AtsProtoTask, NULL, 1000U, 6U);
     Task_Start(&AtsCtlTask,    NULL,   10U, 7U);    /* 1ms：ATS 状态去抖与动作超时 */
-    /* 状态机四件套（Inv / Bus / Pv / Sys）已迁入 20kHz 控制中断内部分频调用，
-     * 不再作为后台任务注册，见 CtrlIsr.c 的 CtrlSmSchedulerRun()。 */
+    /* 状态迁移为1ms后台任务，100us错峰；快速控制与保护仍由ADC/CLA链驱动。 */
+    Task_Start(&SystemStateTask,  NULL, 10U, 0U);
+    Task_Start(&InverterStateTask,NULL, 10U, 2U);
+    Task_Start(&PvStateTask,      NULL, 10U, 4U);
+    Task_Start(&BusStateTask,     NULL, 10U, 6U);
 }
 
 /**
@@ -164,6 +190,9 @@ void StartSystem(void)
 {
     /* 1. 清 Trip Zone 残留标志，避免 OST 一直封着导致 SOC/中断不正常 */
     Hw_PwmClearAllTripZone();
+    /* BUS平衡环及其硬件保护尚未完成。DB互补路径会把A强制低变成B高，
+     * 因此必须用TZ OST封锁EPWM8的两路门极，不能只依赖AQCSFRC。 */
+    Hw_PwmStop((Uint16)HW_PWM_ID7);
 
     /* 2. 三相桥臂回到硬件钳位状态（这一步与上电初始化幂等） */
     Hw_InvStopAll();
@@ -171,12 +200,15 @@ void StartSystem(void)
     /* 3. 放出全部 ePWM 时基，开始产生 SOC 触发链 */
     Hw_EnableAllPwmCLKSync();
 
+    EINT;
+    ERTM;
+
     /* 4. 上电保持发波请求关闭，等 InvSm 走到 CHK/SOFT 才由状态机申请发波 */
     CtrlSetPwmEnable(0U);
 
     /* 5. 使能硬件看门狗。
-     *    F2837xS 看门狗由 10MHz 内部振荡器驱动，8 位计数配合最大 64 分频，
-     *    超时上限只有 1.6384ms，无法直接做 200ms 级监视，因此分两层：
+     *    F2837xS 看门狗由内部振荡器驱动，实际超时由WDPS及振荡器误差决定；
+     *    后台200ms活性检查由软件完成，因此分两层：
      *      硬件层：喂狗点放在 100us 定时中断里，条件是 20kHz 控制链仍在推进，
      *              控制链停摆即停止喂狗，由复位兜底；
      *      软件层：Task_HealthTick 以 200ms 窗口监视后台任务活性，

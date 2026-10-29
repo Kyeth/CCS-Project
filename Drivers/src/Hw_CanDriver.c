@@ -208,7 +208,8 @@ static void Hw_CanConfigObj(volatile struct CAN_REGS *pstRegs, Uint16 u16ObjNum,
     /* 验收屏蔽：Msk每一位为1表示该位参与比较 */
     if (bUseMask != 0U)
     {
-        u32Msk = u32Mask & HW_CAN_ID_MASK;
+        u32Msk = (bExtId != 0U) ? (u32Mask & HW_CAN_ID_MASK)
+                                  : ((u32Mask & 0x7FFUL) << 18U);
         if (bExtId != 0U)
         {
             u32Msk |= HW_CAN_ARB_XTD;   /* MXtd：扩展帧位也参与比较 */
@@ -216,7 +217,8 @@ static void Hw_CanConfigObj(volatile struct CAN_REGS *pstRegs, Uint16 u16ObjNum,
     }
 
     /* 仲裁寄存器：标识符、方向、帧类型、对象有效 */
-    u32Arb = u32MsgId & HW_CAN_ID_MASK;
+    u32Arb = (bExtId != 0U) ? (u32MsgId & HW_CAN_ID_MASK)
+                                : ((u32MsgId & 0x7FFUL) << 18U);
     if (bExtId != 0U)
     {
         u32Arb |= HW_CAN_ARB_XTD;
@@ -437,7 +439,9 @@ Uint16 Hw_CanSend(Uint16 u16CanId, Uint16 u16ObjIdx, Uint32 u32MsgId,
     pstRegs->CAN_IF1DATB.all = u32DataB;
 
     /* 重写仲裁与控制寄存器：标识符、帧类型按本次实参，方向仍为发送 */
-    u32Arb = (u32MsgId & HW_CAN_ID_MASK) | HW_CAN_ARB_DIR | HW_CAN_ARB_MSGVAL;
+    u32Arb = ((gCanCfg[u16CanId].bExtId != 0U) ?
+              (u32MsgId & HW_CAN_ID_MASK) : ((u32MsgId & 0x7FFUL) << 18U)) |
+             HW_CAN_ARB_DIR | HW_CAN_ARB_MSGVAL;
     if (gCanCfg[u16CanId].bExtId != 0U)
     {
         u32Arb |= HW_CAN_ARB_XTD;
@@ -592,7 +596,8 @@ Uint16 Hw_CanReadRx(Uint16 u16CanId, Uint16 u16ObjIdx, Uint32 *pu32MsgId,
 
     if (pu32MsgId != (Uint32 *)0)
     {
-        *pu32MsgId = (u32Arb & HW_CAN_ID_MASK);
+        *pu32MsgId = ((u32Arb & HW_CAN_ARB_XTD) != 0UL) ?
+                       (u32Arb & HW_CAN_ID_MASK) : ((u32Arb >> 18U) & 0x7FFUL);
     }
 
     if (pu16Data != (Uint16 *)0)
