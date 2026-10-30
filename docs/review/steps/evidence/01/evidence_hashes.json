@@ -1,0 +1,72 @@
+{
+  "step": "01",
+  "note": "本清单覆盖 docs/review/steps/evidence/01 下全部文本证据；构建产物（.out/.map/.obj）不入库，只登记哈希。",
+  "build_products_not_committed": {
+    "EP15K_2026.out": {
+      "sha256": "9a52f0c68ec51a421cab8e96410122db4589e762377db4fef05db37f0dc1bc91",
+      "size": 1032000
+    },
+    "EP15K_2026.map": {
+      "sha256": "08f5b4b71b2a417b6261a59ef7656d40a4cde3f1416b2319bfda6b911ffa449f",
+      "size": 143385
+    },
+    "head.tar": {
+      "sha256": "fd43716114642caed02e0449119e175e610bab2caf3dbaec9d2050ec5530eaa4",
+      "size": 16107520
+    }
+  },
+  "evidence_files": {
+    "analyze_map.py": {
+      "sha256": "35205981ea836c0faca7d95a8b0d2fb112bc0a50bce248e194ac2a3d0bb33c19",
+      "size": 13343
+    },
+    "build_clean.py": {
+      "sha256": "40bcb60c5b6e341afa18f9a32cd45ec51a616f7fa2ee4bde0983bb8371a21ab6",
+      "size": 16894
+    },
+    "build_compile_log.jsonl": {
+      "sha256": "b86e589a69d2082f070644cb3fd58fdcfac6d4425b2a2827cbf719457ed43e74",
+      "size": 19541
+    },
+    "build_link.log": {
+      "sha256": "5552372719b3a9229459faf23a7f54a04d62f6b9621d6bc40e9612e9f9929a8e",
+      "size": 7074
+    },
+    "build_summary.json": {
+      "sha256": "2324d0f0e758a50df31d37ffe0e1f295787e66922396f2c432cceb8830a0d4af",
+      "size": 5404
+    },
+    "config_adc_soc_table.csv": {
+      "sha256": "a5a18e7442b948cfc1712519fb49883f1d665aeb34f2c622845999d7987f30fd",
+      "size": 2536
+    },
+    "config_pwm_table.csv": {
+      "sha256": "bf640f862a22fe529291cc341bd747540d5aeeb4e22daa596a1c7ea1d2538888",
+      "size": 911
+    },
+    "config_replay.py": {
+      "sha256": "82216052698e8646b2bf56eb4d2262238107c88735f18533ff98a8bedc71db93",
+      "size": 23765
+    },
+    "config_replay_report.json": {
+      "sha256": "4aee962b1884127b80f67398b0d51010c5a8b2ef3b721e6260afc6759762fa6a",
+      "size": 39006
+    },
+    "config_tz_table.csv": {
+      "sha256": "0145a6931a92154cbb8a038f42c6255bc29916ca32e279b96d8322a4adb4caa8",
+      "size": 1065
+    },
+    "expected_config.json": {
+      "sha256": "5b9c55420ac2beb4c9c683b075bce1d48c4b0b33defb552f22f964872f8ba0d7",
+      "size": 9183
+    },
+    "map_excerpt.txt": {
+      "sha256": "da315f980e4b396b95c043690f8d8fb4d6a33b32e9b7eab30a28fe8636820d7c",
+      "size": 1999
+    },
+    "map_report.json": {
+      "sha256": "43e8893bef4a6931762143c2cde2b75c6f958843277e885608dae4b6a3c3c15a",
+      "size": 29396
+    }
+  }
+}

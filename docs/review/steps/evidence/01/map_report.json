@@ -1,0 +1,1321 @@
+{
+  "map": "D:/Project/out/step01/build/EP15K_2026.map",
+  "entry_point": {
+    "symbol": "_c_int00",
+    "address": "0x0008D4E3"
+  },
+  "memory_regions": {
+    "ACCESSPROTECTION": {
+      "origin": "0x0005F4C0",
+      "length": "0x00000040",
+      "used": "0x00000000"
+    },
+    "ADCA": {
+      "origin": "0x00007400",
+      "length": "0x00000080",
+      "used": "0x0000007C"
+    },
+    "ADCARESULT": {
+      "origin": "0x00000B00",
+      "length": "0x00000018",
+      "used": "0x00000018"
+    },
+    "ADCB": {
+      "origin": "0x00007480",
+      "length": "0x00000080",
+      "used": "0x0000007C"
+    },
+    "ADCBRESULT": {
+      "origin": "0x00000B20",
+      "length": "0x00000018",
+      "used": "0x00000018"
+    },
+    "ADCC": {
+      "origin": "0x00007500",
+      "length": "0x00000080",
+      "used": "0x0000007C"
+    },
+    "ADCCRESULT": {
+      "origin": "0x00000B40",
+      "length": "0x00000018",
+      "used": "0x00000018"
+    },
+    "ADCD": {
+      "origin": "0x00007580",
+      "length": "0x00000080",
+      "used": "0x0000007C"
+    },
+    "ADCDRESULT": {
+      "origin": "0x00000B60",
+      "length": "0x00000018",
+      "used": "0x00000018"
+    },
+    "ANALOGSUBSYS": {
+      "origin": "0x0005D180",
+      "length": "0x00000048",
+      "used": "0x0000003E"
+    },
+    "BEGIN": {
+      "origin": "0x00086000",
+      "length": "0x00000002",
+      "used": "0x00000002"
+    },
+    "BOOT_RSVD": {
+      "origin": "0x00000002",
+      "length": "0x00000121",
+      "used": "0x00000000"
+    },
+    "CANA": {
+      "origin": "0x00048000",
+      "length": "0x00000200",
+      "used": "0x00000164"
+    },
+    "CANB": {
+      "origin": "0x0004A000",
+      "length": "0x00000200",
+      "used": "0x00000164"
+    },
+    "CLA1": {
+      "origin": "0x00001400",
+      "length": "0x00000080",
+      "used": "0x0000003E"
+    },
+    "CLA1_MSGRAMHIGH": {
+      "origin": "0x00001500",
+      "length": "0x00000080",
+      "used": "0x0000000A"
+    },
+    "CLA1_MSGRAMLOW": {
+      "origin": "0x00001480",
+      "length": "0x00000080",
+      "used": "0x0000003E"
+    },
+    "CLB1DATAEXCH": {
+      "origin": "0x00003200",
+      "length": "0x00000200",
+      "used": "0x00000000"
+    },
+    "CLB1LOGICCFG": {
+      "origin": "0x00003000",
+      "length": "0x00000052",
+      "used": "0x00000000"
+    },
+    "CLB1LOGICCTRL": {
+      "origin": "0x00003100",
+      "length": "0x00000040",
+      "used": "0x00000000"
+    },
+    "CLB2DATAEXCH": {
+      "origin": "0x00003600",
+      "length": "0x00000200",
+      "used": "0x00000000"
+    },
+    "CLB2LOGICCFG": {
+      "origin": "0x00003400",
+      "length": "0x00000052",
+      "used": "0x00000000"
+    },
+    "CLB2LOGICCTRL": {
+      "origin": "0x00003500",
+      "length": "0x00000040",
+      "used": "0x00000000"
+    },
+    "CLB3DATAEXCH": {
+      "origin": "0x00003A00",
+      "length": "0x00000200",
+      "used": "0x00000000"
+    },
+    "CLB3LOGICCFG": {
+      "origin": "0x00003800",
+      "length": "0x00000052",
+      "used": "0x00000000"
+    },
+    "CLB3LOGICCTRL": {
+      "origin": "0x00003900",
+      "length": "0x00000040",
+      "used": "0x00000000"
+    },
+    "CLB4DATAEXCH": {
+      "origin": "0x00003E00",
+      "length": "0x00000200",
+      "used": "0x00000000"
+    },
+    "CLB4LOGICCFG": {
+      "origin": "0x00003C00",
+      "length": "0x00000052",
+      "used": "0x00000000"
+    },
+    "CLB4LOGICCTRL": {
+      "origin": "0x00003D00",
+      "length": "0x00000040",
+      "used": "0x00000000"
+    },
+    "CLBXBAR": {
+      "origin": "0x00007A40",
+      "length": "0x00000040",
+      "used": "0x00000000"
+    },
+    "CLKCFG": {
+      "origin": "0x0005D200",
+      "length": "0x00000032",
+      "used": "0x00000032"
+    },
+    "CMPSS1": {
+      "origin": "0x00005C80",
+      "length": "0x00000020",
+      "used": "0x00000000"
+    },
+    "CMPSS2": {
+      "origin": "0x00005CA0",
+      "length": "0x00000020",
+      "used": "0x00000000"
+    },
+    "CMPSS3": {
+      "origin": "0x00005CC0",
+      "length": "0x00000020",
+      "used": "0x00000000"
+    },
+    "CMPSS4": {
+      "origin": "0x00005CE0",
+      "length": "0x00000020",
+      "used": "0x00000000"
+    },
+    "CMPSS5": {
+      "origin": "0x00005D00",
+      "length": "0x00000020",
+      "used": "0x00000000"
+    },
+    "CMPSS6": {
+      "origin": "0x00005D20",
+      "length": "0x00000020",
+      "used": "0x00000000"
+    },
+    "CMPSS7": {
+      "origin": "0x00005D40",
+      "length": "0x00000020",
+      "used": "0x00000000"
+    },
+    "CMPSS8": {
+      "origin": "0x00005D60",
+      "length": "0x00000020",
+      "used": "0x00000000"
+    },
+    "CPUSYS": {
+      "origin": "0x0005D300",
+      "length": "0x00000082",
+      "used": "0x00000082"
+    },
+    "CPUTIMER0": {
+      "origin": "0x00000C00",
+      "length": "0x00000008",
+      "used": "0x00000008"
+    },
+    "CPUTIMER1": {
+      "origin": "0x00000C08",
+      "length": "0x00000008",
+      "used": "0x00000008"
+    },
+    "CPUTIMER2": {
+      "origin": "0x00000C10",
+      "length": "0x00000008",
+      "used": "0x00000008"
+    },
+    "DACA": {
+      "origin": "0x00005C00",
+      "length": "0x00000008",
+      "used": "0x00000000"
+    },
+    "DACB": {
+      "origin": "0x00005C10",
+      "length": "0x00000008",
+      "used": "0x00000000"
+    },
+    "DACC": {
+      "origin": "0x00005C20",
+      "length": "0x00000008",
+      "used": "0x00000000"
+    },
+    "DCSMCOMMON": {
+      "origin": "0x0005F070",
+      "length": "0x00000008",
+      "used": "0x00000000"
+    },
+    "DCSMZ1": {
+      "origin": "0x0005F000",
+      "length": "0x00000024",
+      "used": "0x00000022"
+    },
+    "DCSMZ2": {
+      "origin": "0x0005F040",
+      "length": "0x00000024",
+      "used": "0x00000022"
+    },
+    "DEVCFG": {
+      "origin": "0x0005D000",
+      "length": "0x0000012E",
+      "used": "0x0000012E"
+    },
+    "DMA": {
+      "origin": "0x00001000",
+      "length": "0x00000200",
+      "used": "0x00000000"
+    },
+    "DMACLASRCSEL": {
+      "origin": "0x00007980",
+      "length": "0x0000001A",
+      "used": "0x0000001A"
+    },
+    "ECAP1": {
+      "origin": "0x00005000",
+      "length": "0x00000020",
+      "used": "0x0000001A"
+    },
+    "ECAP2": {
+      "origin": "0x00005020",
+      "length": "0x00000020",
+      "used": "0x0000001A"
+    },
+    "ECAP3": {
+      "origin": "0x00005040",
+      "length": "0x00000020",
+      "used": "0x0000001A"
+    },
+    "ECAP4": {
+      "origin": "0x00005060",
+      "length": "0x00000020",
+      "used": "0x0000001A"
+    },
+    "ECAP5": {
+      "origin": "0x00005080",
+      "length": "0x00000020",
+      "used": "0x0000001A"
+    },
+    "ECAP6": {
+      "origin": "0x000050A0",
+      "length": "0x00000020",
+      "used": "0x0000001A"
+    },
+    "EMIF1": {
+      "origin": "0x00047000",
+      "length": "0x00000070",
+      "used": "0x00000000"
+    },
+    "EMIF1CONFIG": {
+      "origin": "0x0005F480",
+      "length": "0x00000020",
+      "used": "0x00000000"
+    },
+    "EMIF2": {
+      "origin": "0x00047800",
+      "length": "0x00000070",
+      "used": "0x00000000"
+    },
+    "EMIF2CONFIG": {
+      "origin": "0x0005F4A0",
+      "length": "0x00000020",
+      "used": "0x00000000"
+    },
+    "EPWM1": {
+      "origin": "0x00004000",
+      "length": "0x00000100",
+      "used": "0x00000100"
+    },
+    "EPWM10": {
+      "origin": "0x00004900",
+      "length": "0x00000100",
+      "used": "0x00000100"
+    },
+    "EPWM11": {
+      "origin": "0x00004A00",
+      "length": "0x00000100",
+      "used": "0x00000100"
+    },
+    "EPWM12": {
+      "origin": "0x00004B00",
+      "length": "0x00000100",
+      "used": "0x00000100"
+    },
+    "EPWM2": {
+      "origin": "0x00004100",
+      "length": "0x00000100",
+      "used": "0x00000100"
+    },
+    "EPWM3": {
+      "origin": "0x00004200",
+      "length": "0x00000100",
+      "used": "0x00000100"
+    },
+    "EPWM4": {
+      "origin": "0x00004300",
+      "length": "0x00000100",
+      "used": "0x00000100"
+    },
+    "EPWM5": {
+      "origin": "0x00004400",
+      "length": "0x00000100",
+      "used": "0x00000100"
+    },
+    "EPWM6": {
+      "origin": "0x00004500",
+      "length": "0x00000100",
+      "used": "0x00000100"
+    },
+    "EPWM7": {
+      "origin": "0x00004600",
+      "length": "0x00000100",
+      "used": "0x00000100"
+    },
+    "EPWM8": {
+      "origin": "0x00004700",
+      "length": "0x00000100",
+      "used": "0x00000100"
+    },
+    "EPWM9": {
+      "origin": "0x00004800",
+      "length": "0x00000100",
+      "used": "0x00000100"
+    },
+    "EPWMXBAR": {
+      "origin": "0x00007A00",
+      "length": "0x00000040",
+      "used": "0x00000040"
+    },
+    "EQEP1": {
+      "origin": "0x00005100",
+      "length": "0x00000022",
+      "used": "0x00000000"
+    },
+    "EQEP2": {
+      "origin": "0x00005140",
+      "length": "0x00000022",
+      "used": "0x00000000"
+    },
+    "EQEP3": {
+      "origin": "0x00005180",
+      "length": "0x00000022",
+      "used": "0x00000000"
+    },
+    "FLASH0CTRL": {
+      "origin": "0x0005F800",
+      "length": "0x00000182",
+      "used": "0x00000182"
+    },
+    "FLASH0ECC": {
+      "origin": "0x0005FB00",
+      "length": "0x00000028",
+      "used": "0x00000028"
+    },
+    "FLASH1CTRL": {
+      "origin": "0x0005FC00",
+      "length": "0x00000182",
+      "used": "0x00000182"
+    },
+    "FLASH1ECC": {
+      "origin": "0x0005FF00",
+      "length": "0x00000028",
+      "used": "0x00000028"
+    },
+    "FLASHPUMPSEMAPHORE": {
+      "origin": "0x00050024",
+      "length": "0x00000002",
+      "used": "0x00000002"
+    },
+    "FLASH_APP": {
+      "origin": "0x00086002",
+      "length": "0x00019FFE",
+      "used": "0x00009AF1"
+    },
+    "FLASH_BACKUP_RSVD": {
+      "origin": "0x000A0000",
+      "length": "0x0001A000",
+      "used": "0x00000000"
+    },
+    "FLASH_BOOT_RSVD": {
+      "origin": "0x00080000",
+      "length": "0x00006000",
+      "used": "0x00000000"
+    },
+    "FLASH_CFG_RSVD": {
+      "origin": "0x000BE000",
+      "length": "0x00001FF0",
+      "used": "0x00000000"
+    },
+    "FLASH_SPARE_RSVD": {
+      "origin": "0x000BA000",
+      "length": "0x00004000",
+      "used": "0x00000000"
+    },
+    "GPIOCTRL": {
+      "origin": "0x00007C00",
+      "length": "0x00000180",
+      "used": "0x00000180"
+    },
+    "GPIODATA": {
+      "origin": "0x00007F00",
+      "length": "0x00000030",
+      "used": "0x00000030"
+    },
+    "I2CA": {
+      "origin": "0x00007300",
+      "length": "0x00000022",
+      "used": "0x00000000"
+    },
+    "I2CB": {
+      "origin": "0x00007340",
+      "length": "0x00000022",
+      "used": "0x00000000"
+    },
+    "INPUTXBAR": {
+      "origin": "0x00007900",
+      "length": "0x00000020",
+      "used": "0x00000020"
+    },
+    "MCBSPA": {
+      "origin": "0x00006000",
+      "length": "0x00000024",
+      "used": "0x00000000"
+    },
+    "MCBSPB": {
+      "origin": "0x00006040",
+      "length": "0x00000024",
+      "used": "0x00000000"
+    },
+    "MEMCFG": {
+      "origin": "0x0005F400",
+      "length": "0x00000080",
+      "used": "0x00000076"
+    },
+    "MEMORYERROR": {
+      "origin": "0x0005F500",
+      "length": "0x00000040",
+      "used": "0x00000000"
+    },
+    "NMIINTRUPT": {
+      "origin": "0x00007060",
+      "length": "0x00000007",
+      "used": "0x00000000"
+    },
+    "OUTPUTXBAR": {
+      "origin": "0x00007A80",
+      "length": "0x00000040",
+      "used": "0x00000000"
+    },
+    "PIECTRL": {
+      "origin": "0x00000CE0",
+      "length": "0x0000001A",
+      "used": "0x0000001A"
+    },
+    "PIEVECTTABLE": {
+      "origin": "0x00000D00",
+      "length": "0x00000200",
+      "used": "0x000001C0"
+    },
+    "RAMD0": {
+      "origin": "0x0000B000",
+      "length": "0x00000800",
+      "used": "0x000001EF"
+    },
+    "RAMGS0": {
+      "origin": "0x0000C000",
+      "length": "0x00001000",
+      "used": "0x00000FFE"
+    },
+    "RAMGS1": {
+      "origin": "0x0000D000",
+      "length": "0x00001000",
+      "used": "0x00000E63"
+    },
+    "RAMGS10": {
+      "origin": "0x00016000",
+      "length": "0x00001000",
+      "used": "0x00000000"
+    },
+    "RAMGS11": {
+      "origin": "0x00017000",
+      "length": "0x00001000",
+      "used": "0x00000000"
+    },
+    "RAMGS2": {
+      "origin": "0x0000E000",
+      "length": "0x00001000",
+      "used": "0x00000000"
+    },
+    "RAMGS3": {
+      "origin": "0x0000F000",
+      "length": "0x00001000",
+      "used": "0x00000000"
+    },
+    "RAMGS4": {
+      "origin": "0x00010000",
+      "length": "0x00001000",
+      "used": "0x00000000"
+    },
+    "RAMGS5": {
+      "origin": "0x00011000",
+      "length": "0x00001000",
+      "used": "0x00000000"
+    },
+    "RAMGS6": {
+      "origin": "0x00012000",
+      "length": "0x00001000",
+      "used": "0x00000000"
+    },
+    "RAMGS7": {
+      "origin": "0x00013000",
+      "length": "0x00001000",
+      "used": "0x00000000"
+    },
+    "RAMGS8": {
+      "origin": "0x00014000",
+      "length": "0x00001000",
+      "used": "0x00000000"
+    },
+    "RAMGS9": {
+      "origin": "0x00015000",
+      "length": "0x00001000",
+      "used": "0x00000000"
+    },
+    "RAMLS0": {
+      "origin": "0x00008000",
+      "length": "0x00000800",
+      "used": "0x00000466"
+    },
+    "RAMLS1": {
+      "origin": "0x00008800",
+      "length": "0x00000800",
+      "used": "0x00000000"
+    },
+    "RAMLS2": {
+      "origin": "0x00009000",
+      "length": "0x00000800",
+      "used": "0x00000000"
+    },
+    "RAMLS3": {
+      "origin": "0x00009800",
+      "length": "0x00000800",
+      "used": "0x00000000"
+    },
+    "RAMLS4": {
+      "origin": "0x0000A000",
+      "length": "0x00000800",
+      "used": "0x00000000"
+    },
+    "RAMLS5": {
+      "origin": "0x0000A800",
+      "length": "0x00000800",
+      "used": "0x00000032"
+    },
+    "RAMM0": {
+      "origin": "0x00000123",
+      "length": "0x000002DD",
+      "used": "0x00000000"
+    },
+    "RAMM1": {
+      "origin": "0x00000400",
+      "length": "0x000003F8",
+      "used": "0x00000200"
+    },
+    "RESET": {
+      "origin": "0x003FFFC0",
+      "length": "0x00000002",
+      "used": "0x00000000"
+    },
+    "ROMPREFETCH": {
+      "origin": "0x0005E608",
+      "length": "0x00000002",
+      "used": "0x00000000"
+    },
+    "ROMWAITSTATE": {
+      "origin": "0x0005F540",
+      "length": "0x00000002",
+      "used": "0x00000000"
+    },
+    "SCIA": {
+      "origin": "0x00007200",
+      "length": "0x00000010",
+      "used": "0x00000010"
+    },
+    "SCIB": {
+      "origin": "0x00007210",
+      "length": "0x00000010",
+      "used": "0x00000010"
+    },
+    "SCIC": {
+      "origin": "0x00007220",
+      "length": "0x00000010",
+      "used": "0x00000010"
+    },
+    "SCID": {
+      "origin": "0x00007230",
+      "length": "0x00000010",
+      "used": "0x00000010"
+    },
+    "SDFM1": {
+      "origin": "0x00005E00",
+      "length": "0x00000080",
+      "used": "0x00000000"
+    },
+    "SDFM2": {
+      "origin": "0x00005E80",
+      "length": "0x00000080",
+      "used": "0x00000000"
+    },
+    "SPIA": {
+      "origin": "0x00006100",
+      "length": "0x00000010",
+      "used": "0x00000010"
+    },
+    "SPIB": {
+      "origin": "0x00006110",
+      "length": "0x00000010",
+      "used": "0x00000010"
+    },
+    "SPIC": {
+      "origin": "0x00006120",
+      "length": "0x00000010",
+      "used": "0x00000010"
+    },
+    "SYNCSOC": {
+      "origin": "0x00007940",
+      "length": "0x00000006",
+      "used": "0x00000006"
+    },
+    "UPP": {
+      "origin": "0x00006200",
+      "length": "0x00000048",
+      "used": "0x00000000"
+    },
+    "WD": {
+      "origin": "0x00007000",
+      "length": "0x0000002B",
+      "used": "0x0000002B"
+    },
+    "XBAR": {
+      "origin": "0x00007920",
+      "length": "0x00000020",
+      "used": "0x00000000"
+    },
+    "XINT": {
+      "origin": "0x00007070",
+      "length": "0x0000000B",
+      "used": "0x0000000B"
+    }
+  },
+  "sections": {
+    "*": {
+      "page": 1,
+      "origin": "0x00007070",
+      "length": "0x0000000B",
+      "run": null
+    },
+    ".TI.ramfunc": {
+      "page": 0,
+      "origin": "0x0008D568",
+      "length": "0x000001EF",
+      "run": null
+    },
+    ".bss.1": {
+      "page": 1,
+      "origin": "0x0000C500",
+      "length": "0x00000AFF",
+      "run": null
+    },
+    ".bss.2": {
+      "page": 1,
+      "origin": "0x0000D000",
+      "length": "0x000009BE",
+      "run": null
+    },
+    ".bss.3": {
+      "page": 1,
+      "origin": "0x0000D9C0",
+      "length": "0x000004A5",
+      "run": null
+    },
+    ".cinit": {
+      "page": 0,
+      "origin": "0x0008F958",
+      "length": "0x000001B2",
+      "run": null
+    },
+    ".const.1": {
+      "page": 0,
+      "origin": "0x0008D758",
+      "length": "0x000019A6",
+      "run": null
+    },
+    ".const.2": {
+      "page": 0,
+      "origin": "0x0008F100",
+      "length": "0x0000081B",
+      "run": null
+    },
+    ".const_cla": {
+      "page": 0,
+      "origin": "0x0000A000",
+      "length": "0x00000000",
+      "run": null
+    },
+    ".data": {
+      "page": 1,
+      "origin": "0x0000C000",
+      "length": "0x000004FF",
+      "run": null
+    },
+    ".init_array": {
+      "page": 0,
+      "origin": "0x00086008",
+      "length": "0x00000000",
+      "run": null
+    },
+    ".reset": {
+      "page": 0,
+      "origin": "0x003FFFC0",
+      "length": "0x00000000",
+      "run": null
+    },
+    ".scratchpad": {
+      "page": 0,
+      "origin": "0x0000A82C",
+      "length": "0x00000008",
+      "run": null
+    },
+    ".stack": {
+      "page": 1,
+      "origin": "0x00000400",
+      "length": "0x00000200",
+      "run": null
+    },
+    ".switch": {
+      "page": 0,
+      "origin": "0x0008F920",
+      "length": "0x00000036",
+      "run": null
+    },
+    ".text": {
+      "page": 0,
+      "origin": "0x00086470",
+      "length": "0x000070F3",
+      "run": null
+    },
+    "AdcaRegsFile": {
+      "page": 1,
+      "origin": "0x00007400",
+      "length": "0x0000007C",
+      "run": null
+    },
+    "AdcaResultRegsFile": {
+      "page": 1,
+      "origin": "0x00000B00",
+      "length": "0x00000018",
+      "run": null
+    },
+    "AdcbRegsFile": {
+      "page": 1,
+      "origin": "0x00007480",
+      "length": "0x0000007C",
+      "run": null
+    },
+    "AdcbResultRegsFile": {
+      "page": 1,
+      "origin": "0x00000B20",
+      "length": "0x00000018",
+      "run": null
+    },
+    "AdccRegsFile": {
+      "page": 1,
+      "origin": "0x00007500",
+      "length": "0x0000007C",
+      "run": null
+    },
+    "AdccResultRegsFile": {
+      "page": 1,
+      "origin": "0x00000B40",
+      "length": "0x00000018",
+      "run": null
+    },
+    "AdcdRegsFile": {
+      "page": 1,
+      "origin": "0x00007580",
+      "length": "0x0000007C",
+      "run": null
+    },
+    "AdcdResultRegsFile": {
+      "page": 1,
+      "origin": "0x00000B60",
+      "length": "0x00000018",
+      "run": null
+    },
+    "AnalogSubsysRegsFile": {
+      "page": 1,
+      "origin": "0x0005D180",
+      "length": "0x0000003E",
+      "run": null
+    },
+    "CanaRegsFile": {
+      "page": 1,
+      "origin": "0x00048000",
+      "length": "0x00000164",
+      "run": null
+    },
+    "CanbRegsFile": {
+      "page": 1,
+      "origin": "0x0004A000",
+      "length": "0x00000164",
+      "run": null
+    },
+    "Cla1DataRam": {
+      "page": 0,
+      "origin": "0x0000A800",
+      "length": "0x0000002A",
+      "run": null
+    },
+    "Cla1Prog": {
+      "page": 0,
+      "origin": "0x00086008",
+      "length": "0x00000466",
+      "run": "0x00008000"
+    },
+    "Cla1RegsFile": {
+      "page": 1,
+      "origin": "0x00001400",
+      "length": "0x0000003E",
+      "run": null
+    },
+    "Cla1ToCpuMsgRAM": {
+      "page": 1,
+      "origin": "0x00001480",
+      "length": "0x0000003E",
+      "run": null
+    },
+    "ClkCfgRegsFile": {
+      "page": 1,
+      "origin": "0x0005D200",
+      "length": "0x00000032",
+      "run": null
+    },
+    "CpuSysRegsFile": {
+      "page": 1,
+      "origin": "0x0005D300",
+      "length": "0x00000082",
+      "run": null
+    },
+    "CpuTimer0RegsFile": {
+      "page": 1,
+      "origin": "0x00000C00",
+      "length": "0x00000008",
+      "run": null
+    },
+    "CpuTimer1RegsFile": {
+      "page": 1,
+      "origin": "0x00000C08",
+      "length": "0x00000008",
+      "run": null
+    },
+    "CpuTimer2RegsFile": {
+      "page": 1,
+      "origin": "0x00000C10",
+      "length": "0x00000008",
+      "run": null
+    },
+    "CpuToCla1MsgRAM": {
+      "page": 1,
+      "origin": "0x00001500",
+      "length": "0x0000000A",
+      "run": null
+    },
+    "DcsmZ1RegsFile": {
+      "page": 1,
+      "origin": "0x0005F000",
+      "length": "0x00000022",
+      "run": null
+    },
+    "DcsmZ2RegsFile": {
+      "page": 1,
+      "origin": "0x0005F040",
+      "length": "0x00000022",
+      "run": null
+    },
+    "DevCfgRegsFile": {
+      "page": 1,
+      "origin": "0x0005D000",
+      "length": "0x0000012E",
+      "run": null
+    },
+    "DmaClaSrcSelRegsFile": {
+      "page": 1,
+      "origin": "0x00007980",
+      "length": "0x0000001A",
+      "run": null
+    },
+    "ECap1RegsFile": {
+      "page": 1,
+      "origin": "0x00005000",
+      "length": "0x0000001A",
+      "run": null
+    },
+    "ECap2RegsFile": {
+      "page": 1,
+      "origin": "0x00005020",
+      "length": "0x0000001A",
+      "run": null
+    },
+    "ECap3RegsFile": {
+      "page": 1,
+      "origin": "0x00005040",
+      "length": "0x0000001A",
+      "run": null
+    },
+    "ECap4RegsFile": {
+      "page": 1,
+      "origin": "0x00005060",
+      "length": "0x0000001A",
+      "run": null
+    },
+    "ECap5RegsFile": {
+      "page": 1,
+      "origin": "0x00005080",
+      "length": "0x0000001A",
+      "run": null
+    },
+    "ECap6RegsFile": {
+      "page": 1,
+      "origin": "0x000050A0",
+      "length": "0x0000001A",
+      "run": null
+    },
+    "EPwm10RegsFile": {
+      "page": 1,
+      "origin": "0x00004900",
+      "length": "0x00000100",
+      "run": null
+    },
+    "EPwm11RegsFile": {
+      "page": 1,
+      "origin": "0x00004A00",
+      "length": "0x00000100",
+      "run": null
+    },
+    "EPwm12RegsFile": {
+      "page": 1,
+      "origin": "0x00004B00",
+      "length": "0x00000100",
+      "run": null
+    },
+    "EPwm1RegsFile": {
+      "page": 1,
+      "origin": "0x00004000",
+      "length": "0x00000100",
+      "run": null
+    },
+    "EPwm2RegsFile": {
+      "page": 1,
+      "origin": "0x00004100",
+      "length": "0x00000100",
+      "run": null
+    },
+    "EPwm3RegsFile": {
+      "page": 1,
+      "origin": "0x00004200",
+      "length": "0x00000100",
+      "run": null
+    },
+    "EPwm4RegsFile": {
+      "page": 1,
+      "origin": "0x00004300",
+      "length": "0x00000100",
+      "run": null
+    },
+    "EPwm5RegsFile": {
+      "page": 1,
+      "origin": "0x00004400",
+      "length": "0x00000100",
+      "run": null
+    },
+    "EPwm6RegsFile": {
+      "page": 1,
+      "origin": "0x00004500",
+      "length": "0x00000100",
+      "run": null
+    },
+    "EPwm7RegsFile": {
+      "page": 1,
+      "origin": "0x00004600",
+      "length": "0x00000100",
+      "run": null
+    },
+    "EPwm8RegsFile": {
+      "page": 1,
+      "origin": "0x00004700",
+      "length": "0x00000100",
+      "run": null
+    },
+    "EPwm9RegsFile": {
+      "page": 1,
+      "origin": "0x00004800",
+      "length": "0x00000100",
+      "run": null
+    },
+    "EPwmXbarRegsFile": {
+      "page": 1,
+      "origin": "0x00007A00",
+      "length": "0x00000040",
+      "run": null
+    },
+    "EmuBModeVar": {
+      "page": 1,
+      "origin": "0x00000D00",
+      "length": "0x00000000",
+      "run": null
+    },
+    "EmuBootPinsVar": {
+      "page": 1,
+      "origin": "0x00000D00",
+      "length": "0x00000000",
+      "run": null
+    },
+    "EmuKeyVar": {
+      "page": 1,
+      "origin": "0x00000D00",
+      "length": "0x00000000",
+      "run": null
+    },
+    "Flash0CtrlRegsFile": {
+      "page": 1,
+      "origin": "0x0005F800",
+      "length": "0x00000182",
+      "run": null
+    },
+    "Flash0EccRegsFile": {
+      "page": 1,
+      "origin": "0x0005FB00",
+      "length": "0x00000028",
+      "run": null
+    },
+    "Flash1CtrlRegsFile": {
+      "page": 1,
+      "origin": "0x0005FC00",
+      "length": "0x00000182",
+      "run": null
+    },
+    "Flash1EccRegsFile": {
+      "page": 1,
+      "origin": "0x0005FF00",
+      "length": "0x00000028",
+      "run": null
+    },
+    "FlashCallbackVar": {
+      "page": 1,
+      "origin": "0x00000D00",
+      "length": "0x00000000",
+      "run": null
+    },
+    "FlashPumpSemaphoreRegsFile": {
+      "page": 1,
+      "origin": "0x00050024",
+      "length": "0x00000002",
+      "run": null
+    },
+    "FlashScalingVar": {
+      "page": 1,
+      "origin": "0x00000D00",
+      "length": "0x00000000",
+      "run": null
+    },
+    "GpioCtrlRegsFile": {
+      "page": 1,
+      "origin": "0x00007C00",
+      "length": "0x00000180",
+      "run": null
+    },
+    "GpioDataRegsFile": {
+      "page": 1,
+      "origin": "0x00007F00",
+      "length": "0x00000030",
+      "run": null
+    },
+    "InputXbarRegsFile": {
+      "page": 1,
+      "origin": "0x00007900",
+      "length": "0x00000020",
+      "run": null
+    },
+    "MemCfgRegsFile": {
+      "page": 1,
+      "origin": "0x0005F400",
+      "length": "0x00000076",
+      "run": null
+    },
+    "PieCtrlRegsFile": {
+      "page": 1,
+      "origin": "0x00000CE0",
+      "length": "0x0000001A",
+      "run": null
+    },
+    "PieVectTableFile": {
+      "page": 1,
+      "origin": "0x00000D00",
+      "length": "0x000001C0",
+      "run": null
+    },
+    "SciaRegsFile": {
+      "page": 1,
+      "origin": "0x00007200",
+      "length": "0x00000010",
+      "run": null
+    },
+    "ScibRegsFile": {
+      "page": 1,
+      "origin": "0x00007210",
+      "length": "0x00000010",
+      "run": null
+    },
+    "ScicRegsFile": {
+      "page": 1,
+      "origin": "0x00007220",
+      "length": "0x00000010",
+      "run": null
+    },
+    "ScidRegsFile": {
+      "page": 1,
+      "origin": "0x00007230",
+      "length": "0x00000010",
+      "run": null
+    },
+    "SpiaRegsFile": {
+      "page": 1,
+      "origin": "0x00006100",
+      "length": "0x00000010",
+      "run": null
+    },
+    "SpibRegsFile": {
+      "page": 1,
+      "origin": "0x00006110",
+      "length": "0x00000010",
+      "run": null
+    },
+    "SpicRegsFile": {
+      "page": 1,
+      "origin": "0x00006120",
+      "length": "0x00000010",
+      "run": null
+    },
+    "SyncSocRegsFile": {
+      "page": 1,
+      "origin": "0x00007940",
+      "length": "0x00000006",
+      "run": null
+    },
+    "WdRegsFile": {
+      "page": 1,
+      "origin": "0x00007000",
+      "length": "0x0000002B",
+      "run": null
+    },
+    "XintRegsFile": {
+      "page": 1,
+      "origin": "0x00007070",
+      "length": "0x0000000B",
+      "run": null
+    },
+    "codestart": {
+      "page": 0,
+      "origin": "0x00086000",
+      "length": "0x00000002",
+      "run": null
+    }
+  },
+  "stale_map_comparison": {
+    "Cla1ToCpuMsgRAM": {
+      "origin": "0x00001500",
+      "length": "0x0000003C",
+      "run": null
+    },
+    "CpuToCla1MsgRAM": {
+      "origin": "0x00001480",
+      "length": "0x0000000A",
+      "run": null
+    },
+    "Cla1Prog": {
+      "origin": "0x00086008",
+      "length": "0x00000346",
+      "run": "0x00008000"
+    },
+    "codestart": {
+      "origin": "0x00086000",
+      "length": "0x00000002",
+      "run": null
+    },
+    ".stack": {
+      "origin": "0x00000400",
+      "length": "0x00000200",
+      "run": null
+    },
+    "_entry": {
+      "symbol": "_c_int00",
+      "address": "0x0008D25A"
+    }
+  },
+  "checks": [
+    {
+      "id": "A02-1",
+      "title": "codestart 段落在 BEGIN",
+      "expected": "origin=0x00086000, length=0x2",
+      "actual": "origin=0x00086000, length=0x2",
+      "verdict": "通过"
+    },
+    {
+      "id": "A02-2",
+      "title": "入口符号有效且位于 FLASH_APP（不断言等于 0x86000）",
+      "expected": "符号 _c_int00 存在，地址在 0x00086000~0x000A0000 内且 != 0x86000",
+      "actual": "symbol=_c_int00 entry_addr=0x0008D4E3 symbol_table_addr=0x0008D4E3",
+      "verdict": "通过"
+    },
+    {
+      "id": "A02-3",
+      "title": "CLA 程序装载于 FLASH、运行于 RAMLS",
+      "expected": "load 在 0x00086000~0x000A0000，run 在 0x8000~0xA800",
+      "actual": "load=0x00086008 length=0x00000466 run=0x00008000",
+      "verdict": "通过"
+    },
+    {
+      "id": "A02-4",
+      "title": ".stack 位于 RAMM1 且长度 0x200",
+      "expected": "origin 在 0x400~0x7F7，length=0x200",
+      "actual": "page=1 origin=0x00000400 length=0x00000200",
+      "verdict": "通过"
+    },
+    {
+      "id": "A02-5",
+      "title": "两向消息 RAM 方向与容量",
+      "expected": "Cla1ToCpu=0x1480 len<=0x80，CpuToCla1=0x1500 len<=0x80，互不重叠",
+      "actual": "Cla1ToCpu=0x00001480 len=0x3E；CpuToCla1=0x00001500 len=0xA",
+      "verdict": "通过"
+    },
+    {
+      "id": "A02-6",
+      "title": "CLA 数据段运行于 RAMLS5",
+      "expected": "run(origin)=0xA800，length<=0x800",
+      "actual": "page=0 load_image=0x0000A800 run=0x0000A800 length=0x2A",
+      "verdict": "通过"
+    }
+  ],
+  "observations": [
+    {
+      "id": "A02-7",
+      "title": "仓库内已跟踪的 Debug/EP15K_2026.map 与当前链接结果是否一致",
+      "finding": "旧 map 的 CLA 消息 RAM 方向与本次链接相反",
+      "detail": "旧 map: Cla1ToCpu=0x00001500, CpuToCla1=0x00001480；本次: Cla1ToCpu=0x00001480, CpuToCla1=0x00001500",
+      "impact": "已跟踪的 Debug/ 产物是修复前构建，不得作为 A02 证据；如需分发二进制必须重新构建",
+      "stale_entry": {
+        "symbol": "_c_int00",
+        "address": "0x0008D25A"
+      }
+    }
+  ],
+  "summary": {
+    "total": 6,
+    "passed": 6,
+    "failed": 0
+  }
+}

@@ -1,0 +1,1574 @@
+{
+  "meta": {
+    "step": "01",
+    "item": "A03",
+    "generated_at": "2026-10-30T10:09:39",
+    "head_sha": "f7978e1bbfdff4943630efa6713e5ed30ec10930",
+    "repo_root": "D:\\Project\\CCS-Project",
+    "expected_config": "docs/review/steps/evidence/01/expected_config.json",
+    "statement": "静态配置核对：比对配置表与驱动写入逻辑，不验证板上时序、极性或闭环行为。"
+  },
+  "summary": {
+    "counts": {
+      "PASS": 23,
+      "FAIL": 4,
+      "PENDING": 3,
+      "INFO": 0
+    },
+    "by_domain": {
+      "adc": {
+        "PASS": 9,
+        "FAIL": 0,
+        "PENDING": 1,
+        "INFO": 0
+      },
+      "xbar": {
+        "PASS": 4,
+        "FAIL": 1,
+        "PENDING": 1,
+        "INFO": 0
+      },
+      "tz": {
+        "PASS": 5,
+        "FAIL": 1,
+        "PENDING": 0,
+        "INFO": 0
+      },
+      "pwm": {
+        "PASS": 5,
+        "FAIL": 2,
+        "PENDING": 1,
+        "INFO": 0
+      }
+    },
+    "a03_verdict": "未通过",
+    "fail_items": [
+      "A03-XB-06",
+      "A03-TZ-04",
+      "A03-PWM-05",
+      "A03-PWM-06"
+    ],
+    "pending_items": [
+      "A03-ADC-10",
+      "A03-XB-05",
+      "A03-PWM-08"
+    ]
+  },
+  "checks": [
+    {
+      "id": "A03-ADC-01",
+      "domain": "adc",
+      "title": "四个 ADC 模块的 SOC 表步长 = 4",
+      "basis": "RULED_DESIGN",
+      "expected": 4,
+      "actual": [
+        4,
+        4,
+        4,
+        4
+      ],
+      "verdict": "PASS",
+      "detail": "Hw_AdcDriver.c 用 soc*stride 索引交织表；步长错误会导致跨模块取到别的通道"
+    },
+    {
+      "id": "A03-ADC-02",
+      "domain": "adc",
+      "title": "模块基址偏移 = [0,1,2,3]",
+      "basis": "RULED_DESIGN",
+      "expected": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "actual": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "verdict": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "A03-ADC-03",
+      "domain": "adc",
+      "title": "SOCCTL 位域移位与器件头文件一致",
+      "basis": "RULED_DESIGN",
+      "expected": {
+        "ACQPS": 0,
+        "CHSEL": 15,
+        "TRIGSEL": 20
+      },
+      "actual": {
+        "ACQPS": 0,
+        "CHSEL": 15,
+        "TRIGSEL": 20
+      },
+      "verdict": "PASS",
+      "detail": "驱动器 macro 的移位值 vs F2837xS_adc.h:324-331 的字段起始位 (header={'ACQPS': 0, 'rsvd1': 9, 'CHSEL': 15, 'TRIGSEL': 20, 'rsvd3': 25})"
+    },
+    {
+      "id": "A03-ADC-04",
+      "domain": "adc",
+      "title": "SOC15(A) 为 ADCINT1 锚点：触发源 5、ACQPS 120",
+      "basis": "RULED_DESIGN",
+      "expected": {
+        "trig": 5,
+        "acqps": 120
+      },
+      "actual": {
+        "trig": 5,
+        "acqps": 120
+      },
+      "verdict": "PASS",
+      "detail": "锚点必须是本批最后一个完成转换的 SOC，否则 ADCINT1 早于其他通道 EOC"
+    },
+    {
+      "id": "A03-ADC-05",
+      "domain": "adc",
+      "title": "ADC-A 的 INT1 选 SOC15、INT2 选 SOC9 且均连续模式",
+      "basis": "RULED_DESIGN",
+      "expected": {
+        "int1_sel": 15,
+        "int2_sel": 9,
+        "cont": 1
+      },
+      "actual": {
+        "int1_sel": 15,
+        "int2_sel": 9,
+        "cont": 1
+      },
+      "verdict": "PASS",
+      "detail": "INT1CONT/INT2CONT 由驱动固定写 1（Hw_AdcDriver.c:240-255）"
+    },
+    {
+      "id": "A03-ADC-06",
+      "domain": "adc",
+      "title": "ADCSOCPRICTL.SOCPRIORITY = 16（固定优先级）",
+      "basis": "RULED_DESIGN",
+      "expected": 16,
+      "actual": 16,
+      "verdict": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "A03-ADC-07",
+      "domain": "adc",
+      "title": "ADCCTL2.PRESCALE = 6（ADCCLK = SYSCLK/4）",
+      "basis": "RULED_DESIGN",
+      "expected": 6,
+      "actual": 6,
+      "verdict": "PASS",
+      "detail": "SYSCLK=200MHz 时 ADCCLK=50MHz，需 ≤ 器件上限；实际 SYSCLK 由时钟配置决定，属待板核对项"
+    },
+    {
+      "id": "A03-ADC-08",
+      "domain": "adc",
+      "title": "ADCCTL1.INTPULSEPOS = 1（EOC 时出中断脉冲）",
+      "basis": "RULED_DESIGN",
+      "expected": 1,
+      "actual": 1,
+      "verdict": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "A03-ADC-09",
+      "domain": "adc",
+      "title": "未使用项全 0（驱动据此跳过写入）",
+      "basis": "RULED_DESIGN",
+      "expected": 0,
+      "actual": 0,
+      "verdict": "PASS",
+      "detail": "部分非零项索引: []"
+    },
+    {
+      "id": "A03-ADC-10",
+      "domain": "adc",
+      "title": "ADC 通道→板上信号映射",
+      "basis": "PENDING",
+      "expected": "PENDING（需原理图核对）",
+      "actual": "25 个已配置 SOC",
+      "verdict": "PENDING",
+      "detail": "通道语义不在本步骤解码；表中的信号注释只作为现状记录"
+    },
+    {
+      "id": "A03-XB-01",
+      "domain": "xbar",
+      "title": "InputX-BAR 引脚映射",
+      "basis": "RULED_DESIGN",
+      "expected": {
+        "HW_XBAR_INPUT1": 13,
+        "HW_XBAR_INPUT2": 17,
+        "HW_XBAR_INPUT3": 41,
+        "HW_XBAR_INPUT4": 81,
+        "HW_XBAR_INPUT5": 82,
+        "HW_XBAR_INPUT6": 40
+      },
+      "actual": {
+        "HW_XBAR_INPUT1": 13,
+        "HW_XBAR_INPUT2": 17,
+        "HW_XBAR_INPUT3": 41,
+        "HW_XBAR_INPUT4": 81,
+        "HW_XBAR_INPUT5": 82,
+        "HW_XBAR_INPUT6": 40
+      },
+      "verdict": "PASS",
+      "detail": "硬件事实，依据为用户确认的 GPIO 分配"
+    },
+    {
+      "id": "A03-XB-02",
+      "domain": "xbar",
+      "title": "TRIP↔MUX 映射（INPUT1..6 → MUX1/3/5/7/9/11）",
+      "basis": "RULED_DESIGN",
+      "expected": {
+        "HW_XBAR_TRIP4": 1,
+        "HW_XBAR_TRIP5": 3,
+        "HW_XBAR_TRIP7": 5,
+        "HW_XBAR_TRIP8": 11,
+        "HW_XBAR_TRIP9": 7,
+        "HW_XBAR_TRIP10": 9
+      },
+      "actual": {
+        "HW_XBAR_TRIP4": 1,
+        "HW_XBAR_TRIP5": 3,
+        "HW_XBAR_TRIP7": 5,
+        "HW_XBAR_TRIP8": 11,
+        "HW_XBAR_TRIP9": 7,
+        "HW_XBAR_TRIP10": 9
+      },
+      "verdict": "PASS",
+      "detail": "TRM Table 8-2：奇数 MUX 组选择该组 INPUTXBAR 源"
+    },
+    {
+      "id": "A03-XB-03",
+      "domain": "xbar",
+      "title": "TRIP MUX 均为 ENABLE 模式（选择 INPUTXBAR 源）",
+      "basis": "RULED_DESIGN",
+      "expected": true,
+      "actual": true,
+      "verdict": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "A03-XB-04",
+      "domain": "xbar",
+      "title": "逆变过流与短路分路到 TRIP9/TRIP10",
+      "basis": "RULED_DESIGN",
+      "expected": {
+        "HW_XBAR_TRIP9": "HW_XBAR_INPUT4",
+        "HW_XBAR_TRIP10": "HW_XBAR_INPUT5"
+      },
+      "actual": {
+        "HW_XBAR_TRIP9": "HW_XBAR_INPUT4",
+        "HW_XBAR_TRIP10": "HW_XBAR_INPUT5"
+      },
+      "verdict": "PASS",
+      "detail": "F02 修复意图：低有效故障不得先或后判断"
+    },
+    {
+      "id": "A03-XB-05",
+      "domain": "xbar",
+      "title": "TRIP 输出极性 TRIPOUTINV",
+      "basis": "PENDING",
+      "expected": "PENDING（表值与注释冲突：表=1 全反相，注释=不取反）",
+      "actual": {
+        "HW_XBAR_TRIP4": 1,
+        "HW_XBAR_TRIP5": 1,
+        "HW_XBAR_TRIP7": 1,
+        "HW_XBAR_TRIP8": 1,
+        "HW_XBAR_TRIP9": 1,
+        "HW_XBAR_TRIP10": 1
+      },
+      "verdict": "PENDING",
+      "detail": "极性取决于比较器输出与板上网络；需原理图/台架裁定，本步骤不下结论"
+    },
+    {
+      "id": "A03-XB-06",
+      "domain": "xbar",
+      "title": "X-BAR 注释与表实现一致",
+      "basis": "RULED_DESIGN",
+      "expected": "注释应说明 TRIP9/TRIP10 分路",
+      "actual": "仍存在『共用 TRIP9』注释",
+      "verdict": "FAIL",
+      "detail": "代码行为正确、注释过期，属文档一致性问题"
+    },
+    {
+      "id": "A03-TZ-01",
+      "domain": "tz",
+      "title": "TZ 项数 = 6 路 INV + 4 路 PV = 10",
+      "basis": "RULED_DESIGN",
+      "expected": 10,
+      "actual": 10,
+      "verdict": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "A03-TZ-02",
+      "domain": "tz",
+      "title": "六路逆变：DCAH←TRIP9、DCBH←TRIP10、两侧 FORCE_LOW",
+      "basis": "RULED_DESIGN",
+      "expected": true,
+      "actual": true,
+      "verdict": "PASS",
+      "detail": "实际条目: [{'HW_PWM_ID0': ('HW_PWM_TRIP_9', 'HW_PWM_TRIP_10')}, {'HW_PWM_ID3': ('HW_PWM_TRIP_9', 'HW_PWM_TRIP_10')}, {'HW_PWM_ID1': ('HW_PWM_TRIP_9', 'HW_PWM_TRIP_10')}, {'HW_PWM_ID9': ('HW_PWM_TRIP_9', 'HW_PWM_TRIP_10')}, {'HW_PWM_ID2': ('HW_PWM_TRIP_9', 'HW_PWM_TRIP_10')}, {'HW_PWM_ID10': ('HW_PWM_TRIP_9', 'HW_PWM_TRIP_10')}]"
+    },
+    {
+      "id": "A03-TZ-03",
+      "domain": "tz",
+      "title": "四路 PV：A 侧各自独立 TRIP，B 侧不接",
+      "basis": "RULED_DESIGN",
+      "expected": {
+        "HW_PWM_ID6": "HW_PWM_TRIP_4",
+        "HW_PWM_ID8": "HW_PWM_TRIP_5",
+        "HW_PWM_ID4": "HW_PWM_TRIP_7",
+        "HW_PWM_ID5": "HW_PWM_TRIP_8"
+      },
+      "actual": {
+        "HW_PWM_ID6": "HW_PWM_TRIP_4",
+        "HW_PWM_ID8": "HW_PWM_TRIP_5",
+        "HW_PWM_ID4": "HW_PWM_TRIP_7",
+        "HW_PWM_ID5": "HW_PWM_TRIP_8"
+      },
+      "verdict": "PASS",
+      "detail": "PV 条目 DCB 应为 HW_PWM_TRIP_NONE"
+    },
+    {
+      "id": "A03-TZ-04",
+      "domain": "tz",
+      "title": "BUS(EPWM8) 具备专属硬件 TZ 源",
+      "basis": "RULED_DESIGN",
+      "expected": "必须有专属硬件 TZ 源（母线过流不能只靠软件轮询）",
+      "actual": "无 BUS TZ 条目",
+      "verdict": "FAIL",
+      "detail": "F03：当前仅靠启动时 OST 锁存，母线过流无硬件级封波路径；本步骤只登记，不修"
+    },
+    {
+      "id": "A03-TZ-05",
+      "domain": "tz",
+      "title": "DCAHTRIPSEL 按 1<<(TRIPn-1) 编码、COMPSEL 选对应比较通道",
+      "basis": "TI_MANUAL",
+      "expected": "DCAHTRIPSEL = 1<<(TRIPn-1)，DCAHCOMPSEL = TRIPn-1",
+      "actual": "驱动按该编码写入",
+      "verdict": "PASS",
+      "detail": "TRM TZ 子模块：DCAH 是或门，TRIPINPUTn 选位、COMPSEL 选参与比较的那一路（Hw_PwmDriver.c:502-512）"
+    },
+    {
+      "id": "A03-TZ-06",
+      "domain": "tz",
+      "title": "TZ 动作码语义与器件编码一致",
+      "basis": "RULED_DESIGN",
+      "expected": {
+        "HW_PWM_TZ_HIGH_Z": 0,
+        "HW_PWM_TZ_FORCE_HIGH": 1,
+        "HW_PWM_TZ_FORCE_LOW": 2,
+        "HW_PWM_TZ_DO_NOTHING": 3
+      },
+      "actual": {
+        "HW_PWM_TZ_HIGH_Z": 0,
+        "HW_PWM_TZ_FORCE_HIGH": 1,
+        "HW_PWM_TZ_FORCE_LOW": 2,
+        "HW_PWM_TZ_DO_NOTHING": 3
+      },
+      "verdict": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "A03-PWM-01",
+      "domain": "pwm",
+      "title": "六路逆变：周期 2500 UPDOWN、CMPA 2500、死区 80",
+      "basis": "RULED_DESIGN",
+      "expected": true,
+      "actual": true,
+      "verdict": "PASS",
+      "detail": "实际: {'HW_PWM_ID0': (2500, 'TB_COUNT_UPDOWN', 2500, 80), 'HW_PWM_ID1': (2500, 'TB_COUNT_UPDOWN', 2500, 80), 'HW_PWM_ID2': (2500, 'TB_COUNT_UPDOWN', 2500, 80), 'HW_PWM_ID3': (2500, 'TB_COUNT_UPDOWN', 2500, 80), 'HW_PWM_ID9': (2500, 'TB_COUNT_UPDOWN', 2500, 80), 'HW_PWM_ID10': (2500, 'TB_COUNT_UPDOWN', 2500, 80)}"
+    },
+    {
+      "id": "A03-PWM-02",
+      "domain": "pwm",
+      "title": "逆变 AQ：CAU=SET、CAD=CLEAR",
+      "basis": "RULED_DESIGN",
+      "expected": {
+        "CAU": "AQ_SET",
+        "CAD": "AQ_CLEAR"
+      },
+      "actual": {
+        "CAU": "AQ_SET",
+        "CAD": "AQ_CLEAR"
+      },
+      "verdict": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "A03-PWM-03",
+      "domain": "pwm",
+      "title": "四路 PV：周期 4999 UP、相位 0/1250/2500/3750",
+      "basis": "RULED_DESIGN",
+      "expected": {
+        "period": 4999,
+        "mode": "TB_COUNT_UP",
+        "phases": {
+          "HW_PWM_ID6": 0,
+          "HW_PWM_ID8": 1250,
+          "HW_PWM_ID4": 2500,
+          "HW_PWM_ID5": 3750
+        }
+      },
+      "actual": {
+        "period": 4999,
+        "mode": "TB_COUNT_UP",
+        "phases": {
+          "HW_PWM_ID6": 0,
+          "HW_PWM_ID8": 1250,
+          "HW_PWM_ID4": 2500,
+          "HW_PWM_ID5": 3750
+        }
+      },
+      "verdict": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "A03-PWM-04",
+      "domain": "pwm",
+      "title": "BUS：周期 2500 UPDOWN、CMPA 1250、FREE",
+      "basis": "RULED_DESIGN",
+      "expected": {
+        "period": 2500,
+        "mode": "TB_COUNT_UPDOWN",
+        "cmpa": 1250,
+        "sync": "HW_PWM_FREE"
+      },
+      "actual": {
+        "period": 2500,
+        "mode": "TB_COUNT_UPDOWN",
+        "cmpa": 1250,
+        "sync": "HW_PWM_FREE"
+      },
+      "verdict": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "A03-PWM-05",
+      "domain": "pwm",
+      "title": "全局装载（GLD）按表启用并生效",
+      "basis": "RULED_DESIGN",
+      "expected": "bGload=1 的组应真正启用影子装载",
+      "actual": {
+        "table_bGload": {
+          "HW_PWM_ID0": 1,
+          "HW_PWM_ID1": 1,
+          "HW_PWM_ID2": 1,
+          "HW_PWM_ID3": 1,
+          "HW_PWM_ID9": 1,
+          "HW_PWM_ID10": 1,
+          "HW_PWM_ID6": 1,
+          "HW_PWM_ID8": 1,
+          "HW_PWM_ID4": 1,
+          "HW_PWM_ID5": 1
+        },
+        "driver_forces_GLD_off": true
+      },
+      "verdict": "FAIL",
+      "detail": "F09：表意图=周期同步装载，驱动在配置尾部无条件清 GLD/GLDMODE，实际为直写；冲突未修，A03 不能总体判通过"
+    },
+    {
+      "id": "A03-PWM-06",
+      "domain": "pwm",
+      "title": "驱动使用表的 SYNCOSEL 字段",
+      "basis": "RULED_DESIGN",
+      "expected": "应据 u16SyncOutSel 写 TBCTL.SYNCOSEL",
+      "actual": "驱动未引用该字段（SYNCOSEL 由 PWM ID 推导）",
+      "verdict": "FAIL",
+      "detail": "表字段与运行时行为不一致；当前推导规则固化在 Hw_PwmDriver.c:224-240"
+    },
+    {
+      "id": "A03-PWM-07",
+      "domain": "pwm",
+      "title": "EPWMXLINK 的 CMPA/CMPB 链指回自身",
+      "basis": "TI_MANUAL",
+      "expected": "CMPALINK/CMPBLINK = 自身 PWM 编号",
+      "actual": "CMPALINK/CMPBLINK = u16PwmId",
+      "verdict": "PASS",
+      "detail": "驱动 Hw_PwmConfigGlobalLoad 首两行；若保留复位值 0 会镜像到 EPWM1 的 CMPA"
+    },
+    {
+      "id": "A03-PWM-08",
+      "domain": "pwm",
+      "title": "逆变死区时间",
+      "basis": "PENDING",
+      "expected": "PENDING（80 TBCLK，实际 ns 取决于 TBCLK 频率与器件规格）",
+      "actual": "80 计数",
+      "verdict": "PENDING",
+      "detail": "需项目所有者按功率器件/驱动电路裁定"
+    }
+  ],
+  "actuals": {
+    "adc_soc": [
+      {
+        "trig": 5,
+        "acqps": 30,
+        "ch": 2
+      },
+      {
+        "trig": 5,
+        "acqps": 60,
+        "ch": 2
+      },
+      {
+        "trig": 0,
+        "acqps": 0,
+        "ch": 0
+      },
+      {
+        "trig": 5,
+        "acqps": 30,
+        "ch": 2
+      },
+      {
+        "trig": 0,
+        "acqps": 0,
+        "ch": 0
+      },
+      {
+        "trig": 5,
+        "acqps": 60,
+        "ch": 0
+      },
+      {
+        "trig": 0,
+        "acqps": 0,
+        "ch": 0
+      },
+      {
+        "trig": 5,
+        "acqps": 30,
+        "ch": 14
+      },
+      {
+        "trig": 0,
+        "acqps": 0,
+        "ch": 0
+      },
+      {
+        "trig": 5,
+        "acqps": 60,
+        "ch": 1
+      },
+      {
+        "trig": 5,
+        "acqps": 30,
+        "ch": 2
+      },
+      {
+        "trig": 5,
+        "acqps": 60,
+        "ch": 1
+      },
+      {
+        "trig": 5,
+        "acqps": 60,
+        "ch": 3
+      },
+      {
+        "trig": 5,
+        "acqps": 120,
+        "ch": 3
+      },
+      {
+        "trig": 5,
+        "acqps": 60,
+        "ch": 3
+      },
+      {
+        "trig": 5,
+        "acqps": 120,
+        "ch": 3
+      },
+      {
+        "trig": 5,
+        "acqps": 30,
+        "ch": 4
+      },
+      {
+        "trig": 0,
+        "acqps": 0,
+        "ch": 0
+      },
+      {
+        "trig": 5,
+        "acqps": 60,
+        "ch": 4
+      },
+      {
+        "trig": 5,
+        "acqps": 30,
+        "ch": 0
+      },
+      {
+        "trig": 5,
+        "acqps": 60,
+        "ch": 5
+      },
+      {
+        "trig": 0,
+        "acqps": 0,
+        "ch": 0
+      },
+      {
+        "trig": 0,
+        "acqps": 0,
+        "ch": 0
+      },
+      {
+        "trig": 5,
+        "acqps": 30,
+        "ch": 4
+      },
+      {
+        "trig": 5,
+        "acqps": 60,
+        "ch": 0
+      },
+      {
+        "trig": 0,
+        "acqps": 0,
+        "ch": 0
+      },
+      {
+        "trig": 0,
+        "acqps": 0,
+        "ch": 0
+      },
+      {
+        "trig": 5,
+        "acqps": 30,
+        "ch": 15
+      },
+      {
+        "trig": 5,
+        "acqps": 60,
+        "ch": 1
+      },
+      {
+        "trig": 0,
+        "acqps": 0,
+        "ch": 0
+      },
+      {
+        "trig": 0,
+        "acqps": 0,
+        "ch": 0
+      },
+      {
+        "trig": 0,
+        "acqps": 0,
+        "ch": 0
+      },
+      {
+        "trig": 6,
+        "acqps": 30,
+        "ch": 2
+      },
+      {
+        "trig": 0,
+        "acqps": 0,
+        "ch": 0
+      },
+      {
+        "trig": 0,
+        "acqps": 0,
+        "ch": 0
+      },
+      {
+        "trig": 6,
+        "acqps": 30,
+        "ch": 2
+      },
+      {
+        "trig": 6,
+        "acqps": 120,
+        "ch": 0
+      },
+      {
+        "trig": 0,
+        "acqps": 0,
+        "ch": 0
+      },
+      {
+        "trig": 0,
+        "acqps": 0,
+        "ch": 0
+      },
+      {
+        "trig": 6,
+        "acqps": 30,
+        "ch": 14
+      },
+      {
+        "trig": 0,
+        "acqps": 0,
+        "ch": 0
+      },
+      {
+        "trig": 0,
+        "acqps": 0,
+        "ch": 0
+      },
+      {
+        "trig": 0,
+        "acqps": 0,
+        "ch": 0
+      },
+      {
+        "trig": 0,
+        "acqps": 0,
+        "ch": 0
+      },
+      {
+        "trig": 0,
+        "acqps": 0,
+        "ch": 0
+      },
+      {
+        "trig": 0,
+        "acqps": 0,
+        "ch": 0
+      },
+      {
+        "trig": 0,
+        "acqps": 0,
+        "ch": 0
+      },
+      {
+        "trig": 0,
+        "acqps": 0,
+        "ch": 0
+      },
+      {
+        "trig": 0,
+        "acqps": 0,
+        "ch": 0
+      },
+      {
+        "trig": 0,
+        "acqps": 0,
+        "ch": 0
+      },
+      {
+        "trig": 0,
+        "acqps": 0,
+        "ch": 0
+      },
+      {
+        "trig": 0,
+        "acqps": 0,
+        "ch": 0
+      },
+      {
+        "trig": 0,
+        "acqps": 0,
+        "ch": 0
+      },
+      {
+        "trig": 0,
+        "acqps": 0,
+        "ch": 0
+      },
+      {
+        "trig": 0,
+        "acqps": 0,
+        "ch": 0
+      },
+      {
+        "trig": 0,
+        "acqps": 0,
+        "ch": 0
+      },
+      {
+        "trig": 0,
+        "acqps": 0,
+        "ch": 0
+      },
+      {
+        "trig": 0,
+        "acqps": 0,
+        "ch": 0
+      },
+      {
+        "trig": 0,
+        "acqps": 0,
+        "ch": 0
+      },
+      {
+        "trig": 0,
+        "acqps": 0,
+        "ch": 0
+      },
+      {
+        "trig": 5,
+        "acqps": 120,
+        "ch": 0
+      },
+      {
+        "trig": 0,
+        "acqps": 0,
+        "ch": 0
+      },
+      {
+        "trig": 0,
+        "acqps": 0,
+        "ch": 0
+      },
+      {
+        "trig": 0,
+        "acqps": 0,
+        "ch": 0
+      }
+    ],
+    "adc_modules": [
+      {
+        "u16AdcId": "HW_ADC_ID0",
+        "pstAdcChCfgItem": "&stAdcChCfgItem[0]",
+        "u16Resolution": "HW_ADC_RESOLUTION_12BIT",
+        "u16SignalMode": "HW_ADC_SIGNALMODE_SINGLE",
+        "bAdcIntEnable": "1U",
+        "u16IntSel": "15U",
+        "bAdcInt2Enable": "1U",
+        "u16Int2Sel": "9U",
+        "u16SocStride": 4
+      },
+      {
+        "u16AdcId": "HW_ADC_ID1",
+        "pstAdcChCfgItem": "&stAdcChCfgItem[1]",
+        "u16Resolution": "HW_ADC_RESOLUTION_12BIT",
+        "u16SignalMode": "HW_ADC_SIGNALMODE_SINGLE",
+        "bAdcIntEnable": "0U",
+        "u16IntSel": "0U",
+        "bAdcInt2Enable": "0U",
+        "u16Int2Sel": "0U",
+        "u16SocStride": 4
+      },
+      {
+        "u16AdcId": "HW_ADC_ID2",
+        "pstAdcChCfgItem": "&stAdcChCfgItem[2]",
+        "u16Resolution": "HW_ADC_RESOLUTION_12BIT",
+        "u16SignalMode": "HW_ADC_SIGNALMODE_SINGLE",
+        "bAdcIntEnable": "0U",
+        "u16IntSel": "0U",
+        "bAdcInt2Enable": "0U",
+        "u16Int2Sel": "0U",
+        "u16SocStride": 4
+      },
+      {
+        "u16AdcId": "HW_ADC_ID3",
+        "pstAdcChCfgItem": "&stAdcChCfgItem[3]",
+        "u16Resolution": "HW_ADC_RESOLUTION_12BIT",
+        "u16SignalMode": "HW_ADC_SIGNALMODE_SINGLE",
+        "bAdcIntEnable": "0U",
+        "u16IntSel": "0U",
+        "bAdcInt2Enable": "0U",
+        "u16Int2Sel": "0U",
+        "u16SocStride": 4
+      }
+    ],
+    "xbar_input": [
+      [
+        "HW_XBAR_INPUT1",
+        13
+      ],
+      [
+        "HW_XBAR_INPUT2",
+        17
+      ],
+      [
+        "HW_XBAR_INPUT3",
+        41
+      ],
+      [
+        "HW_XBAR_INPUT4",
+        81
+      ],
+      [
+        "HW_XBAR_INPUT5",
+        82
+      ],
+      [
+        "HW_XBAR_INPUT6",
+        40
+      ]
+    ],
+    "xbar_trip_mux": [
+      [
+        "HW_XBAR_TRIP4",
+        1,
+        "HW_XBAR_MUX_ENABLE"
+      ],
+      [
+        "HW_XBAR_TRIP5",
+        3,
+        "HW_XBAR_MUX_ENABLE"
+      ],
+      [
+        "HW_XBAR_TRIP7",
+        5,
+        "HW_XBAR_MUX_ENABLE"
+      ],
+      [
+        "HW_XBAR_TRIP8",
+        11,
+        "HW_XBAR_MUX_ENABLE"
+      ],
+      [
+        "HW_XBAR_TRIP9",
+        7,
+        "HW_XBAR_MUX_ENABLE"
+      ],
+      [
+        "HW_XBAR_TRIP10",
+        9,
+        "HW_XBAR_MUX_ENABLE"
+      ]
+    ],
+    "xbar_trip_out": [
+      [
+        "HW_XBAR_TRIP4",
+        1
+      ],
+      [
+        "HW_XBAR_TRIP5",
+        1
+      ],
+      [
+        "HW_XBAR_TRIP7",
+        1
+      ],
+      [
+        "HW_XBAR_TRIP8",
+        1
+      ],
+      [
+        "HW_XBAR_TRIP9",
+        1
+      ],
+      [
+        "HW_XBAR_TRIP10",
+        1
+      ]
+    ],
+    "tz": [
+      {
+        "u16PwmId": "HW_PWM_ID0",
+        "u16DcaTrip": "HW_PWM_TRIP_9",
+        "u16DcbTrip": "HW_PWM_TRIP_10",
+        "u16DcaEvent": "TZ_DCAH_HI",
+        "u16DcbEvent": "TZ_DCBH_HI",
+        "u16DcaAction": "HW_PWM_TZ_FORCE_LOW",
+        "u16DcbAction": "HW_PWM_TZ_FORCE_LOW"
+      },
+      {
+        "u16PwmId": "HW_PWM_ID3",
+        "u16DcaTrip": "HW_PWM_TRIP_9",
+        "u16DcbTrip": "HW_PWM_TRIP_10",
+        "u16DcaEvent": "TZ_DCAH_HI",
+        "u16DcbEvent": "TZ_DCBH_HI",
+        "u16DcaAction": "HW_PWM_TZ_FORCE_LOW",
+        "u16DcbAction": "HW_PWM_TZ_FORCE_LOW"
+      },
+      {
+        "u16PwmId": "HW_PWM_ID1",
+        "u16DcaTrip": "HW_PWM_TRIP_9",
+        "u16DcbTrip": "HW_PWM_TRIP_10",
+        "u16DcaEvent": "TZ_DCAH_HI",
+        "u16DcbEvent": "TZ_DCBH_HI",
+        "u16DcaAction": "HW_PWM_TZ_FORCE_LOW",
+        "u16DcbAction": "HW_PWM_TZ_FORCE_LOW"
+      },
+      {
+        "u16PwmId": "HW_PWM_ID9",
+        "u16DcaTrip": "HW_PWM_TRIP_9",
+        "u16DcbTrip": "HW_PWM_TRIP_10",
+        "u16DcaEvent": "TZ_DCAH_HI",
+        "u16DcbEvent": "TZ_DCBH_HI",
+        "u16DcaAction": "HW_PWM_TZ_FORCE_LOW",
+        "u16DcbAction": "HW_PWM_TZ_FORCE_LOW"
+      },
+      {
+        "u16PwmId": "HW_PWM_ID2",
+        "u16DcaTrip": "HW_PWM_TRIP_9",
+        "u16DcbTrip": "HW_PWM_TRIP_10",
+        "u16DcaEvent": "TZ_DCAH_HI",
+        "u16DcbEvent": "TZ_DCBH_HI",
+        "u16DcaAction": "HW_PWM_TZ_FORCE_LOW",
+        "u16DcbAction": "HW_PWM_TZ_FORCE_LOW"
+      },
+      {
+        "u16PwmId": "HW_PWM_ID10",
+        "u16DcaTrip": "HW_PWM_TRIP_9",
+        "u16DcbTrip": "HW_PWM_TRIP_10",
+        "u16DcaEvent": "TZ_DCAH_HI",
+        "u16DcbEvent": "TZ_DCBH_HI",
+        "u16DcaAction": "HW_PWM_TZ_FORCE_LOW",
+        "u16DcbAction": "HW_PWM_TZ_FORCE_LOW"
+      },
+      {
+        "u16PwmId": "HW_PWM_ID6",
+        "u16DcaTrip": "HW_PWM_TRIP_4",
+        "u16DcbTrip": "HW_PWM_TRIP_NONE",
+        "u16DcaEvent": "TZ_DCAH_HI",
+        "u16DcbEvent": "0U",
+        "u16DcaAction": "HW_PWM_TZ_FORCE_LOW",
+        "u16DcbAction": "HW_PWM_TZ_DO_NOTHING"
+      },
+      {
+        "u16PwmId": "HW_PWM_ID8",
+        "u16DcaTrip": "HW_PWM_TRIP_5",
+        "u16DcbTrip": "HW_PWM_TRIP_NONE",
+        "u16DcaEvent": "TZ_DCAH_HI",
+        "u16DcbEvent": "0U",
+        "u16DcaAction": "HW_PWM_TZ_FORCE_LOW",
+        "u16DcbAction": "HW_PWM_TZ_DO_NOTHING"
+      },
+      {
+        "u16PwmId": "HW_PWM_ID4",
+        "u16DcaTrip": "HW_PWM_TRIP_7",
+        "u16DcbTrip": "HW_PWM_TRIP_NONE",
+        "u16DcaEvent": "TZ_DCAH_HI",
+        "u16DcbEvent": "0U",
+        "u16DcaAction": "HW_PWM_TZ_FORCE_LOW",
+        "u16DcbAction": "HW_PWM_TZ_DO_NOTHING"
+      },
+      {
+        "u16PwmId": "HW_PWM_ID5",
+        "u16DcaTrip": "HW_PWM_TRIP_8",
+        "u16DcbTrip": "HW_PWM_TRIP_NONE",
+        "u16DcaEvent": "TZ_DCAH_HI",
+        "u16DcbEvent": "0U",
+        "u16DcaAction": "HW_PWM_TZ_FORCE_LOW",
+        "u16DcbAction": "HW_PWM_TZ_DO_NOTHING"
+      }
+    ],
+    "pwm": [
+      {
+        "u16PwmId": "HW_PWM_ID0",
+        "u16PwmType": "HW_PWM_TYPE_INV",
+        "u16Period": 2500,
+        "u16CmpA": 2500,
+        "u16CmpB": 0,
+        "u16Phase": 0,
+        "u16CtrMode": "TB_COUNT_UPDOWN",
+        "u16SyncMode": "HW_PWM_MASTER",
+        "u16SyncCntLoadDir": "1U",
+        "u16SyncInSel": "HW_EPWM_SYNC_IN_FROM_DISABLE",
+        "u16SyncOutSel": "HW_EPWM_SYNC_OUT_FROM_CNTR_ZERO",
+        "bGload": 1,
+        "u16LinkPwm": "HW_PWM_ID0",
+        "u16DeadTime": 80,
+        "u16TzActionA": "HW_PWM_TZ_FORCE_LOW",
+        "u16TzActionB": "HW_PWM_TZ_FORCE_LOW",
+        "u16InitForceA": "HW_PWM_FORCE_LOW",
+        "u16InitForceB": "HW_PWM_FORCE_LOW",
+        "stAqA": [
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_SET",
+          "AQ_CLEAR",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION"
+        ],
+        "stAqB": [
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION"
+        ],
+        "stEtSoca": [
+          "1U",
+          "ET_CTR_ZERO",
+          "1U",
+          "0U",
+          "1U",
+          "1U",
+          "ET_CTR_PRD",
+          "1U",
+          "0U",
+          "1U"
+        ]
+      },
+      {
+        "u16PwmId": "HW_PWM_ID1",
+        "u16PwmType": "HW_PWM_TYPE_INV",
+        "u16Period": 2500,
+        "u16CmpA": 2500,
+        "u16CmpB": 0,
+        "u16Phase": 0,
+        "u16CtrMode": "TB_COUNT_UPDOWN",
+        "u16SyncMode": "HW_PWM_SLAVE",
+        "u16SyncCntLoadDir": "1U",
+        "u16SyncInSel": "HW_EPWM_SYNC_IN_FROM_SYNCOUT_EPWM1",
+        "u16SyncOutSel": "HW_EPWM_SYNC_OUT_FROM_DISABLE",
+        "bGload": 1,
+        "u16LinkPwm": "HW_PWM_ID0",
+        "u16DeadTime": 80,
+        "u16TzActionA": "HW_PWM_TZ_FORCE_LOW",
+        "u16TzActionB": "HW_PWM_TZ_FORCE_LOW",
+        "u16InitForceA": "HW_PWM_FORCE_LOW",
+        "u16InitForceB": "HW_PWM_FORCE_LOW",
+        "stAqA": [
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_SET",
+          "AQ_CLEAR",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION"
+        ],
+        "stAqB": [
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION"
+        ],
+        "stEtSoca": [
+          "0U",
+          "ET_CTR_ZERO",
+          "1U",
+          "0U",
+          "1U"
+        ]
+      },
+      {
+        "u16PwmId": "HW_PWM_ID2",
+        "u16PwmType": "HW_PWM_TYPE_INV",
+        "u16Period": 2500,
+        "u16CmpA": 2500,
+        "u16CmpB": 0,
+        "u16Phase": 0,
+        "u16CtrMode": "TB_COUNT_UPDOWN",
+        "u16SyncMode": "HW_PWM_SLAVE",
+        "u16SyncCntLoadDir": "1U",
+        "u16SyncInSel": "HW_EPWM_SYNC_IN_FROM_SYNCOUT_EPWM1",
+        "u16SyncOutSel": "HW_EPWM_SYNC_OUT_FROM_DISABLE",
+        "bGload": 1,
+        "u16LinkPwm": "HW_PWM_ID0",
+        "u16DeadTime": 80,
+        "u16TzActionA": "HW_PWM_TZ_FORCE_LOW",
+        "u16TzActionB": "HW_PWM_TZ_FORCE_LOW",
+        "u16InitForceA": "HW_PWM_FORCE_LOW",
+        "u16InitForceB": "HW_PWM_FORCE_LOW",
+        "stAqA": [
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_SET",
+          "AQ_CLEAR",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION"
+        ],
+        "stAqB": [
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION"
+        ],
+        "stEtSoca": [
+          "0U",
+          "ET_CTR_ZERO",
+          "1U",
+          "0U",
+          "1U"
+        ]
+      },
+      {
+        "u16PwmId": "HW_PWM_ID3",
+        "u16PwmType": "HW_PWM_TYPE_INV",
+        "u16Period": 2500,
+        "u16CmpA": 2500,
+        "u16CmpB": 0,
+        "u16Phase": 0,
+        "u16CtrMode": "TB_COUNT_UPDOWN",
+        "u16SyncMode": "HW_PWM_SLAVE",
+        "u16SyncCntLoadDir": "1U",
+        "u16SyncInSel": "HW_EPWM_SYNC_IN_FROM_SYNCOUT_EPWM1",
+        "u16SyncOutSel": "HW_EPWM_SYNC_OUT_FROM_DISABLE",
+        "bGload": 1,
+        "u16LinkPwm": "HW_PWM_ID0",
+        "u16DeadTime": 80,
+        "u16TzActionA": "HW_PWM_TZ_FORCE_LOW",
+        "u16TzActionB": "HW_PWM_TZ_FORCE_LOW",
+        "u16InitForceA": "HW_PWM_FORCE_LOW",
+        "u16InitForceB": "HW_PWM_FORCE_LOW",
+        "stAqA": [
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_SET",
+          "AQ_CLEAR",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION"
+        ],
+        "stAqB": [
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION"
+        ],
+        "stEtSoca": [
+          "0U",
+          "ET_CTR_ZERO",
+          "1U",
+          "0U",
+          "1U"
+        ]
+      },
+      {
+        "u16PwmId": "HW_PWM_ID9",
+        "u16PwmType": "HW_PWM_TYPE_INV",
+        "u16Period": 2500,
+        "u16CmpA": 2500,
+        "u16CmpB": 0,
+        "u16Phase": 0,
+        "u16CtrMode": "TB_COUNT_UPDOWN",
+        "u16SyncMode": "HW_PWM_SLAVE",
+        "u16SyncCntLoadDir": "1U",
+        "u16SyncInSel": "HW_EPWM_SYNC_IN_FROM_SYNCOUT_EPWM1",
+        "u16SyncOutSel": "HW_EPWM_SYNC_OUT_FROM_DISABLE",
+        "bGload": 1,
+        "u16LinkPwm": "HW_PWM_ID0",
+        "u16DeadTime": 80,
+        "u16TzActionA": "HW_PWM_TZ_FORCE_LOW",
+        "u16TzActionB": "HW_PWM_TZ_FORCE_LOW",
+        "u16InitForceA": "HW_PWM_FORCE_LOW",
+        "u16InitForceB": "HW_PWM_FORCE_LOW",
+        "stAqA": [
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_SET",
+          "AQ_CLEAR",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION"
+        ],
+        "stAqB": [
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION"
+        ],
+        "stEtSoca": [
+          "0U",
+          "ET_CTR_ZERO",
+          "1U",
+          "0U",
+          "1U"
+        ]
+      },
+      {
+        "u16PwmId": "HW_PWM_ID10",
+        "u16PwmType": "HW_PWM_TYPE_INV",
+        "u16Period": 2500,
+        "u16CmpA": 2500,
+        "u16CmpB": 0,
+        "u16Phase": 0,
+        "u16CtrMode": "TB_COUNT_UPDOWN",
+        "u16SyncMode": "HW_PWM_SLAVE",
+        "u16SyncCntLoadDir": "1U",
+        "u16SyncInSel": "HW_EPWM_SYNC_IN_FROM_SYNCOUT_EPWM1",
+        "u16SyncOutSel": "HW_EPWM_SYNC_OUT_FROM_DISABLE",
+        "bGload": 1,
+        "u16LinkPwm": "HW_PWM_ID0",
+        "u16DeadTime": 80,
+        "u16TzActionA": "HW_PWM_TZ_FORCE_LOW",
+        "u16TzActionB": "HW_PWM_TZ_FORCE_LOW",
+        "u16InitForceA": "HW_PWM_FORCE_LOW",
+        "u16InitForceB": "HW_PWM_FORCE_LOW",
+        "stAqA": [
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_SET",
+          "AQ_CLEAR",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION"
+        ],
+        "stAqB": [
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION"
+        ],
+        "stEtSoca": [
+          "0U",
+          "ET_CTR_ZERO",
+          "1U",
+          "0U",
+          "1U"
+        ]
+      },
+      {
+        "u16PwmId": "HW_PWM_ID6",
+        "u16PwmType": "HW_PWM_TYPE_PV",
+        "u16Period": 4999,
+        "u16CmpA": 0,
+        "u16CmpB": 0,
+        "u16Phase": 0,
+        "u16CtrMode": "TB_COUNT_UP",
+        "u16SyncMode": "HW_PWM_MASTER",
+        "u16SyncCntLoadDir": "1U",
+        "u16SyncInSel": "HW_EPWM_SYNC_IN_FROM_DISABLE",
+        "u16SyncOutSel": "HW_EPWM_SYNC_OUT_FROM_CNTR_ZERO",
+        "bGload": 1,
+        "u16LinkPwm": "HW_PWM_ID6",
+        "u16DeadTime": 0,
+        "u16TzActionA": "HW_PWM_TZ_FORCE_LOW",
+        "u16TzActionB": "HW_PWM_TZ_FORCE_LOW",
+        "u16InitForceA": "HW_PWM_FORCE_LOW",
+        "u16InitForceB": "HW_PWM_FORCE_LOW",
+        "stAqA": [
+          "AQ_SET",
+          "AQ_NO_ACTION",
+          "AQ_CLEAR",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION"
+        ],
+        "stAqB": [
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION"
+        ],
+        "stEtSoca": [
+          "1U",
+          "ET_CTR_ZERO",
+          "1U",
+          "0U",
+          "1U"
+        ]
+      },
+      {
+        "u16PwmId": "HW_PWM_ID8",
+        "u16PwmType": "HW_PWM_TYPE_PV",
+        "u16Period": 4999,
+        "u16CmpA": 0,
+        "u16CmpB": 0,
+        "u16Phase": 1250,
+        "u16CtrMode": "TB_COUNT_UP",
+        "u16SyncMode": "HW_PWM_SLAVE",
+        "u16SyncCntLoadDir": "1U",
+        "u16SyncInSel": "HW_EPWM_SYNC_IN_FROM_SYNCOUT_EPWM7",
+        "u16SyncOutSel": "HW_EPWM_SYNC_OUT_FROM_DISABLE",
+        "bGload": 1,
+        "u16LinkPwm": "HW_PWM_ID6",
+        "u16DeadTime": 0,
+        "u16TzActionA": "HW_PWM_TZ_FORCE_LOW",
+        "u16TzActionB": "HW_PWM_TZ_FORCE_LOW",
+        "u16InitForceA": "HW_PWM_FORCE_LOW",
+        "u16InitForceB": "HW_PWM_FORCE_LOW",
+        "stAqA": [
+          "AQ_SET",
+          "AQ_NO_ACTION",
+          "AQ_CLEAR",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION"
+        ],
+        "stAqB": [
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION"
+        ],
+        "stEtSoca": [
+          "0U",
+          "ET_CTR_ZERO",
+          "1U",
+          "0U",
+          "1U"
+        ]
+      },
+      {
+        "u16PwmId": "HW_PWM_ID4",
+        "u16PwmType": "HW_PWM_TYPE_PV",
+        "u16Period": 4999,
+        "u16CmpA": 0,
+        "u16CmpB": 0,
+        "u16Phase": 2500,
+        "u16CtrMode": "TB_COUNT_UP",
+        "u16SyncMode": "HW_PWM_SLAVE",
+        "u16SyncCntLoadDir": "1U",
+        "u16SyncInSel": "HW_EPWM_SYNC_IN_FROM_SYNCOUT_EPWM7",
+        "u16SyncOutSel": "HW_EPWM_SYNC_OUT_FROM_DISABLE",
+        "bGload": 1,
+        "u16LinkPwm": "HW_PWM_ID6",
+        "u16DeadTime": 0,
+        "u16TzActionA": "HW_PWM_TZ_FORCE_LOW",
+        "u16TzActionB": "HW_PWM_TZ_FORCE_LOW",
+        "u16InitForceA": "HW_PWM_FORCE_LOW",
+        "u16InitForceB": "HW_PWM_FORCE_LOW",
+        "stAqA": [
+          "AQ_SET",
+          "AQ_NO_ACTION",
+          "AQ_CLEAR",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION"
+        ],
+        "stAqB": [
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION"
+        ],
+        "stEtSoca": [
+          "0U",
+          "ET_CTR_ZERO",
+          "1U",
+          "0U",
+          "1U"
+        ]
+      },
+      {
+        "u16PwmId": "HW_PWM_ID5",
+        "u16PwmType": "HW_PWM_TYPE_PV",
+        "u16Period": 4999,
+        "u16CmpA": 0,
+        "u16CmpB": 0,
+        "u16Phase": 3750,
+        "u16CtrMode": "TB_COUNT_UP",
+        "u16SyncMode": "HW_PWM_SLAVE",
+        "u16SyncCntLoadDir": "1U",
+        "u16SyncInSel": "HW_EPWM_SYNC_IN_FROM_SYNCOUT_EPWM7",
+        "u16SyncOutSel": "HW_EPWM_SYNC_OUT_FROM_DISABLE",
+        "bGload": 1,
+        "u16LinkPwm": "HW_PWM_ID6",
+        "u16DeadTime": 0,
+        "u16TzActionA": "HW_PWM_TZ_FORCE_LOW",
+        "u16TzActionB": "HW_PWM_TZ_FORCE_LOW",
+        "u16InitForceA": "HW_PWM_FORCE_LOW",
+        "u16InitForceB": "HW_PWM_FORCE_LOW",
+        "stAqA": [
+          "AQ_SET",
+          "AQ_NO_ACTION",
+          "AQ_CLEAR",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION"
+        ],
+        "stAqB": [
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION"
+        ],
+        "stEtSoca": [
+          "0U",
+          "ET_CTR_ZERO",
+          "1U",
+          "0U",
+          "1U"
+        ]
+      },
+      {
+        "u16PwmId": "HW_PWM_ID7",
+        "u16PwmType": "HW_PWM_TYPE_BUS",
+        "u16Period": 2500,
+        "u16CmpA": 1250,
+        "u16CmpB": 0,
+        "u16Phase": 0,
+        "u16CtrMode": "TB_COUNT_UPDOWN",
+        "u16SyncMode": "HW_PWM_FREE",
+        "u16SyncCntLoadDir": "1U",
+        "u16SyncInSel": "HW_EPWM_SYNC_IN_FROM_DISABLE",
+        "u16SyncOutSel": "HW_EPWM_SYNC_OUT_FROM_DISABLE",
+        "bGload": 0,
+        "u16LinkPwm": "HW_PWM_ID7",
+        "u16DeadTime": 80,
+        "u16TzActionA": "HW_PWM_TZ_FORCE_LOW",
+        "u16TzActionB": "HW_PWM_TZ_FORCE_LOW",
+        "u16InitForceA": "HW_PWM_FORCE_LOW",
+        "u16InitForceB": "HW_PWM_FORCE_LOW",
+        "stAqA": [
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_CLEAR",
+          "AQ_SET",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION"
+        ],
+        "stAqB": [
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION"
+        ],
+        "stEtSoca": [
+          "0U",
+          "ET_CTR_ZERO",
+          "1U",
+          "0U",
+          "1U"
+        ]
+      },
+      {
+        "u16PwmId": "HW_PWM_ID11",
+        "u16PwmType": "HW_PWM_TYPE_FAN",
+        "u16Period": 5000,
+        "u16CmpA": 5000,
+        "u16CmpB": 0,
+        "u16Phase": 0,
+        "u16CtrMode": "TB_COUNT_UPDOWN",
+        "u16SyncMode": "HW_PWM_FREE",
+        "u16SyncCntLoadDir": "1U",
+        "u16SyncInSel": "HW_EPWM_SYNC_IN_FROM_DISABLE",
+        "u16SyncOutSel": "HW_EPWM_SYNC_OUT_FROM_DISABLE",
+        "bGload": 0,
+        "u16LinkPwm": "HW_PWM_ID11",
+        "u16DeadTime": 0,
+        "u16TzActionA": "HW_PWM_TZ_FORCE_LOW",
+        "u16TzActionB": "HW_PWM_TZ_FORCE_LOW",
+        "u16InitForceA": "HW_PWM_FORCE_LOW",
+        "u16InitForceB": "HW_PWM_FORCE_LOW",
+        "stAqA": [
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_SET",
+          "AQ_CLEAR",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION"
+        ],
+        "stAqB": [
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION",
+          "AQ_NO_ACTION"
+        ],
+        "stEtSoca": [
+          "0U",
+          "ET_CTR_ZERO",
+          "1U",
+          "0U",
+          "1U"
+        ]
+      }
+    ]
+  }
+}

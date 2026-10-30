@@ -1,0 +1,184 @@
+{
+  "meta": {
+    "step": "01",
+    "item": "A03",
+    "purpose": "ADC / ePWM X-BAR / TZ / ePWM 配置的静态核对。期望值来自 TI 器件规则、项目所有者已确认的硬件映射、以及本审阅流程中已裁定的设计意图；不从被检查的 Broad/src/DrvCfg_EP15K.c 反向抄出。",
+    "checked_artifacts": [
+      "Broad/src/DrvCfg_EP15K.c（ADC/PWM/TZ/X-BAR 配置表）",
+      "Drivers/src/Hw_AdcDriver.c、Hw_XbarDriver.c、Hw_PwmDriver.c（表的消费逻辑）",
+      "device/headers/include/F2837xS_adc.h 等器件位域定义"
+    ],
+    "basis_legend": {
+      "TI_MANUAL": "TI F2837xS 数据手册/TRM 规定的寄存器编码、地址或硬件规则",
+      "USER_CONFIRMED": "项目所有者已确认的引脚或信号映射（作为硬件事实接受）",
+      "RULED_DESIGN": "本审阅流程中已裁定、记录在 02_defects.md / 03_validation_plan.md / 05_fix_status.md 的设计意图",
+      "PENDING": "没有独立依据：需要原理图、台架测量或项目所有者裁定，本次只登记不下结论"
+    },
+    "scope_limit": "静态核对不等于仿真：不验证器件实际时序、比较器极性、板上网络，也不验证控制闭环。"
+  },
+
+  "adc": {
+    "soc_stride": {
+      "value": 4,
+      "basis": "RULED_DESIGN",
+      "source": "ST_ADC_CFG_ITEM.u16SocStride 注释：交织的 A/B/C/D 表使用 4（Hw_AdcDriver.h:102）；表按 SOC 行、ADC 列交织"
+    },
+    "module_base_offsets": {
+      "value": [0, 1, 2, 3],
+      "basis": "RULED_DESIGN",
+      "source": "ADC-A/B/C/D 依次指向 stAdcChCfgItem[0..3]，与步长 4 构成 4 列交织"
+    },
+    "socctl_bit_lsb": {
+      "value": {"ACQPS": 0, "CHSEL": 15, "TRIGSEL": 20},
+      "basis": "TI_MANUAL",
+      "source": "F2837xS_adc.h:324-330 ADCSOC0CTL_BITS：ACQPS[8:0]、CHSEL[18:15]、TRIGSEL[24:20]"
+    },
+    "anchor_soc15": {
+      "value": {"trig": 5, "acqps": 120},
+      "basis": "RULED_DESIGN",
+      "source": "ADC A 组锚点：SOC15 用触发源 5、最长采样窗，保证 ADCINT1 在本批最后产生（DrvCfg_EP15K.c:345-349 的设计说明）"
+    },
+    "int1_sel": {"value": 15, "basis": "RULED_DESIGN", "source": "ADCINT1 由 SOC15 触发，对应 A 组锚点"},
+    "int2_sel": {"value": 9, "basis": "RULED_DESIGN", "source": "ADCINT2 由 SOC9 触发，对应 PRD 批第二采样"},
+    "int_cont": {"value": 1, "basis": "RULED_DESIGN", "source": "INT1CONT/INT2CONT=1，连续模式，每个 PWM 周期都触发 CLA"},
+    "soc_priority": {"value": 16, "basis": "RULED_DESIGN", "source": "ADCSOCPRICTL.SOCPRIORITY=16：SOC0~15 全固定优先级，SOC15 必晚于 SOC0~7"},
+    "adcclk_prescale": {
+      "value": 6,
+      "basis": "TI_MANUAL",
+      "source": "ADCCTL2.PRESCALE=6 → ADCCLK=SYSCLK/4；F28374S SYSCLK 200MHz 时 50MHz，未超 ADCCLK 上限"
+    },
+    "intpulsepos": {
+      "value": 1,
+      "basis": "TI_MANUAL",
+      "source": "ADCCTL1.INTPULSEPOS=1：转换结束时产生中断脉冲，ADCINT1 才表示 EOC"
+    },
+    "unused_soc_word": {
+      "value": 0,
+      "basis": "TI_MANUAL",
+      "source": "ADCSOCxCTL 复位值 0：TRIGSEL=0/CHSEL=0 不构成有效采样，驱动对全 0 项跳过写入"
+    },
+    "channel_signal_map": {
+      "value": "PENDING",
+      "basis": "PENDING",
+      "source": "通道号与板上信号的对应关系需要原理图或项目所有者确认；本步骤不解码 ADC 通道语义"
+    }
+  },
+
+  "xbar": {
+    "inputs": {
+      "value": {"HW_XBAR_INPUT1": 13, "HW_XBAR_INPUT2": 17, "HW_XBAR_INPUT3": 41,
+                "HW_XBAR_INPUT4": 81, "HW_XBAR_INPUT5": 82, "HW_XBAR_INPUT6": 40},
+      "basis": "USER_CONFIRMED",
+      "source": "项目所有者确认的 GPIO 映射：13/17/41 PV1~PV3 过流，81 逆变过流，82 短路，40 PV4 过流"
+    },
+    "trip_mux": {
+      "value": {"HW_XBAR_TRIP4": 1, "HW_XBAR_TRIP5": 3, "HW_XBAR_TRIP7": 5,
+                "HW_XBAR_TRIP8": 11, "HW_XBAR_TRIP9": 7, "HW_XBAR_TRIP10": 9},
+      "basis": "TI_MANUAL",
+      "source": "SPRUHX5I TRM Table 8-2（p.1113）：INPUT1…6 对应 MUX1/3/5/7/9/11 的源选择码 1（经 02_defects.md F01 引用；本机无 TRM 原件，页码未复核）"
+    },
+    "trip_mux_mode": {
+      "value": "HW_XBAR_MUX_ENABLE",
+      "basis": "TI_MANUAL",
+      "source": "TRIPxMUXn 的 2 位 CFG=1 表示选择该组的 INPUTXBAR 源并使能（0 为不选源）"
+    },
+    "inv_trip_separation": {
+      "value": {"HW_XBAR_TRIP9": "HW_XBAR_INPUT4", "HW_XBAR_TRIP10": "HW_XBAR_INPUT5"},
+      "basis": "RULED_DESIGN",
+      "source": "F02：低有效过流与短路必须先分路，不能先或后判断；INV 过流与短路各占一个 TRIP"
+    },
+    "trip_invert": {
+      "value": "PENDING",
+      "basis": "PENDING",
+      "source": "比较器输出低有效，是否需要在 TRIP 级取反取决于比较器/网络极性；表值(1)与同行注释(不取反)冲突，需原理图核对"
+    },
+    "trip_mux_comment_consistency": {
+      "value": "表与注释一致（TRIP9/TRIP10 分路）",
+      "basis": "RULED_DESIGN",
+      "source": "DrvCfg_EP15K.c:704 注释仍写“逆变过流与短路共用 TRIP9”，与表实现（TRIP9/TRIP10 分路）矛盾"
+    }
+  },
+
+  "tz": {
+    "item_count": {"value": 10, "basis": "RULED_DESIGN", "source": "6 路 INV + 4 路 PV；BUS 缺项是待解决问题（F03）"},
+    "inv": {
+      "pwms": ["HW_PWM_ID0", "HW_PWM_ID1", "HW_PWM_ID2", "HW_PWM_ID3", "HW_PWM_ID9", "HW_PWM_ID10"],
+      "dca_trip": "HW_PWM_TRIP_9",
+      "dcb_trip": "HW_PWM_TRIP_10",
+      "dca_event": "TZ_DCAH_HI",
+      "dcb_event": "TZ_DCBH_HI",
+      "dca_action": "HW_PWM_TZ_FORCE_LOW",
+      "dcb_action": "HW_PWM_TZ_FORCE_LOW",
+      "basis": "RULED_DESIGN",
+      "source": "六路逆变的 A/B 两侧分别由过流(TRIP9)与短路(TRIP10)双路封波；A 由动作限定器驱动、B 由死区取反，必须两侧都封"
+    },
+    "pv": {
+      "value": {"HW_PWM_ID6": "HW_PWM_TRIP_4", "HW_PWM_ID8": "HW_PWM_TRIP_5",
+                "HW_PWM_ID4": "HW_PWM_TRIP_7", "HW_PWM_ID5": "HW_PWM_TRIP_8"},
+      "dcb_trip": "HW_PWM_TRIP_NONE",
+      "basis": "USER_CONFIRMED",
+      "source": "PV1~PV4 各自独立过流保护，只封 A 侧（PV 组无互补桥臂）"
+    },
+    "bus_tz_present": {
+      "value": "必须有专属硬件 TZ 源（母线过流不能只靠软件轮询）",
+      "basis": "RULED_DESIGN",
+      "source": "F03：BUS 缺硬件故障输入，当前靠启动时 OST 锁存；本步骤只登记，不修"
+    },
+    "dcahtripsel_encoding": {
+      "value": "DCAHTRIPSEL = 1<<(TRIPn-1)，DCAHCOMPSEL = TRIPn-1",
+      "basis": "TI_MANUAL",
+      "source": "TRM TZ 子模块：DCAH/DCBH 是或门，TRIPINPUTn 位与 COMPSEL 选择参与比较的那一路（Hw_PwmDriver.h:207-221 的说明）"
+    },
+    "tz_action_codes": {
+      "value": {"HW_PWM_TZ_HIGH_Z": 0, "HW_PWM_TZ_FORCE_HIGH": 1, "HW_PWM_TZ_FORCE_LOW": 2, "HW_PWM_TZ_DO_NOTHING": 3},
+      "basis": "TI_MANUAL",
+      "source": "TZCTL 动作编码：0=高阻, 1=强制高, 2=强制低, 3=不动作"
+    }
+  },
+
+  "pwm": {
+    "inv": {
+      "pwms": ["HW_PWM_ID0", "HW_PWM_ID1", "HW_PWM_ID2", "HW_PWM_ID3", "HW_PWM_ID9", "HW_PWM_ID10"],
+      "period": 2500, "ctr_mode": "TB_COUNT_UPDOWN", "cmpa": 2500, "deadtime_counts": 80,
+      "aq_cau": "AQ_SET", "aq_cad": "AQ_CLEAR",
+      "sync_master": "HW_PWM_ID0", "sync_master_sel": "TB_CTR_ZERO",
+      "basis": "RULED_DESIGN",
+      "source": "逆变 20kHz（200MHz/2/2500/2 = 20kHz 三角载波）、互补桥臂、800ns 级死区意图"
+    },
+    "pv": {
+      "pwms": ["HW_PWM_ID6", "HW_PWM_ID8", "HW_PWM_ID4", "HW_PWM_ID5"],
+      "period": 4999, "ctr_mode": "TB_COUNT_UP",
+      "phases": {"HW_PWM_ID6": 0, "HW_PWM_ID8": 1250, "HW_PWM_ID4": 2500, "HW_PWM_ID5": 3750},
+      "aq_zro": "AQ_SET", "aq_cau": "AQ_CLEAR",
+      "sync_master": "HW_PWM_ID6", "sync_master_sel": "TB_CTR_ZERO",
+      "basis": "RULED_DESIGN",
+      "source": "PV 组 20kHz、四路互差 90° 的单极性 T 型开关序列（周期 4999 已在修复中确定）"
+    },
+    "bus": {
+      "pwm": "HW_PWM_ID7", "period": 2500, "ctr_mode": "TB_COUNT_UPDOWN", "cmpa": 1250,
+      "sync_mode": "HW_PWM_FREE",
+      "basis": "RULED_DESIGN",
+      "source": "母线 BOOST 20kHz，50% 初始占空比，独立运行不复位同步"
+    },
+    "gload_active": {
+      "value": true,
+      "basis": "RULED_DESIGN",
+      "source": "INV/PV 表 bGload=1 的设计意图是六路 CMPA 严格同步装载；运行时是否真的启用由驱动行为核对"
+    },
+    "sync_out_sel_used": {
+      "value": true,
+      "basis": "RULED_DESIGN",
+      "source": "表中 u16SyncOutSel 是有意配置的字段，驱动应据表写入 TBCTL.SYNCOSEL；若驱动改用 ID 推导则表与行为不一致"
+    },
+    "ePwmXlink_self": {
+      "value": "CMPALINK/CMPBLINK = 自身 PWM 编号",
+      "basis": "TI_MANUAL",
+      "source": "EPWMXLINK 复位值 0 指向 EPWM1，不指回自身会跨模块镜像 CMPA"
+    },
+    "deadtime_ns": {
+      "value": "PENDING",
+      "basis": "PENDING",
+      "source": "80 个 TBCLK @200MHz = 400ns（若按 100MHz 折算为 800ns）；实际所需死区由功率器件与驱动电路裁定"
+    }
+  }
+}

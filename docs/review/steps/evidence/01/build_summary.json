@@ -1,0 +1,141 @@
+{
+  "step": "01",
+  "generated_at": "2026-10-30T02:01:14+00:00",
+  "repo": "D:/Project/CCS-Project",
+  "workdir": "D:/Project/out/step01",
+  "declare": "NOT a CCS project build; direct cl2000 invocation on git archive HEAD only",
+  "git": {
+    "head": "f7978e1bbfdff4943630efa6713e5ed30ec10930",
+    "branch": "deepseek/pcs-stepwise",
+    "worktree_status": [
+      "?? docs/review/steps/"
+    ],
+    "note": "worktree_status 中的条目不进入构建；构建输入仅为 git archive HEAD"
+  },
+  "archive": {
+    "path": "D:/Project/out/step01/head.tar",
+    "sha256": "fd43716114642caed02e0449119e175e610bab2caf3dbaec9d2050ec5530eaa4",
+    "sources": "git archive HEAD",
+    "top_level_entries": 18,
+    "members": 652,
+    "note": "top_level_entries = 解包后 src/ 顶层条目数；members = tar 成员总数"
+  },
+  "manifest": {
+    "source_of_manifest": "Debug/ccsObjs.opt (CCS-generated link list, from git archive HEAD)",
+    "obj_count": 101,
+    "cmd_files": [
+      "../CMD/2837xS_FLASH_APP_CLA_lnk.cmd",
+      "../CMD/F2837xS_Headers_nonBIOS.cmd"
+    ],
+    "libs": [
+      "../device/driverlib/ccs/Debug/driverlib.lib",
+      "../device/driverlib/ccs/Debug/driverlib_eabi.lib",
+      "../device/driverlib/ccs/Release/driverlib.lib",
+      "../device/driverlib/ccs/Release/driverlib_eabi.lib",
+      "-llibc.a"
+    ],
+    "tracked_source_count": 101,
+    "by_extension": {
+      ".c": 97,
+      ".cla": 1,
+      ".asm": 3
+    },
+    "tracked_sources_not_in_build": [],
+    "build_sources_not_tracked": [],
+    "note": "compile units are cross-checked against `git ls-files '*.c' '*.cla' '*.asm'`"
+  },
+  "compile": {
+    "toolchain": "C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS",
+    "cl2000_sha256": "157254bb9b3ef8a0679e068c6b825e6747c7c84738acc8a5303c10bdffd005ec",
+    "compiler_banner": "22.6.2.LTS",
+    "dead_include_root_in_ccs_makefile": "D:/2026WorkPlace/EP15K_2026_0.1/EP15K_2026",
+    "dropped_tokens": [
+      "--preproc_with_compile",
+      "--preproc_dependency=$(basename $(<F)).d_raw",
+      "$(GEN_OPTS__FLAG)",
+      "$<"
+    ],
+    "flags": [
+      "-v28",
+      "-ml",
+      "-mt",
+      "--cla_support=cla1",
+      "--float_support=fpu32",
+      "--tmu_support=tmu0",
+      "--vcu_support=vcu2",
+      "--fp_mode=relaxed",
+      "--define=_FLASH",
+      "--define=DEBUG",
+      "--define=CPU1",
+      "--define=F2837xS",
+      "-g",
+      "--diag_warning=225",
+      "--diag_wrap=off",
+      "--display_error_number",
+      "--abi=eabi"
+    ],
+    "include_dirs": [
+      "D:/Project/out/step01/src",
+      "D:/Project/out/step01/src/device/driverlib",
+      "D:/Project/out/step01/src/User_App/Schedule/inc",
+      "D:/Project/out/step01/src/User_App/WatchDog/inc",
+      "D:/Project/out/step01/src/User_App/InterruptCfg/inc",
+      "D:/Project/out/step01/src/User_App/LoopCtrl/inc",
+      "D:/Project/out/step01/src/Platform/Common/inc",
+      "D:/Project/out/step01/src/User_App/Comm/inc",
+      "D:/Project/out/step01/src/User_App/StateMachine/inc",
+      "D:/Project/out/step01/src/device/common/include",
+      "D:/Project/out/step01/src/device/driverlib/inc",
+      "D:/Project/out/step01/src/device/headers/include",
+      "D:/Project/out/step01/src/Broad/inc",
+      "D:/Project/out/step01/src/Drivers/inc",
+      "C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS/include"
+    ],
+    "units": 101,
+    "failures": [],
+    "warnings_total": 0,
+    "elapsed_seconds": 58.2
+  },
+  "empty_output_dir": {
+    "obj_files_before": [],
+    "assertion": "obj/ 在编译开始前为空（本次全部 .obj 均为新建）",
+    "obj_files_older_than_build_start": [],
+    "obj_count_after": 101
+  },
+  "tracked_stale_artifacts": {
+    "Debug/main.obj": {
+      "sha256": "b7a8b7b347c45d16fbeffb793c31ce89b3758bf8970d1e5a509be3cb5c6321c7",
+      "size": 31664
+    },
+    "Debug/EP15K_2026.out": {
+      "sha256": "8fe9098ae8548ae2ddc277133a6336944c76e643488e04cec5fcee9309bc9a54",
+      "size": 1001976
+    },
+    "Debug/EP15K_2026.map": {
+      "sha256": "a4e5071a2c41a27745a717fbc9ba48ae45bcca38b77d61fbb1692930537dc699",
+      "size": 142383
+    }
+  },
+  "link": {
+    "rc": 0,
+    "seconds": 1.0,
+    "warnings": 0,
+    "errors": [],
+    "out": {
+      "path": "D:/Project/out/step01/build/EP15K_2026.out",
+      "exists": true,
+      "sha256": "9a52f0c68ec51a421cab8e96410122db4589e762377db4fef05db37f0dc1bc91",
+      "size": 1032000
+    },
+    "map": {
+      "path": "D:/Project/out/step01/build/EP15K_2026.map",
+      "exists": true,
+      "sha256": "08f5b4b71b2a417b6261a59ef7656d40a4cde3f1416b2319bfda6b911ffa449f"
+    },
+    "cmd": "<cl2000> -v28 -ml -mt --cla_support=cla1 --float_support=fpu32 --tmu_support=tmu0 --vcu_support=vcu2 --fp_mode=relaxed --define=_FLASH --define=DEBUG --define=CPU1 --define=F2837xS -g --diag_warning=225 --diag_wrap=off --display_error_number --abi=eabi -z -mEP15K_2026.map --stack_size=0x200 --warn_sections -i<toolchain>/lib -i<toolchain>/include --reread_libs --diag_wrap=off --display_error_number --xml_link_info=EP15K_2026_linkInfo.xml --rom_model -o EP15K_2026.out <101 objs> ../CMD/2837xS_FLASH_APP_CLA_lnk.cmd ../CMD/F2837xS_Headers_nonBIOS.cmd ../device/driverlib/ccs/Debug/driverlib.lib ../device/driverlib/ccs/Debug/driverlib_eabi.lib ../device/driverlib/ccs/Release/driverlib.lib ../device/driverlib/ccs/Release/driverlib_eabi.lib -llibc.a"
+  },
+  "result": {
+    "build": "OK",
+    "stage": "done"
+  }
+}
