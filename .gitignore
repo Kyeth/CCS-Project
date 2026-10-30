@@ -1,1 +1,12 @@
-Debug/ echo Release/ echo .out echo .map echo .obj echo .o echo .ccsproject echo .cproject echo .project echo .settings/
+/Debug/
+/build/
+/Release/
+/tmp/
+*.obj
+*.out
+*.map
+*.hex
+*.bin
+*.d_raw
+*.pyc
+__pycache__/

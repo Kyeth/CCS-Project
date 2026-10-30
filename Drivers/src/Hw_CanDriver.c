@@ -11,9 +11,6 @@
 
 #include "Hw_CanDriver.h"
 
-/* CAN模块时钟源为SYSCLK，与device.h的DEVICE_SYSCLK_FREQ一致 */
-#define HW_CAN_SYSCLK_HZ                (200000000UL)
-
 /* 位时间按20个Tq规划：同步段1 + TSEG1(14) + TSEG2(5)，采样点75% */
 #define HW_CAN_TQ_PER_BIT               (20UL)
 #define HW_CAN_TSEG1                    (13U)
@@ -151,19 +148,20 @@ static Uint16 Hw_CanWaitIf2Idle(volatile struct CAN_REGS *pstRegs)
 }
 
 /* 按SYSCLK和波特率写CAN_BTR，位时间固定20个Tq */
-static Uint16 Hw_CanConfigBitTiming(volatile struct CAN_REGS *pstRegs, Uint32 u32Baudrate)
+static Uint16 Hw_CanConfigBitTiming(volatile struct CAN_REGS *pstRegs,
+                                   Uint32 u32Baudrate, Uint32 u32SysclkHz)
 {
     Uint32 u32Divider;
     Uint16 u16Brp;
     Uint16 u16Brpe;
 
-    if (u32Baudrate == 0UL)
+    if ((u32Baudrate == 0UL) || (u32SysclkHz == 0UL))
     {
         return 0U;
     }
 
     /* 分频值 = SYSCLK / (波特率 * 每位Tq数)，BRP字段填分频值减1 */
-    u32Divider = HW_CAN_SYSCLK_HZ / (u32Baudrate * HW_CAN_TQ_PER_BIT);
+    u32Divider = u32SysclkHz / (u32Baudrate * HW_CAN_TQ_PER_BIT);
     if (u32Divider == 0UL)
     {
         return 0U;
@@ -299,7 +297,8 @@ static Uint16 Hw_CanExitInit(volatile struct CAN_REGS *pstRegs)
     return 1U;
 }
 
-void Hw_CanSingleInit(const ST_CAN_CFG_ITEM *pstCanCfgItem)
+static void Hw_CanSingleInit(const ST_CAN_CFG_ITEM *pstCanCfgItem,
+                             Uint32 u32SysclkHz)
 {
     volatile struct CAN_REGS *pstRegs;
     Uint16 u16Index;
@@ -322,7 +321,8 @@ void Hw_CanSingleInit(const ST_CAN_CFG_ITEM *pstCanCfgItem)
         return;
     }
 
-    (void)Hw_CanConfigBitTiming(pstRegs, pstCanCfgItem->u32Baudrate);
+    if (Hw_CanConfigBitTiming(pstRegs, pstCanCfgItem->u32Baudrate,
+                              u32SysclkHz) == 0U) { return; }
 
     /* 自动总线恢复：总线关闭后自动尝试重新接入 */
     if (pstCanCfgItem->bAutoBusOn != 0U)
@@ -382,8 +382,14 @@ void Hw_CanInit(const ST_CAN_CFG *pstCanCfg)
 
     for (u16Index = 0U; u16Index < pstCanCfg->u16ItemNum; u16Index++)
     {
-        Hw_CanSingleInit(&pstCanCfg->pstCanCfgItem[u16Index]);
+        Hw_CanSingleInit(&pstCanCfg->pstCanCfgItem[u16Index],
+                         pstCanCfg->u32SysclkHz);
     }
+}
+
+Uint16 Hw_CanIsInitialized(Uint16 u16CanId)
+{
+    return (u16CanId < HW_CAN_ID_MAX) ? gCanInited[u16CanId] : 0U;
 }
 
 Uint16 Hw_CanSend(Uint16 u16CanId, Uint16 u16ObjIdx, Uint32 u32MsgId,

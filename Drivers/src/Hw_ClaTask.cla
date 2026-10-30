@@ -1,0 +1,35 @@
+#include "F2837xS_device.h"
+#include "Hw_ClaTask.h"
+
+#pragma CODE_SECTION(Cla1Task1, "Cla1Prog")
+#pragma DATA_SECTION(gMuxB3Filtered, "Cla1DataRam")
+#pragma DATA_SECTION(gMuxD3Filtered, "Cla1DataRam")
+static float gMuxB3Filtered[8];
+static float gMuxD3Filtered[8];
+
+/* One 20 kHz sample publication. The CPU ISR changes the MUX GPIO after this
+ * task completes, so the new address settles before the next ZERO sample. */
+__interrupt void Cla1Task1(void)
+{
+    Uint16 address = CpuToCla1Msg.u16MuxAddress;
+    float alpha = CpuToCla1Msg.fAlpha;
+
+    if (address >= 8U || address == 5U)
+    {
+        address = 0U;
+    }
+    if (alpha < 0.0f || alpha > 1.0f)
+    {
+        alpha = 0.0f;
+    }
+
+    gMuxB3Filtered[address] += alpha * ((float)AdcbResultRegs.ADCRESULT3 - gMuxB3Filtered[address]);
+    gMuxD3Filtered[address] += alpha * ((float)AdcdResultRegs.ADCRESULT3 - gMuxD3Filtered[address]);
+    Cla1ToCpuMsg.fMuxB3 = gMuxB3Filtered[address];
+    Cla1ToCpuMsg.fMuxD3 = gMuxD3Filtered[address];
+    Cla1ToCpuMsg.u16AdcaAnchor = AdcaResultRegs.ADCRESULT15;
+    Cla1ToCpuMsg.u16MuxAddress = address;
+    Cla1ToCpuMsg.u16NextMuxAddress = CpuToCla1Msg.u16NextMux[address];
+    Cla1ToCpuMsg.u32Sequence++;
+    AdcaRegs.ADCINTFLGCLR.bit.ADCINT1 = 1U;
+}

@@ -30,9 +30,6 @@ extern Uint32 Cla1ConstLoadSize;
 /* LSxMSEL 中"CPU+CLA1 共享"的编码值 */
 #define HW_CLA_LS_MASTER_CPU_CLA1   (1U)
 
-/* CLA 任务数量上限 */
-#define HW_CLA_TASK_MAX         ((Uint16)HW_CLA_TASK_MAX)
-
 /* 消息 RAM 初始化等待的超时上限（计数循环，约几十微秒 @200MHz 以上） */
 #define HW_CLA_MSG_INIT_WAIT_MAX    (100000UL)
 
@@ -102,7 +99,7 @@ static void Hw_ClaCopyToRam(void)
  * @brief 清除 CPU 与 CLA 之间的消息 RAM
  * @note  必须等待 INITDONE 置位后才能继续，否则消息内容是脏的
  ******************************************************************************/
-static void Hw_ClaMsgRamInit(void)
+static Uint16 Hw_ClaMsgRamInit(void)
 {
     Uint32 u32Wait;
 
@@ -121,6 +118,7 @@ static void Hw_ClaMsgRamInit(void)
     {
         u32Wait--;
     }
+    if (u32Wait == 0UL) { return 0U; }
 
     EALLOW;
     MemCfgRegs.MSGxINIT.bit.INIT_CPUTOCLA1 = 1U;
@@ -132,6 +130,7 @@ static void Hw_ClaMsgRamInit(void)
     {
         u32Wait--;
     }
+    return (u32Wait != 0UL) ? 1U : 0U;
 }
 
 /******************************************************************************
@@ -206,13 +205,13 @@ void Hw_ClaSingleInit(const ST_CLA_CFG_ITEM *pstClaCfgItem)
  * @brief CLA 初始化总入口
  * @param pstClaCfg CLA 配置表指针
  ******************************************************************************/
-void Hw_ClaInit(const ST_CLA_CFG *pstClaCfg)
+Uint16 Hw_ClaInit(const ST_CLA_CFG *pstClaCfg)
 {
     Uint16 i;
 
     if (pstClaCfg == 0)
     {
-        return;
+        return 0U;
     }
 
     /* 1. 先把程序与常量拷贝到 RAM 运行区：
@@ -225,7 +224,7 @@ void Hw_ClaInit(const ST_CLA_CFG *pstClaCfg)
     Hw_ClaMemConfig();
 
     /* 3. 消息 RAM 清零 */
-    Hw_ClaMsgRamInit();
+    if (Hw_ClaMsgRamInit() == 0U) { return 0U; }
 
     /* 4. 逐任务映射向量、使能中断、设置触发源 */
     for (i = 0U; i < pstClaCfg->u16ItemNum; i++)
@@ -237,6 +236,7 @@ void Hw_ClaInit(const ST_CLA_CFG *pstClaCfg)
     EALLOW;
     Cla1Regs.MCTL.bit.IACKE = 1U;
     EDIS;
+    return 1U;
 }
 
 /******************************************************************************

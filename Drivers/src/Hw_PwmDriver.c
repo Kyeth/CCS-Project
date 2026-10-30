@@ -28,7 +28,6 @@ static volatile struct EPWM_REGS * const gPwmRegs[HW_PWM_ID_MAX] =
     &EPwm12Regs
 };
 
-static ST_PWM_CFG *gPwmCfg = (ST_PWM_CFG *)0;
 
 /* 判断PWM编号是否有效。 */
 static Uint16 Hw_PwmIdIsValid(Uint16 u16PwmId)
@@ -68,22 +67,13 @@ static void Hw_PwmConfigDeadBand(volatile struct EPWM_REGS *pstPwmRegs, const ST
     pstPwmRegs->DBRED.all = pstPwmCfgItem->u16DeadTime;
     pstPwmRegs->DBFED.all = pstPwmCfgItem->u16DeadTime;
 
-    /* INV 与 BUS 都是"一路 AQ 出波、另一路由死区模块反相生成"的结构：
-     * INV 的 B 是桥臂另一只管子，BUS(EPWM8) 的 B 是平衡桥另一半。
-     * 死区模块一关（OUT_MODE=DB_DISABLE），B 就只受 AQCTLB 控制，
-     * 而配置表里 AQCTLB 全是 NO_ACTION => B 恒为低，示波器上看不到波形
-     * （实测 EPWM8A 有 20kHz/50%、EPWM8B 完全没有）。 */
+    /* INV and BUS B outputs are complementary copies of AQ A, with dead time. */
     if ((pstPwmCfgItem->u16PwmType == HW_PWM_TYPE_INV) ||
         (pstPwmCfgItem->u16PwmType == HW_PWM_TYPE_BUS))
     {
         pstPwmRegs->DBCTL.bit.OUT_MODE = DB_FULL_ENABLE;
         pstPwmRegs->DBCTL.bit.POLSEL = DB_ACTV_HIC;
-        /* IN_MODE 必须是 DBA_ALL(0x0)：EPWMxA 与 EPWMxB 都取 AQ A 的输出，
-         * 然后 POLSEL=DB_ACTV_HIC 把 B 反相、DBRED/DBFED 插入死区，
-         * 得到标准互补对称 PWM。
-         * 原来写 DBA_RED_DBB_FED(0x2)，B 的输入是 DBB = AQCTLB，
-         * 而本工程所有 AQCTLB 都是 AQ_NO_ACTION => B 输出恒定，
-         * 示波器上 EPWM1B/2B/3B/4B/10B/11B/8B 全部没有波形（A 正常）。 */
+        /* Both dead-band paths must use AQ A as their input. */
         pstPwmRegs->DBCTL.bit.IN_MODE = DBA_ALL;
     }
     else
@@ -117,71 +107,14 @@ static void Hw_PwmConfigSoca(volatile struct EPWM_REGS *pstPwmRegs, const ST_PWM
     pstPwmRegs->ETSEL.bit.SOCAEN = 1U;
 }
 
-/* 配置 SOCB 事件（第二采样点）。 */
-static void Hw_PwmConfigSocb(volatile struct EPWM_REGS *pstPwmRegs, const ST_PWM_ET_CFG *pstEtCfg)
+/* This build uses local ZERO shadow loads only; no global load group. */
+static void Hw_PwmConfigGlobalLoad(volatile struct EPWM_REGS *regs,
+                                   const ST_PWM_CFG_ITEM *cfg)
 {
-    pstPwmRegs->ETSEL.bit.SOCBEN = 0U;
-
-    if (pstEtCfg->bEnableB == 0U)
-    {
-        return;
-    }
-
-    pstPwmRegs->ETSEL.bit.SOCBSEL = pstEtCfg->u16SelB;
-    pstPwmRegs->ETPS.bit.SOCPSSEL = pstEtCfg->bUsePrd2B;
-
-    if (pstEtCfg->bUsePrd2B != 0U)
-    {
-        pstPwmRegs->ETSOCPS.bit.SOCBPRD2 = pstEtCfg->u16Prd2B;
-    }
-    else
-    {
-        pstPwmRegs->ETPS.bit.SOCBPRD = pstEtCfg->u16PrdB;
-    }
-
-    pstPwmRegs->ETSEL.bit.SOCBEN = 1U;
+    regs->EPWMXLINK.bit.CMPALINK = cfg->u16PwmId;
+    regs->EPWMXLINK.bit.CMPBLINK = cfg->u16PwmId;
+    regs->GLDCTL.bit.GLD = 0U;
 }
-
-/* 配置全局加载。 */
-static void Hw_PwmConfigGlobalLoad(volatile struct EPWM_REGS *pstPwmRegs, const ST_PWM_CFG_ITEM *pstPwmCfgItem)
-{
-    /* EPWMXLINK 复位值 0 指向 EPWM1：不清掉的话，任何模块写 CMPA 都会同时
-     * 写进 EPWM1 的 CMPA，EPWM1 的占空比被别的模块反复覆盖。
-     * 这里把 CMPA/CMPB 链都指回自己，等于关闭跨模块镜像。 */
-    pstPwmRegs->EPWMXLINK.bit.CMPALINK = pstPwmCfgItem->u16PwmId;
-    pstPwmRegs->EPWMXLINK.bit.CMPBLINK = pstPwmCfgItem->u16PwmId;
-
-    if (pstPwmCfgItem->bGload == 0U)
-    {
-        pstPwmRegs->GLDCTL.bit.GLD = 0U;
-        return;
-    }
-
-    pstPwmRegs->GLDCFG.bit.CMPA_CMPAHR = 1U;
-    pstPwmRegs->GLDCFG.bit.CMPB_CMPBHR = 1U;
-    pstPwmRegs->GLDCFG.bit.TBPRD_TBPRDHR = 1U;
-    pstPwmRegs->GLDCFG.bit.DBRED_DBREDHR = 1U;
-    pstPwmRegs->GLDCFG.bit.DBFED_DBFEDHR = 1U;
-    pstPwmRegs->GLDCFG.bit.DBCTL = 1U;
-    pstPwmRegs->GLDCFG.bit.AQCSFRC = 1U;
-
-    pstPwmRegs->EPWMXLINK.bit.GLDCTL2LINK = pstPwmCfgItem->u16LinkPwm;
-
-    /* OSHTMODE=0：连续模式；GLDMODE=1：每个 PWM 周期 CTR=0 自动装载一次。
-     * 原写法 GLDMODE=0 是"不选任何装载脉冲"，影子寄存器永不自动装载，
-     * 只能靠 GLDCTL2.OSHTLD 的一次性事件，组内从模块经常漏装载。 */
-    /* 台架阶段关闭全局装载（GLD）：CMPA/AQCSFRC 一律直写，写入立即生效、
-     * 读回就是真实值。GLD 影子 + 组主/组员链接在本板上反复出现
-     * "写了不生效、读回是旧值、只有个别模块出波"，先退回直写路径
-     * 保证驱动能出来；代价是丢失六路 CMPA 的严格同步装载，
-     * 等控制环路稳定后再按 TI 方式重新启用。 */
-    pstPwmRegs->GLDCTL.bit.OSHTMODE = 0U;
-    pstPwmRegs->GLDCTL.bit.GLDMODE = 0U;
-    pstPwmRegs->GLDCTL.bit.GLD = 0U;
-    pstPwmRegs->GLDCTL2.bit.OSHTLD = 0U;
-    pstPwmRegs->EPWMXLINK.bit.GLDCTL2LINK = 0U;
-}
-
 /* 初始化单个ePWM模块。 */
 void Hw_SinglePwmInit(ST_PWM_CFG_ITEM *pstPwmCfgItem)
 {
@@ -221,17 +154,12 @@ void Hw_SinglePwmInit(ST_PWM_CFG_ITEM *pstPwmCfgItem)
     pstPwmRegs->TBCTR = 0U;
     pstPwmRegs->TBPHS.bit.TBPHS = pstPwmCfgItem->u16Phase;
 
-    /* 4. F2837xS同步链：1->2->3，4->5->6，7->8->9，10->11->12。
-     * 1与7在ZERO产生同步；4/5/8/10透传输入同步到下一个模块。 */
-    if ((pstPwmCfgItem->u16PwmId == HW_PWM_ID0) ||
-        (pstPwmCfgItem->u16PwmId == HW_PWM_ID6))
+    /* The Broad table selects ZERO, pass-through, or disabled SYNCO. */
+    if (pstPwmCfgItem->u16SyncOutSel == HW_EPWM_SYNC_OUT_FROM_CNTR_ZERO)
     {
         pstPwmRegs->TBCTL.bit.SYNCOSEL = TB_CTR_ZERO;
     }
-    else if ((pstPwmCfgItem->u16PwmId == HW_PWM_ID3) ||
-             (pstPwmCfgItem->u16PwmId == HW_PWM_ID4) ||
-             (pstPwmCfgItem->u16PwmId == HW_PWM_ID7) ||
-             (pstPwmCfgItem->u16PwmId == HW_PWM_ID9))
+    else if (pstPwmCfgItem->u16SyncOutSel == HW_EPWM_SYNC_OUT_FROM_SYNCIN)
     {
         pstPwmRegs->TBCTL.bit.SYNCOSEL = TB_SYNC_IN;
     }
@@ -274,9 +202,9 @@ void Hw_SinglePwmInit(ST_PWM_CFG_ITEM *pstPwmCfgItem)
     /* 7. 配置死区模块。 */
     Hw_PwmConfigDeadBand(pstPwmRegs, pstPwmCfgItem);
 
-    /* 8. 配置SOCA/SOCB事件触发。 */
+    /* 8. Configure the one SOCA sample trigger. */
     Hw_PwmConfigSoca(pstPwmRegs, &pstPwmCfgItem->stEtSoca);
-    Hw_PwmConfigSocb(pstPwmRegs, &pstPwmCfgItem->stEtSoca);
+    pstPwmRegs->ETSEL.bit.SOCBEN = 0U;
 
     /* 9. 配置全局加载。 */
     Hw_PwmConfigGlobalLoad(pstPwmRegs, pstPwmCfgItem);
@@ -299,21 +227,28 @@ void Hw_PwmInit(ST_PWM_CFG *pstPwmCfg)
         return;
     }
 
-    gPwmCfg = pstPwmCfg;
 
     /* 1. 关闭 TBCLK 同步，允许配置期间时基停摆 */
     Hw_DisableAllPwmCLKSync();
 
-    EALLOW;
-    /* 三个跨组入口均选EPWM1SYNCOUT，避免依赖上电复位的隐含值。 */
-    SyncSocRegs.SYNCSELECT.bit.EPWM4SYNCIN = 0U;
-    SyncSocRegs.SYNCSELECT.bit.EPWM7SYNCIN = 0U;
-    SyncSocRegs.SYNCSELECT.bit.EPWM10SYNCIN = 0U;
-    EDIS;
-
     /* 2. 逐个配置 ePWM 模块的寄存器 */
     for (i = 0U; i < pstPwmCfg->u16ItemNum; i++)
     {
+        /* EPWM4/7/10 start the three hardware synchronization groups.
+         * SYNCSELECT source codes: EPWM1=0, EPWM4=1, EPWM7=2, EPWM10=3. */
+        Uint16 src = pstPwmCfg->pstPwmCfgItem[i].u16SyncInSel;
+        Uint16 sel = 0U;
+        if (src == HW_EPWM_SYNC_IN_FROM_SYNCOUT_EPWM4) { sel = 1U; }
+        if (src == HW_EPWM_SYNC_IN_FROM_SYNCOUT_EPWM7) { sel = 2U; }
+        if (src == HW_EPWM_SYNC_IN_FROM_SYNCOUT_EPWM10) { sel = 3U; }
+        EALLOW;
+        if (pstPwmCfg->pstPwmCfgItem[i].u16PwmId == HW_PWM_ID3)
+            { SyncSocRegs.SYNCSELECT.bit.EPWM4SYNCIN = sel; }
+        if (pstPwmCfg->pstPwmCfgItem[i].u16PwmId == HW_PWM_ID6)
+            { SyncSocRegs.SYNCSELECT.bit.EPWM7SYNCIN = sel; }
+        if (pstPwmCfg->pstPwmCfgItem[i].u16PwmId == HW_PWM_ID9)
+            { SyncSocRegs.SYNCSELECT.bit.EPWM10SYNCIN = sel; }
+        EDIS;
         Hw_SinglePwmInit(&pstPwmCfg->pstPwmCfgItem[i]);
     }
 
@@ -345,158 +280,17 @@ void Hw_DisableAllPwmCLKSync(void)
     EDIS;
 }
 
-/* 启动指定ePWM输出。 */
-void Hw_PwmStart(Uint16 u16PwmId)
-{
-    if (Hw_PwmIdIsValid(u16PwmId) == 0U)
-    {
-        return;
-    }
-
-    EALLOW;
-    gPwmRegs[u16PwmId]->AQCSFRC.bit.CSFA = HW_PWM_FORCE_NONE;
-    gPwmRegs[u16PwmId]->AQCSFRC.bit.CSFB = HW_PWM_FORCE_NONE;
-    gPwmRegs[u16PwmId]->TZCLR.bit.OST = 1U;
-    EDIS;
-}
-
-/* 停止指定ePWM输出。 */
-void Hw_PwmStop(Uint16 u16PwmId)
-{
-    if (Hw_PwmIdIsValid(u16PwmId) == 0U)
-    {
-        return;
-    }
-
-    EALLOW;
-    gPwmRegs[u16PwmId]->TZFRC.bit.OST = 1U;
-    EDIS;
-}
-
-/* 启动所有ePWM输出。 */
-void Hw_StartAllPWM(void)
-{
-    Uint16 i;
-
-    for (i = 0U; i < HW_PWM_ID_MAX; i++)
-    {
-        Hw_PwmStart(i);
-    }
-}
-
-/* 停止所有ePWM输出。 */
+/* Latch every ePWM output low. There is deliberately no release API in this image. */
 void Hw_StopAllPWM(void)
 {
     Uint16 i;
-
-    for (i = 0U; i < HW_PWM_ID_MAX; i++)
-    {
-        Hw_PwmStop(i);
-    }
-}
-
-/* 清除所有ePWM的 Trip Zone (TZ) 标志位 */
-void Hw_PwmClearAllTripZone(void)
-{
-    Uint16 i;
-
     EALLOW;
     for (i = 0U; i < HW_PWM_ID_MAX; i++)
     {
-        gPwmRegs[i]->TZCLR.bit.OST = 1U;
-        /* CBC 是锁存型：上电初期故障脚还没稳定就会误锁存，
-         * 不清掉的话即使故障已消失，输出也会一直被压在低电平
-         * （实测 EPWM7 上电后 TZFLG 恒为 0x0012，PV 四路全无驱动）。 */
-        gPwmRegs[i]->TZCLR.bit.CBC = 1U;
-        gPwmRegs[i]->TZCLR.bit.INT = 1U;
+        gPwmRegs[i]->TZFRC.bit.OST = 1U;
     }
     EDIS;
 }
-
-/* 触发配置表中第一个启用全局加载的PWM执行一次性加载。 */
-void Hw_TrigGlobalLoad(void)
-{
-    Uint16 i;
-    Uint16 u16PwmId;
-
-    if (gPwmCfg == (ST_PWM_CFG *)0)
-    {
-        return;
-    }
-
-    EALLOW;
-
-    /* 逐个触发“全局加载组主”：判据是 bGload != 0 且 GLDCTL2LINK 指向自己。
-     * 本工程有两组组主：逆变组 EPWM1（EPWM2/3/4/10/11 跟随）、
-     * PV 组 EPWM7（EPWM9/5/6 跟随）。旧实现只触发配置表里第一个组主，
-     * 结果 PV 组的 AQCSFRC/CMPA 永远进不了硬件，PV 四路死波。 */
-    for (i = 0U; i < gPwmCfg->u16ItemNum; i++)
-    {
-        if (gPwmCfg->pstPwmCfgItem[i].bGload == 0U)
-        {
-            continue;
-        }
-
-        if (gPwmCfg->pstPwmCfgItem[i].u16LinkPwm != gPwmCfg->pstPwmCfgItem[i].u16PwmId)
-        {
-            continue;
-        }
-
-        u16PwmId = gPwmCfg->pstPwmCfgItem[i].u16PwmId;
-
-        if (Hw_PwmIdIsValid(u16PwmId) == 0U)
-        {
-            continue;
-        }
-
-        gPwmRegs[u16PwmId]->GLDCTL2.bit.OSHTLD = 1U;
-    }
-
-    EDIS;
-}
-
-/* 写入CMPA影子寄存器。 */
-void Hw_PwmSetCmpA(Uint16 u16PwmId, Uint16 u16CmpA)
-{
-    if (Hw_PwmIdIsValid(u16PwmId) == 0U)
-    {
-        return;
-    }
-
-    gPwmRegs[u16PwmId]->CMPA.bit.CMPA = u16CmpA;
-}
-
-/* 写入CMPB影子寄存器。 */
-void Hw_PwmSetCmpB(Uint16 u16PwmId, Uint16 u16CmpB)
-{
-    if (Hw_PwmIdIsValid(u16PwmId) == 0U)
-    {
-        return;
-    }
-
-    gPwmRegs[u16PwmId]->CMPB.bit.CMPB = u16CmpB;
-}
-
-/* 运行期强制A/B通道输出电平。 */
-void Hw_PwmSetForce(Uint16 u16PwmId, Uint16 u16ForceA, Uint16 u16ForceB)
-{
-    if (Hw_PwmIdIsValid(u16PwmId) == 0U)
-    {
-        return;
-    }
-
-    EALLOW;
-    gPwmRegs[u16PwmId]->AQCSFRC.bit.CSFA = u16ForceA;
-    gPwmRegs[u16PwmId]->AQCSFRC.bit.CSFB = u16ForceB;
-    EDIS;
-}
-
-/* 释放A/B通道强制。 */
-void Hw_PwmReleaseForce(Uint16 u16PwmId)
-{
-    Hw_PwmSetForce(u16PwmId, HW_PWM_FORCE_NONE, HW_PWM_FORCE_NONE);
-}
-
 /* ============ 数字比较（DC）故障源 ============ */
 /* 把指定 TRIP 接进 DCAH：TRIPINPUTn 选路，COMPSEL 选比较通道（n = TRIPn - 1）。 */
 static void Hw_PwmConfigDcaTrip(volatile struct EPWM_REGS *pstPwmRegs, Uint16 u16Trip)

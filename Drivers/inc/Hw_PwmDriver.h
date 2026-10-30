@@ -20,40 +20,16 @@ extern "C" {
 #endif
 
 
-/* 同步输出源定义 (EPWMSYNCOUTEN) */
-#define HW_EPWM_SYNC_OUT_FROM_DISABLE            0x00U    /* 禁用同步输出 */
-#define HW_EPWM_SYNC_OUT_FROM_SOFTWARE           0x01U
+/* Broad table synchronization selectors for this F2837xS chain. */
+#define HW_EPWM_SYNC_OUT_FROM_DISABLE            0x00U
 #define HW_EPWM_SYNC_OUT_FROM_CNTR_ZERO          0x02U
-#define HW_EPWM_SYNC_OUT_FROM_CNTR_COMPARE_B     0x04U
-#define HW_EPWM_SYNC_OUT_FROM_CNTR_COMPARE_C     0x08U
-#define HW_EPWM_SYNC_OUT_FROM_CNTR_COMPARE_D     0x10U
-#define HW_EPWM_SYNC_OUT_FROM_DCA_EVT1_SYNC      0x20U
-#define HW_EPWM_SYNC_OUT_FROM_DCB_EVT1_SYNC      0x40U
-#define HW_EPWM_SYNC_OUT_FROM_ALL                0x7FU
+#define HW_EPWM_SYNC_OUT_FROM_SYNCIN             0x80U
 
-/* 同步输入源定义 (EPWMSYNCINSEL) */
 #define HW_EPWM_SYNC_IN_FROM_DISABLE             0x00U
 #define HW_EPWM_SYNC_IN_FROM_SYNCOUT_EPWM1       0x01U
-#define HW_EPWM_SYNC_IN_FROM_SYNCOUT_EPWM2       0x02U
-#define HW_EPWM_SYNC_IN_FROM_SYNCOUT_EPWM3       0x03U
 #define HW_EPWM_SYNC_IN_FROM_SYNCOUT_EPWM4       0x04U
-#define HW_EPWM_SYNC_IN_FROM_SYNCOUT_EPWM5       0x05U
-#define HW_EPWM_SYNC_IN_FROM_SYNCOUT_EPWM6       0x06U
 #define HW_EPWM_SYNC_IN_FROM_SYNCOUT_EPWM7       0x07U
-#define HW_EPWM_SYNC_IN_FROM_SYNCOUT_EPWM8       0x08U
-#define HW_EPWM_SYNC_IN_FROM_SYNCOUT_EPWM9       0x09U
 #define HW_EPWM_SYNC_IN_FROM_SYNCOUT_EPWM10      0x0AU
-#define HW_EPWM_SYNC_IN_FROM_SYNCOUT_EPWM11      0x0BU
-#define HW_EPWM_SYNC_IN_FROM_SYNCOUT_EPWM12      0x0CU
-#define HW_EPWM_SYNC_IN_FROM_SYNCOUT_ECAP1       0x11U
-#define HW_EPWM_SYNC_IN_FROM_SYNCOUT_ECAP2       0x12U
-#define HW_EPWM_SYNC_IN_FROM_SYNCOUT_ECAP3       0x13U
-#define HW_EPWM_SYNC_IN_FROM_INPUTXBAR_OUT5      0x18U
-#define HW_EPWM_SYNC_IN_FROM_INPUTXBAR_OUT6      0x19U
-
-/* F2837xS的同步由TBCTL.SYNCOSEL和SyncSocRegs.SYNCSELECT控制。
- * 本代EPWM_REGS偏移+3/+6是保留地址，不可写入。 */
-
 typedef enum
 {
     HW_PWM_TYPE_INV = 0U,
@@ -114,12 +90,6 @@ typedef struct
     Uint16 u16Prd;
     Uint16 u16Prd2;
 
-    /* SOCB 事件：用于第二采样点（例如 CTR=PRD 采逆变电流峰值） */
-    Uint16 bEnableB;        /* 1: 使能 SOCB */
-    Uint16 u16SelB;         /* 见 E_HW_PWM_ET_SEL */
-    Uint16 bUsePrd2B;       /* 1: 用 SOCBPRD2 分频，0: 用 SOCBPRD */
-    Uint16 u16PrdB;
-    Uint16 u16Prd2B;
 } ST_PWM_ET_CFG;
 
 typedef struct
@@ -136,9 +106,6 @@ typedef struct
     Uint16 u16SyncCntLoadDir;
     Uint16 u16SyncInSel;    /* 见 HW_EPWM_SYNC_IN_FROM_xxx */
     Uint16 u16SyncOutSel;   /* 见 HW_EPWM_SYNC_OUT_FROM_xxx */
-
-    Uint16 bGload;
-    Uint16 u16LinkPwm;
 
     Uint16 u16DeadTime;
     Uint16 u16TzActionA;
@@ -172,37 +139,8 @@ extern void Hw_EnableAllPwmCLKSync(void);
 /* 禁止所有ePWM时基时钟。 */
 extern void Hw_DisableAllPwmCLKSync(void);
 
-/* 启动指定ePWM输出。 */
-extern void Hw_PwmStart(Uint16 u16PwmId);
-
-/* 停止指定ePWM输出。 */
-extern void Hw_PwmStop(Uint16 u16PwmId);
-
-/* 启动所有ePWM输出。 */
-extern void Hw_StartAllPWM(void);
-
-/* 停止所有ePWM输出。 */
+/* Latch all PWM outputs low with one-shot TZ. */
 extern void Hw_StopAllPWM(void);
-
-/* 清除所有ePWM的Trip Zone（TZ）标志位。 */
-extern void Hw_PwmClearAllTripZone(void);
-
-/* 触发配置表中第一个启用全局加载的PWM执行一次性加载。 */
-extern void Hw_TrigGlobalLoad(void);
-
-/* 写入CMPA影子寄存器（在 TBCTL 装载点生效，LOADAMODE = CC_CTR_ZERO）。 */
-extern void Hw_PwmSetCmpA(Uint16 u16PwmId, Uint16 u16CmpA);
-
-/* 写入CMPB影子寄存器（在 TBCTL 装载点生效，LOADBMODE = CC_CTR_ZERO）。 */
-extern void Hw_PwmSetCmpB(Uint16 u16PwmId, Uint16 u16CmpB);
-
-/* 运行期强制A/B通道输出电平（AQCSFRC）。
- * 说明：死区全使能模式下 B 通道由死区模块由 A 取反得到，
- * 因此强制 CSFB 仅作为封波时的兜底。 */
-extern void Hw_PwmSetForce(Uint16 u16PwmId, Uint16 u16ForceA, Uint16 u16ForceB);
-
-/* 释放A/B通道强制，回到动作限定器 + 死区产生的波形。 */
-extern void Hw_PwmReleaseForce(Uint16 u16PwmId);
 
 /* ============ 数字比较（DC）故障源配置 ============
  * 硬件机制（F2837xS ePWM 的 TZ 子模块）：
@@ -216,7 +154,7 @@ extern void Hw_PwmReleaseForce(Uint16 u16PwmId);
  *       DCBEVT2 -> 可 CBC，              动作在 TZCTL.DCBEVT2，作用 EPWMxB
  *     A 侧事件只作用 A 引脚、B 侧事件只作用 B 引脚，TZCTL 里没有交叉选择；
  *   - 本工程统一用 EVT2 + CBC：过流尖峰只逐波压缩占空比，不永久封波；
- *     永久封波仍由软件判故障后走 TZFRC.OST（Hw_PwmStop / Hw_InvStop）。
+ *     永久封波仍由软件判故障后走 TZFRC.OST（TZFRC.OST）。
  *     逆变模块的 B 由死区模块从 A 取反产生，只砍 A 挡不住下管，故 A/B 两套都要配。
  */
 

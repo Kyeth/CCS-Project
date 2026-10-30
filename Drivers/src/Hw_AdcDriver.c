@@ -30,7 +30,6 @@
  * 注意：不要用device.h里的DEVICE_DELAY_US宏，它依赖的SysCtl_delay在本工程
  *      的device目录中既没有声明也没有实现，用了会链接失败 */
 #define HW_ADC_POWERUP_DELAY_CNT        (40000U)
-#define HW_ADC_CLK_PRESCALE_DIV_4       (6U)    /* ADCCTL2.PRESCALE=6: ADCCLK=SYSCLK/4 */
 
 /* ADC寄存器基址表 */
 static volatile struct ADC_REGS * const gAdcRegs[HW_ADC_ID_MAX] =
@@ -186,7 +185,7 @@ void Hw_AdcSingleInit(const ST_ADC_CFG_ITEM *pstAdcCfgItem)
     EALLOW;
     /* 0. ADC时钟分频：ADCCLK = SYSCLK/4 = 50MHz（PRESCALE = 6）。
      *    复位值为0即SYSCLK不分频，超过器件ADCCLK上限，必须先设置。 */
-    pstRegs->ADCCTL2.bit.PRESCALE = HW_ADC_CLK_PRESCALE_DIV_4;
+    pstRegs->ADCCTL2.bit.PRESCALE = pstAdcCfgItem->u16Prescale;
     AdcSetMode(pstAdcCfgItem->u16AdcId, pstAdcCfgItem->u16Resolution, pstAdcCfgItem->u16SignalMode);
     pstRegs->ADCCTL1.bit.ADCPWDNZ = 1U;
     EDIS;
@@ -210,8 +209,7 @@ void Hw_AdcSingleInit(const ST_ADC_CFG_ITEM *pstAdcCfgItem)
         return;
     }
 
-    /* 全固定优先级：SOC15必须晚于本批SOC0~7，SOC9晚于SOC8。
-     * 默认round-robin会在PRD批后把SOC15放在下一ZERO批的最前面。 */
+    /* Fixed priority keeps SOC15 after the other ZERO-triggered conversions. */
     pstRegs->ADCSOCPRICTL.bit.SOCPRIORITY = 16U;
 
     for (u16Soc = 0U; u16Soc < HW_ADC_SOC_MAX; u16Soc++)
@@ -249,10 +247,7 @@ void Hw_AdcSingleInit(const ST_ADC_CFG_ITEM *pstAdcCfgItem)
         pstRegs->ADCINTSEL1N2.bit.INT1E = 0U;
     }
 
-    /* 5b. 配置ADCINT2：第二采样批次（CTR=PRD）结束时触发 CLA Task2 */
-    pstRegs->ADCINTSEL1N2.bit.INT2SEL = (pstAdcCfgItem->u16Int2Sel & 0x000FU);
-    pstRegs->ADCINTSEL1N2.bit.INT2CONT = 1U;   /* 同上：连续模式，每拍触发 CLA Task2 */
-    pstRegs->ADCINTSEL1N2.bit.INT2E = (pstAdcCfgItem->bAdcInt2Enable != 0U) ? 1U : 0U;
+    pstRegs->ADCINTSEL1N2.bit.INT2E = 0U;
 
     /* 6. 清中断标志，避免复位后残留标志误触发CLA或CPU中断 */
     pstRegs->ADCINTFLGCLR.all = HW_ADC_INTFLG_CLR_MASK;

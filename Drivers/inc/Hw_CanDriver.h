@@ -59,13 +59,12 @@ typedef struct
 {
     const ST_CAN_CFG_ITEM *pstCanCfgItem;
     Uint16 u16ItemNum;
+    Uint32 u32SysclkHz;
 } ST_CAN_CFG;
 
 /* 初始化配置表中的全部CAN模块 */
 void Hw_CanInit(const ST_CAN_CFG *pstCanCfg);
-
-/* 初始化单个CAN模块，Hw_CanInit内部也调用它 */
-void Hw_CanSingleInit(const ST_CAN_CFG_ITEM *pstCanCfgItem);
+Uint16 Hw_CanIsInitialized(Uint16 u16CanId);
 
 /* 发送一帧，u16ObjIdx是发送对象序号（0~u16TxObjCnt-1），
  * pu16Data按"一个Uint16放一个字节"排列，u16Len为0~8，返回1表示已装载并启动发送 */

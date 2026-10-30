@@ -80,8 +80,8 @@ typedef enum
     HW_CLA_TRIG_EPWM2INT = 37U,     // EPWM2 中断
     HW_CLA_TRIG_EPWM3INT = 38U,     // EPWM3 中断
     HW_CLA_TRIG_TINT0    = 68U,     // CPU Timer0 中断
-    HW_CLA_TRIG_TINT1    = 69U,     // CPU Timer1 中断（100us 节拍）
-    HW_CLA_TRIG_TINT2    = 70U      // CPU Timer2 中断（1ms 心跳）
+    HW_CLA_TRIG_TINT1    = 69U,     // CPU Timer1 中断
+    HW_CLA_TRIG_TINT2    = 70U      // CPU Timer2 中断
 } E_HW_CLA_TRIG;
 
 /******************************************************************************
@@ -117,10 +117,10 @@ void Hw_ClaSingleInit(const ST_CLA_CFG_ITEM *pstClaCfgItem);
 /**
  * @brief  CLA 初始化总入口
  * @param  pstClaCfg CLA 配置表指针
- * @note   依次完成：LS 存储器归属配置 → CLA 程序/常量拷贝到 RAM →
+ * @note   依次完成：CLA 程序/常量拷贝到 RAM → LS 存储器归属配置 →
  *         消息 RAM 清零 → 逐任务映射向量/设置触发源/使能任务 → 打开 IACK
  */
-void Hw_ClaInit(const ST_CLA_CFG *pstClaCfg);
+Uint16 Hw_ClaInit(const ST_CLA_CFG *pstClaCfg);
 
 /**
  * @brief  软件强制触发一个 CLA 任务（IACK 指令）
