@@ -29,7 +29,7 @@ GPIO88 在 GPIO 表首项配置为低，板上驱动使能保持关闭；继电�
 
 PV1/2/3/4 过流 GPIO13/17/41/40、INV 过流/短路 GPIO81/82 经 INPUT X-BAR 与 ePWM X-BAR 接到各自 TRIP；外部正常高、故障低，独立 TRIP 反相后进入 DCAH/DCBH 的 CBC。BUS 故障 GPIO77/80 已作为异步输入配置，但六路可直连 ePWM X-BAR 的 INPUT1–6 已分配给 PV 和 INV，EPWM8 **没有专属硬件 TZ 故障源**。启用 BUS 功率输出前须另行确定硬件保护路由并实测。INV/PV 的 CBC 极性、门极有效电平及 80 TBCLK 死区也须在断开功率级的台架上核验。
 
-`gBringupReady=1` 表示驱动初始化调用通过并已启用 ePWM 时基，不代表实板外设链路验收。`gBringupError` 位 0/1/2/3 分别表示 CLA 消息 RAM、SCI、CAN、时钟配置检查失败。即使初始化通过，所有功率输出也仍封锁。
+观察量统一放在 `stBringupStatus` 结构体中：`bReady=1` 表示驱动初始化调用通过并已启用 ePWM 时基，不代表实板外设链路验收；`unError.all` 的位 0/1/2/3 分别表示 CLA 消息 RAM、SCI、CAN、时钟配置检查失败，对应 `unError.Bits` 中四个 1 位标志。即使初始化通过，所有功率输出也仍封锁。
 
 ## 构建与静态复核
 
@@ -45,8 +45,8 @@ python tools/verify_config.py --pin-sheet 'Z:\Git1029\CCS-Project\docs\review\20
 ## 首次实板验收顺序
 
 1. 保持功率级隔离，先量 GPIO88、继电器输出以及所有门极输出的安全电平；记录复位到 `main` 期间的电平。
-2. 用调试器观察 `gBringupError=0`、`gBringupReady=1`，寄存器确认 SYSCLK/ePWMCLK、各 TBPRD、OST 锁存和 ADC SOC/CLA 向量。
-3. 计时 `gControlIsrCount` 约每秒增加 20,000、`gHeartbeatMs` 约每秒增加 1,000，`gControlStallMs` 保持 0；核对 CLA 序号与 MUX 地址序列、ADCINT 溢出标志。
+2. 用调试器观察 `stBringupStatus.unError.all=0`、`stBringupStatus.bReady=1`，寄存器确认 SYSCLK/ePWMCLK、各 TBPRD、OST 锁存和 ADC SOC/CLA 向量。
+3. 计时 `stBringupStatus.u32ControlIsrCount` 约每秒增加 20,000、`stBringupStatus.u32HeartbeatMs` 约每秒增加 1,000、`stBringupStatus.u16ControlStallMs` 保持 0；核对 CLA 序号与 MUX 地址序列、ADCINT 溢出标志。
 4. 用外部已知低压信号逐个核对 ADC 通道和 MUX 建立时间；分别核对三路 SCI 及两路 CAN 的收发引脚、速率和收发器状态。
 5. 单独向每个故障 GPIO 注入低电平，读回 INPUT X-BAR、TRIP/CBC 标志和输出锁存。BUS 硬件 TZ 路由与门极极性确认前不得进入输出放行测试。
 

@@ -53,6 +53,7 @@
 									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/Broad/inc"/>
 									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/Drivers/inc"/>
 									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/Platform/Schedule/Inc"/>
+									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/Platform/Status/Inc"/>
 									<listOptionValue builtIn="false" value="${CG_TOOL_ROOT}/include"/>
 								</option>
 								<option id="com.ti.ccstudio.buildDefinitions.C2000_22.6.compilerID.ABI.1661857823" name="Application binary interface [See 'General' page to edit] (--abi)" superClass="com.ti.ccstudio.buildDefinitions.C2000_22.6.compilerID.ABI" useByScannerDiscovery="false" value="com.ti.ccstudio.buildDefinitions.C2000_22.6.compilerID.ABI.eabi" valueType="enumerated"/>
@@ -151,6 +152,7 @@
 									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/Broad/inc"/>
 									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/Drivers/inc"/>
 									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/Platform/Schedule/Inc"/>
+									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/Platform/Status/Inc"/>
 									<listOptionValue builtIn="false" value="${CG_TOOL_ROOT}/include"/>
 								</option>
 								<option id="com.ti.ccstudio.buildDefinitions.C2000_22.6.compilerID.ABI.1473868968" superClass="com.ti.ccstudio.buildDefinitions.C2000_22.6.compilerID.ABI" useByScannerDiscovery="false" value="com.ti.ccstudio.buildDefinitions.C2000_22.6.compilerID.ABI.eabi" valueType="enumerated"/>

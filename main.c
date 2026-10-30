@@ -10,12 +10,7 @@
 #include "Hw_ClaTask.h"
 #include "Hw_WatchDog.h"
 #include "Schedule.h"
-
-volatile Uint32 gHeartbeatMs = 0UL;
-volatile Uint32 gControlIsrCount = 0UL;
-volatile Uint16 gControlStallMs = 0U;
-volatile Uint16 gBringupReady = 0U;
-volatile Uint16 gBringupError = 0U;
+#include "BringupStatus.h"
 
 static __interrupt void Isr_Control(void);
 static __interrupt void Isr_Heartbeat(void);
@@ -52,7 +47,7 @@ void PeripheralsInit(void)
         stSciCfg.u32LspclkHz != stClockCfg.u32LspclkHz ||
         stCanCfg.u32SysclkHz != stClockCfg.u32SysclkHz)
     {
-        gBringupError |= 8U;
+        stBringupStatus.unError.Bits.bClockInitError = 1U;
     }
     InterruptVectTableInit();
 
@@ -67,7 +62,7 @@ void PeripheralsInit(void)
     Hw_AdcInit(&stAdcCfg);
     if (Hw_ClaInit(&stClaCfg) == 0U)
     {
-        gBringupError |= 1U;
+        stBringupStatus.unError.Bits.bClaInitError = 1U;
     }
 
     CpuToCla1Msg.u16MuxAddress = 0U;
@@ -82,13 +77,13 @@ void PeripheralsInit(void)
 
     if (Hw_SciInit(&stSciCfg) == 0U)
     {
-        gBringupError |= 2U;
+        stBringupStatus.unError.Bits.bSciInitError = 1U;
     }
     Hw_CanInit(&stCanCfg);
     if ((Hw_CanIsInitialized(HW_CAN_ID_A) == 0U) ||
         (Hw_CanIsInitialized(HW_CAN_ID_B) == 0U))
     {
-        gBringupError |= 4U;
+        stBringupStatus.unError.Bits.bCanInitError = 1U;
     }
     Hw_CpuTimerInit((ST_SYS_TIMER *)&stSysCpuTimer1);
 }
@@ -123,10 +118,10 @@ void TaskCreate(void)
 void StartSystem(void)
 {
     Hw_CpuTimerStart((ST_SYS_TIMER *)&stSysCpuTimer1);
-    if (gBringupError == 0U)
+    if (stBringupStatus.unError.all == 0U)
     {
         Hw_EnableAllPwmCLKSync();
-        gBringupReady = 1U;
+        stBringupStatus.bReady = 1U;
     }
 
     EINT;
@@ -138,7 +133,7 @@ void StartSystem(void)
 static __interrupt void Isr_Control(void)
 {
     Uint16 next = Cla1ToCpuMsg.u16NextMuxAddress & 7U;
-    gControlIsrCount++;
+    stBringupStatus.u32ControlIsrCount++;
 
     /* CLA selects the next MUX address; CPU owns the GPIO writes. */
     Hw_GpioWritePin(46U, next & 1U);
@@ -155,20 +150,20 @@ static __interrupt void Isr_Heartbeat(void)
     static Uint32 lastControlCount = 0UL;
 
     Hw_CpuTimerClearIntFlag((ST_SYS_TIMER *)&stSysCpuTimer1);
-    gHeartbeatMs++;
+    stBringupStatus.u32HeartbeatMs++;
     Task_OnTick();
 
-    if (lastControlCount == gControlIsrCount)
+    if (lastControlCount == stBringupStatus.u32ControlIsrCount)
     {
-        if (gControlStallMs != 0xFFFFU)
+        if (stBringupStatus.u16ControlStallMs != 0xFFFFU)
         {
-            gControlStallMs++;
+            stBringupStatus.u16ControlStallMs++;
         }
     }
     else
     {
-        gControlStallMs = 0U;
-        lastControlCount = gControlIsrCount;
+        stBringupStatus.u16ControlStallMs = 0U;
+        lastControlCount = stBringupStatus.u32ControlIsrCount;
     }
 }
 
