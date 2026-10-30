@@ -10,18 +10,23 @@
   INFO（只登记事实，不参与判定）。
 
 用法：
-    python config_replay.py [--repo <仓库根>] [--out <输出目录>]
+    python config_replay.py --src <git archive 解包树> [--rev <提交SHA>] [--out <输出目录>]
+
+`--src` 必须是**固定提交**的解包树（由 build_clean.py 的 `--rev` 产生），脚本不读
+工作区；`--rev` 只用于在报告 meta 里记录该树对应的提交，并附每个源文件的 SHA-256
+以便复核。
 """
 
 import argparse
 import datetime
+import hashlib
 import json
 import re
 import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-DEFAULT_REPO = HERE.parents[4]  # docs/review/steps/evidence/01 -> repo root
+SOURCE_HASHES = {}
 
 BROAD = "Broad/src/DrvCfg_EP15K.c"
 ADC_DRV = "Drivers/src/Hw_AdcDriver.c"
@@ -48,8 +53,11 @@ def write_text_lf(path, text):
     Path(path).write_bytes(text.encode("utf-8"))
 
 
-def read_text(repo, rel):
-    return (repo / rel).read_text(encoding="utf-8", errors="replace")
+def read_text(src, rel):
+    path = Path(src) / rel
+    data = path.read_bytes()
+    SOURCE_HASHES[rel] = hashlib.sha256(data).hexdigest()
+    return data.decode("utf-8", errors="replace")
 
 
 def strip_comments(src):
@@ -153,6 +161,18 @@ class Checker:
                  verdict, detail)
         return verdict == "PASS"
 
+    def cmp_design(self, cid, domain, title, exp_item, actual_value, detail=""):
+        """期望值本身标 PENDING 时，值一致也只记 PENDING：配置一致 ≠ 设计已批准。"""
+        exp_value, basis = exp_item["value"], exp_item.get("basis", "RULED_DESIGN")
+        if actual_value != exp_value:
+            verdict = "FAIL"
+        elif basis == "PENDING":
+            verdict = "PENDING"
+        else:
+            verdict = "PASS"
+        self.add(cid, domain, title, basis, exp_value, actual_value, verdict, detail)
+        return verdict
+
     def ex(self, path):
         node = self.exp
         for key in path.split("."):
@@ -166,22 +186,26 @@ def main():
     except Exception:
         pass
     ap = argparse.ArgumentParser()
-    ap.add_argument("--repo", default=str(DEFAULT_REPO))
+    ap.add_argument("--src", required=True,
+                    help="固定提交的 git archive 解包树（不读工作区）")
+    ap.add_argument("--rev", default="", help="该树对应的提交 SHA（只用于记录）")
     ap.add_argument("--out", default=str(HERE))
     args = ap.parse_args()
-    repo = Path(args.repo).resolve()
+    src = Path(args.src).resolve()
     outdir = Path(args.out).resolve()
     outdir.mkdir(parents=True, exist_ok=True)
+    if not (src / BROAD).is_file():
+        raise SystemExit("--src 中找不到 %s: %s" % (BROAD, src))
 
     exp = json.loads((HERE / "expected_config.json").read_text(encoding="utf-8"))
     ck = Checker(exp)
 
-    broad = strip_comments(read_text(repo, BROAD))
-    broad_raw = read_text(repo, BROAD)
-    adc_drv_raw = read_text(repo, ADC_DRV)
-    pwm_drv_raw = read_text(repo, PWM_DRV)
-    xbar_drv_raw = read_text(repo, XBAR_DRV)
-    adc_hdr = read_text(repo, ADC_HDR)
+    broad = strip_comments(read_text(src, BROAD))
+    broad_raw = read_text(src, BROAD)
+    adc_drv_raw = read_text(src, ADC_DRV)
+    pwm_drv_raw = read_text(src, PWM_DRV)
+    xbar_drv_raw = read_text(src, XBAR_DRV)
+    adc_hdr = read_text(src, ADC_HDR)
 
     # ---------------- 解析实际值 ----------------
     adc_ch = [dict(zip(["trig", "acqps", "ch"], [tok_int(t) for t in it]))
@@ -246,18 +270,24 @@ def main():
            detail="驱动器 macro 的移位值 vs F2837xS_adc.h:324-331 的字段起始位 (header=%s)" % hdr_bits)
 
     soc15 = adc_ch[15 * 4 + 0]
-    ck.cmp("A03-ADC-04", dom, "SOC15(A) 为 ADCINT1 锚点：触发源 5、ACQPS 120",
-           exp_adc["anchor_soc15"]["value"],
-           {"trig": soc15["trig"], "acqps": soc15["acqps"]},
-           detail="锚点必须是本批最后一个完成转换的 SOC，否则 ADCINT1 早于其他通道 EOC")
+    ck.cmp_design("A03-ADC-04", dom, "SOC15(A) 的触发源 5 / ACQPS 120 与配置表一致",
+                  exp_adc["anchor_soc15"],
+                  {"trig": soc15["trig"], "acqps": soc15["acqps"]},
+                  detail="值一致只说明表内自洽；SOC15 是否真为本批最后完成、能否充当 ADCINT1 "
+                         "屏障，需要跨 ADC 的每 SOC 起止时刻证明，本步骤没有该证明"
+                         "（01_current_logic.md:95、03_validation_plan.md:71）")
 
     a = adc_mod[0]
-    ck.cmp("A03-ADC-05", dom, "ADC-A 的 INT1 选 SOC15、INT2 选 SOC9 且均连续模式",
-           {"int1_sel": exp_adc["int1_sel"]["value"], "int2_sel": exp_adc["int2_sel"]["value"],
-            "cont": exp_adc["int_cont"]["value"]},
-           {"int1_sel": tok_int(a["u16IntSel"]), "int2_sel": tok_int(a["u16Int2Sel"]),
-            "cont": 1 if (tok_int(a["bAdcIntEnable"]) and tok_int(a["bAdcInt2Enable"])) else 0},
-           detail="INT1CONT/INT2CONT 由驱动固定写 1（Hw_AdcDriver.c:240-255）")
+    e05 = {"int1_sel": exp_adc["int1_sel"]["value"], "int2_sel": exp_adc["int2_sel"]["value"],
+           "cont": exp_adc["int_cont"]["value"]}
+    a05 = {"int1_sel": tok_int(a["u16IntSel"]), "int2_sel": tok_int(a["u16Int2Sel"]),
+           "cont": 1 if (tok_int(a["bAdcIntEnable"]) and tok_int(a["bAdcInt2Enable"])) else 0}
+    basis05 = "PENDING" if any(exp_adc[k].get("basis") == "PENDING"
+                               for k in ("int1_sel", "int2_sel", "int_cont")) else "RULED_DESIGN"
+    ck.add("A03-ADC-05", dom, "ADC-A 的 INT1/INT2 触发 SOC 与连续模式", basis05, e05, a05,
+           "FAIL" if a05 != e05 else ("PENDING" if basis05 == "PENDING" else "PASS"),
+           "INT1SEL=15 依赖 SOC15 屏障假设，INT2SEL=9 依赖 CLA Task2 读 SOC8/9 的配对；"
+           "两者都只是与现有代码一致，缺少独立设计依据")
 
     ck.cmp("A03-ADC-06", dom, "ADCSOCPRICTL.SOCPRIORITY = 16（固定优先级）",
            exp_adc["soc_priority"]["value"], soc_priority)
@@ -353,7 +383,10 @@ def main():
     ck.add("A03-TZ-04", dom, "BUS(EPWM8) 具备专属硬件 TZ 源", "RULED_DESIGN",
            exp_tz["bus_tz_present"]["value"], "存在 BUS TZ 条目" if bus_has_tz else "无 BUS TZ 条目",
            "PASS" if bus_has_tz else "FAIL",
-           "F03：当前仅靠启动时 OST 锁存，母线过流无硬件级封波路径；本步骤只登记，不修")
+           "F03：EPWM8 没有专属 TRIP 源。StartSystem() 用 Hw_PwmStop(HW_PWM_ID7) 写 TZFRC.OST，"
+           "由硬件锁存封住两路门极（main.c:193-195；注释说明 DC 互补路径会把 A 强制低变成 B 高，"
+           "AQCSFRC 不足以封锁）。在允许 BUS 解锁运行之前，必须落实并验证其硬件保护路径；"
+           "本步骤只登记，不修")
 
     enc_ok = bool(re.search(r"DCAHTRIPSEL\.all\s*=\s*\(Uint16\)\(1U\s*<<\s*\(u16Trip\s*-\s*1U\)\)", pwm_drv_raw)) \
         and bool(re.search(r"DCAHCOMPSEL\s*=\s*\(Uint16\)\(u16Trip\s*-\s*1U\)", pwm_drv_raw))
@@ -365,7 +398,7 @@ def main():
            "TRM TZ 子模块：DCAH 是或门，TRIPINPUTn 选位、COMPSEL 选参与比较的那一路（Hw_PwmDriver.c:502-512）")
 
     codes = {}
-    for name, val in re.findall(r"#define\s+(HW_PWM_TZ_\w+)\s+(\d+)U", read_text(repo, "Drivers/inc/Hw_PwmDriver.h")):
+    for name, val in re.findall(r"#define\s+(HW_PWM_TZ_\w+)\s+(\d+)U", read_text(src, "Drivers/inc/Hw_PwmDriver.h")):
         codes[name] = int(val)
     ck.cmp("A03-TZ-06", dom, "TZ 动作码语义与器件编码一致", exp_tz["tz_action_codes"]["value"], codes)
 
@@ -390,28 +423,42 @@ def main():
            {"CAU": pwm_by_id["HW_PWM_ID0"]["stAqA"][2], "CAD": pwm_by_id["HW_PWM_ID0"]["stAqA"][3]})
 
     pv_ids = exp_p["pv"]["pwms"]
-    ck.cmp("A03-PWM-03", dom, "四路 PV：周期 4999 UP、相位 0/1250/2500/3750",
-           {"period": exp_p["pv"]["period"], "mode": exp_p["pv"]["ctr_mode"],
-            "phases": exp_p["pv"]["phases"]},
+    ck.cmp("A03-PWM-03", dom, "四路 PV：周期 4999、UP 计数",
+           {"period": exp_p["pv"]["period"], "mode": exp_p["pv"]["ctr_mode"]},
            {"period": pwm_by_id[pv_ids[0]]["u16Period"],
-            "mode": tok_str(pwm_by_id[pv_ids[0]]["u16CtrMode"]),
-            "phases": {i: pwm_by_id[i]["u16Phase"] for i in pv_ids}})
+            "mode": tok_str(pwm_by_id[pv_ids[0]]["u16CtrMode"])},
+           detail="周期沿用修复中确定的 4999；相位单独判（A03-PWM-09）")
+    ck.cmp_design("A03-PWM-09", dom, "四路 PV 交错相位 0/1250/2500/3750",
+                  {"value": exp_p["pv"]["phases"],
+                   "basis": exp_p["pv"].get("phases_basis", "PENDING")},
+                  {i: pwm_by_id[i]["u16Phase"] for i in pv_ids},
+                  detail="值一致只说明与表自洽；90° 交错、对齐点以及是否随 TBPRD 重算，"
+                         "缺少独立设计依据（01_current_logic.md:35 要求严格 20 kHz 时重算相位）")
 
     bus = pwm_by_id[exp_p["bus"]["pwm"]]
-    ck.cmp("A03-PWM-04", dom, "BUS：周期 2500 UPDOWN、CMPA 1250、FREE",
+    ck.cmp("A03-PWM-04", dom, "BUS：周期 2500 UPDOWN、独立同步（FREE）",
            {"period": exp_p["bus"]["period"], "mode": exp_p["bus"]["ctr_mode"],
-            "cmpa": exp_p["bus"]["cmpa"], "sync": exp_p["bus"]["sync_mode"]},
+            "sync": exp_p["bus"]["sync_mode"]},
            {"period": bus["u16Period"], "mode": tok_str(bus["u16CtrMode"]),
-            "cmpa": bus["u16CmpA"], "sync": tok_str(bus["u16SyncMode"])})
+            "sync": tok_str(bus["u16SyncMode"])})
+    ck.cmp_design("A03-PWM-10", dom, "BUS 初始占空比 CMPA = 1250",
+                  {"value": exp_p["bus"]["cmpa"],
+                   "basis": exp_p["bus"].get("cmpa_basis", "PENDING")},
+                  bus["u16CmpA"],
+                  detail="BUS 尚无平衡 PI 与占空比下发策略（05_fix_status.md:16），50% 只是"
+                         "初始值，没有独立依据可判为批准值")
 
     gload_flags = {i: pwm_by_id[i]["bGload"] for i in inv_ids + pv_ids}
     forces_off = bool(re.search(r"GLDCTL\.bit\.GLD\s*=\s*0U", pwm_drv_raw)) and \
         bool(re.search(r"GLDCTL\.bit\.GLDMODE\s*=\s*0U", pwm_drv_raw))
     ck.add("A03-PWM-05", dom, "全局装载（GLD）按表启用并生效", "RULED_DESIGN",
-           "bGload=1 的组应真正启用影子装载",
+           "bGload=1 的组应真正启用全局装载",
            {"table_bGload": gload_flags, "driver_forces_GLD_off": forces_off},
            "FAIL" if (forces_off and any(gload_flags.values())) else "PASS",
-           "F09：表意图=周期同步装载，驱动在配置尾部无条件清 GLD/GLDMODE，实际为直写；冲突未修，A03 不能总体判通过")
+           "F09：表意图=跨模块同步装载；驱动在配置尾部（Hw_PwmDriver.c:178-182）无条件清 "
+           "GLD/GLDMODE/OSHTLD，全局装载在运行时被关闭。CMP 并非无阴影直写——CMPCTL "
+           "LOADAMODE=CTR_ZERO、SHDWAMODE=SHADOW（:265-268）仍保留本地 ZERO 装载，"
+           "缺的是组内同步与同周期一致性")
 
     uses_syncsel = "u16SyncOutSel" in pwm_drv_raw
     ck.add("A03-PWM-06", dom, "驱动使用表的 SYNCOSEL 字段", "RULED_DESIGN",
@@ -444,21 +491,14 @@ def main():
     pend = [c["id"] for c in ck.checks if c["verdict"] == "PENDING"]
     a03_verdict = "未通过" if fails else ("部分通过（含待裁定项）" if pend else "通过")
 
-    head = "unknown"
-    try:
-        import subprocess
-        head = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"],
-                                       stderr=subprocess.DEVNULL).decode().strip()
-    except Exception:
-        pass
-
     report = {
         "meta": {
             "step": "01",
             "item": "A03",
             "generated_at": datetime.datetime.now().isoformat(timespec="seconds"),
-            "head_sha": head,
-            "repo_root": str(repo),
+            "source_commit": args.rev or "unknown (caller did not pass --rev)",
+            "source_tree": str(src),
+            "source_file_sha256": dict(sorted(SOURCE_HASHES.items())),
             "expected_config": "docs/review/steps/evidence/01/expected_config.json",
             "statement": "静态配置核对：比对配置表与驱动写入逻辑，不验证板上时序、极性或闭环行为。",
         },

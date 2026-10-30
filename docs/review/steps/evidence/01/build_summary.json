@@ -1,27 +1,35 @@
 {
   "step": "01",
-  "generated_at": "2026-10-30T02:01:14+00:00",
+  "generated_at": "2026-10-30T02:38:47+00:00",
   "repo": "D:/Project/CCS-Project",
   "workdir": "D:/Project/out/step01",
-  "declare": "NOT a CCS project build; direct cl2000 invocation on git archive HEAD only",
+  "pinned_sha": "b20258bd2260ac4aafcdb510c41b7a0483328987",
+  "pinned_commit": "b20258bd2260ac4aafcdb510c41b7a0483328987 docs(review): step 01 static build and configuration verification",
+  "requested_rev": "b20258bd2260ac4aafcdb510c41b7a0483328987",
+  "declare": "NOT a CCS project build; direct cl2000 invocation on git archive <pinned_sha> only",
   "git": {
-    "head": "f7978e1bbfdff4943630efa6713e5ed30ec10930",
+    "head": "fabb126cb2f30ceb5977ef6b31681a66fb913007",
     "branch": "deepseek/pcs-stepwise",
+    "pinned_sha": "b20258bd2260ac4aafcdb510c41b7a0483328987",
+    "note": "构建输入仅为 git archive <pinned_sha>；HEAD 与工作区状态只作记录，不参与构建",
     "worktree_status": [
-      "?? docs/review/steps/"
-    ],
-    "note": "worktree_status 中的条目不进入构建；构建输入仅为 git archive HEAD"
+      " M docs/review/steps/evidence/01/build_clean.py",
+      " M docs/review/steps/evidence/01/config_replay.py",
+      " M docs/review/steps/evidence/01/config_replay_report.json",
+      " M docs/review/steps/evidence/01/expected_config.json",
+      "?? docs/review/steps/evidence/01/__pycache__/"
+    ]
   },
   "archive": {
     "path": "D:/Project/out/step01/head.tar",
-    "sha256": "fd43716114642caed02e0449119e175e610bab2caf3dbaec9d2050ec5530eaa4",
-    "sources": "git archive HEAD",
+    "sha256": "453bfce9db17d6c7cc64d66cc1ed015c80146b3a263b79f692c92814852a41f2",
     "top_level_entries": 18,
-    "members": 652,
-    "note": "top_level_entries = 解包后 src/ 顶层条目数；members = tar 成员总数"
+    "members": 670,
+    "sources": "git archive b20258bd2260ac4aafcdb510c41b7a0483328987"
   },
   "manifest": {
-    "source_of_manifest": "Debug/ccsObjs.opt (CCS-generated link list, from git archive HEAD)",
+    "source_of_manifest": "Debug/ccsObjs.opt (CCS-generated link list, from git archive b20258bd)",
+    "pinned_sha": "b20258bd2260ac4aafcdb510c41b7a0483328987",
     "obj_count": 101,
     "cmd_files": [
       "../CMD/2837xS_FLASH_APP_CLA_lnk.cmd",
@@ -42,7 +50,7 @@
     },
     "tracked_sources_not_in_build": [],
     "build_sources_not_tracked": [],
-    "note": "compile units are cross-checked against `git ls-files '*.c' '*.cla' '*.asm'`"
+    "note": "compile units are cross-checked against `git ls-tree -r --name-only <pinned_sha>` (*.c/*.cla/*.asm, reference/ excluded)"
   },
   "compile": {
     "toolchain": "C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS",
@@ -94,7 +102,7 @@
     "units": 101,
     "failures": [],
     "warnings_total": 0,
-    "elapsed_seconds": 58.2
+    "elapsed_seconds": 75.5
   },
   "empty_output_dir": {
     "obj_files_before": [],
@@ -118,7 +126,7 @@
   },
   "link": {
     "rc": 0,
-    "seconds": 1.0,
+    "seconds": 0.9,
     "warnings": 0,
     "errors": [],
     "out": {
@@ -130,7 +138,7 @@
     "map": {
       "path": "D:/Project/out/step01/build/EP15K_2026.map",
       "exists": true,
-      "sha256": "08f5b4b71b2a417b6261a59ef7656d40a4cde3f1416b2319bfda6b911ffa449f"
+      "sha256": "b35bafe1cdc7534742294f8b9513158ae1fa018bfc9729d501ac8e002569dadb"
     },
     "cmd": "<cl2000> -v28 -ml -mt --cla_support=cla1 --float_support=fpu32 --tmu_support=tmu0 --vcu_support=vcu2 --fp_mode=relaxed --define=_FLASH --define=DEBUG --define=CPU1 --define=F2837xS -g --diag_warning=225 --diag_wrap=off --display_error_number --abi=eabi -z -mEP15K_2026.map --stack_size=0x200 --warn_sections -i<toolchain>/lib -i<toolchain>/include --reread_libs --diag_wrap=off --display_error_number --xml_link_info=EP15K_2026_linkInfo.xml --rom_model -o EP15K_2026.out <101 objs> ../CMD/2837xS_FLASH_APP_CLA_lnk.cmd ../CMD/F2837xS_Headers_nonBIOS.cmd ../device/driverlib/ccs/Debug/driverlib.lib ../device/driverlib/ccs/Debug/driverlib_eabi.lib ../device/driverlib/ccs/Release/driverlib.lib ../device/driverlib/ccs/Release/driverlib_eabi.lib -llibc.a"
   },

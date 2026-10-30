@@ -14,7 +14,8 @@
       "RULED_DESIGN": "本审阅流程中已裁定、记录在 02_defects.md / 03_validation_plan.md / 05_fix_status.md 的设计意图",
       "PENDING": "没有独立依据：需要原理图、台架测量或项目所有者裁定，本次只登记不下结论"
     },
-    "scope_limit": "静态核对不等于仿真：不验证器件实际时序、比较器极性、板上网络，也不验证控制闭环。"
+    "scope_limit": "静态核对不等于仿真：不验证器件实际时序、比较器极性、板上网络，也不验证控制闭环。",
+    "revision": "v2 返工：SOC15 屏障、INT1/INT2 触发点、PV 交错相位、BUS 初始占空比改判 PENDING；GLD 与死区描述按审阅意见修正。值与表一致只记为“配置自洽”，不作为设计已批准的证据。"
   },
 
   "adc": {
@@ -35,11 +36,19 @@
     },
     "anchor_soc15": {
       "value": {"trig": 5, "acqps": 120},
-      "basis": "RULED_DESIGN",
-      "source": "ADC A 组锚点：SOC15 用触发源 5、最长采样窗，保证 ADCINT1 在本批最后产生（DrvCfg_EP15K.c:345-349 的设计说明）"
+      "basis": "PENDING",
+      "source": "表内现状：SOC15 用触发源 5、最长采样窗（DrvCfg_EP15K.c:345-349）。但“最高 SOC 编号”本身不构成完成屏障：01_current_logic.md:95 明确要求显式优先级、排程与跨 ADC 最坏完成时间证明，03_validation_plan.md:71 记录当前代码没有该证明。故只核对配置值，是否可作 ADCINT1 屏障待裁定"
     },
-    "int1_sel": {"value": 15, "basis": "RULED_DESIGN", "source": "ADCINT1 由 SOC15 触发，对应 A 组锚点"},
-    "int2_sel": {"value": 9, "basis": "RULED_DESIGN", "source": "ADCINT2 由 SOC9 触发，对应 PRD 批第二采样"},
+    "int1_sel": {
+      "value": 15,
+      "basis": "PENDING",
+      "source": "表内现状：INT1SEL=15，即 ADCINT1 挂在 SOC15；其成立依赖 SOC15 屏障假设，缺少独立设计依据"
+    },
+    "int2_sel": {
+      "value": 9,
+      "basis": "PENDING",
+      "source": "表内现状：INT2SEL=9，与 CLA Task2 读 SOC8/9 的配对相关；配对关系来自现有代码，不是已批准的设计记录"
+    },
     "int_cont": {"value": 1, "basis": "RULED_DESIGN", "source": "INT1CONT/INT2CONT=1，连续模式，每个 PWM 周期都触发 CLA"},
     "soc_priority": {"value": 16, "basis": "RULED_DESIGN", "source": "ADCSOCPRICTL.SOCPRIORITY=16：SOC0~15 全固定优先级，SOC15 必晚于 SOC0~7"},
     "adcclk_prescale": {
@@ -149,21 +158,23 @@
       "pwms": ["HW_PWM_ID6", "HW_PWM_ID8", "HW_PWM_ID4", "HW_PWM_ID5"],
       "period": 4999, "ctr_mode": "TB_COUNT_UP",
       "phases": {"HW_PWM_ID6": 0, "HW_PWM_ID8": 1250, "HW_PWM_ID4": 2500, "HW_PWM_ID5": 3750},
+      "phases_basis": "PENDING",
       "aq_zro": "AQ_SET", "aq_cau": "AQ_CLEAR",
       "sync_master": "HW_PWM_ID6", "sync_master_sel": "TB_CTR_ZERO",
       "basis": "RULED_DESIGN",
-      "source": "PV 组 20kHz、四路互差 90° 的单极性 T 型开关序列（周期 4999 已在修复中确定）"
+      "source": "周期 4999 来自已记录修复（up 模式 5000 计数）；相位 0/1250/2500/3750 只是表内现状——01_current_logic.md:35 指出严格 20 kHz 时 up 模式 TBPRD 应为 4999 且需重算交错相位，相位值没有独立批准依据"
     },
     "bus": {
       "pwm": "HW_PWM_ID7", "period": 2500, "ctr_mode": "TB_COUNT_UPDOWN", "cmpa": 1250,
+      "cmpa_basis": "PENDING",
       "sync_mode": "HW_PWM_FREE",
       "basis": "RULED_DESIGN",
-      "source": "母线 BOOST 20kHz，50% 初始占空比，独立运行不复位同步"
+      "source": "母线 BOOST 20 kHz、独立运行不复位同步；CMPA=1250（50%）只是初始占空比现状——05_fix_status.md:16 记录 BUS 尚无平衡 PI 与占空比下发策略，初始值没有独立批准依据"
     },
     "gload_active": {
       "value": true,
       "basis": "RULED_DESIGN",
-      "source": "INV/PV 表 bGload=1 的设计意图是六路 CMPA 严格同步装载；运行时是否真的启用由驱动行为核对"
+      "source": "INV/PV 表 bGload=1 的设计意图是跨模块同步装载；驱动在配置尾部无条件清 GLD/GLDMODE/OSHTLD，运行时全局装载被关闭。注意 CMP 不是无阴影直写：CMPCTL LOADAMODE=CTR_ZERO、SHDWAMODE=SHADOW 的本地装载仍在，缺的是组内同步与同周期一致性"
     },
     "sync_out_sel_used": {
       "value": true,
@@ -178,7 +189,7 @@
     "deadtime_ns": {
       "value": "PENDING",
       "basis": "PENDING",
-      "source": "80 个 TBCLK @200MHz = 400ns（若按 100MHz 折算为 800ns）；实际所需死区由功率器件与驱动电路裁定"
+      "source": "80 个 TBCLK；HSPCLKDIV=CLKDIV=1 时 TBCLK=EPWMCLK=100MHz（EPWMCLK=SYSCLK/2=100MHz），即 800ns。寄存器换算成立，但所需死区由功率器件、驱动电路与实测振铃裁定"
     }
   }
 }

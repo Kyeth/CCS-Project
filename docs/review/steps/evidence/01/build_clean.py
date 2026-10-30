@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""A01/A02 证据脚本：只用 HEAD 已跟踪文件重建 C2000 固件，并记录可复跑证据。
+"""A01/A02 证据脚本：只用指定提交的已跟踪文件重建 C2000 固件，并记录可复跑证据。
 
 这不是 CCS 工程构建，也不复现 CCS 的增量构建：
-  * 唯一输入是 `git archive HEAD` 解出的跟踪树（工作区改动、未跟踪文件、仓库内
+  * 唯一输入是 `git archive --rev` 解出的跟踪树（默认 HEAD；证据必须显式固定到
+    某个提交，否则提交证据后再跑会换成新版本。工作区改动、未跟踪文件、仓库内
     已跟踪的 Debug/ 旧产物都不参与）；
   * 编译旗标与链接清单从该树里 CCS 生成的 Debug/subdir_rules.mk、Debug/ccsObjs.opt
     中读取，仅用于提取参数，不复用任何旧 .obj；
@@ -11,10 +12,10 @@
     .obj 的生成时间不早于构建开始时间。
 
 用法（Windows，Git Bash 或 cmd 均可）：
-  python build_clean.py --repo <仓库根> --workdir <空目录> [--toolchain <CG_TOOL_ROOT>]
+  python build_clean.py --repo <仓库根> --workdir <空目录> [--rev <提交>] [--toolchain <CG_TOOL_ROOT>]
 
 产出（全部写入 workdir，不写回仓库）：
-  src/                git archive HEAD 的解包树
+  src/                git archive <rev> 的解包树
   obj/                本次编译生成的 .obj（按源码目录镜像布局）
   build/              EP15K_2026.out / .map / _linkInfo.xml
   compile_log.jsonl   每个编译单元的完整命令、返回码、耗时、告警条数
@@ -36,7 +37,8 @@ import time
 from datetime import datetime, timezone
 
 DEFAULT_TOOLCHAIN = r"C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS"
-EXPECTED_UNITS_NOTE = "compile units are cross-checked against `git ls-files '*.c' '*.cla' '*.asm'`"
+EXPECTED_UNITS_NOTE = ("compile units are cross-checked against "
+                       "`git ls-tree -r --name-only <pinned_sha>` (*.c/*.cla/*.asm, reference/ excluded)")
 
 
 def sha256_file(path, limit=None):
@@ -140,6 +142,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--repo", required=True)
     ap.add_argument("--workdir", required=True)
+    ap.add_argument("--rev", default="HEAD",
+                    help="要构建的提交（默认 HEAD；证据必须固定到具体 SHA）")
     ap.add_argument("--toolchain", default=DEFAULT_TOOLCHAIN)
     args = ap.parse_args()
 
@@ -153,6 +157,15 @@ def main():
         raise SystemExit("workdir 必须为空目录: %s" % workdir)
     os.makedirs(workdir, exist_ok=True)
 
+    # ---------- 固定提交 ----------
+    rc, pinned, err = run(["git", "-C", repo, "rev-parse", "--verify",
+                           args.rev + "^{commit}"], workdir)
+    if rc:
+        raise SystemExit("无法解析 --rev %r: %s" % (args.rev, err.strip()))
+    pinned = pinned.strip()
+    rc, describe, _ = run(["git", "-C", repo, "log", "-1", "--format=%H %s", pinned], workdir)
+    pinned_subject = describe.strip()
+
     src_root = os.path.join(workdir, "src")
     obj_root = os.path.join(workdir, "obj")
     build_root = os.path.join(workdir, "build")
@@ -164,7 +177,10 @@ def main():
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "repo": repo.replace("\\", "/"),
         "workdir": workdir.replace("\\", "/"),
-        "declare": "NOT a CCS project build; direct cl2000 invocation on git archive HEAD only",
+        "pinned_sha": pinned,
+        "pinned_commit": pinned_subject,
+        "requested_rev": args.rev,
+        "declare": "NOT a CCS project build; direct cl2000 invocation on git archive <pinned_sha> only",
     }
 
     # ---------- 0. 仓库状态 ----------
@@ -177,13 +193,15 @@ def main():
     summary["git"] = {
         "head": head,
         "branch": branch.strip(),
+        "pinned_sha": pinned,
+        "note": "构建输入仅为 git archive <pinned_sha>；HEAD 与工作区状态只作记录，不参与构建",
         "worktree_status": [l for l in status.splitlines() if l.strip()],
-        "note": "worktree_status 中的条目不进入构建；构建输入仅为 git archive HEAD",
     }
 
-    # ---------- 1. 解包 HEAD ----------
+    # ---------- 1. 解包固定提交 ----------
     archive = os.path.join(workdir, "head.tar")
-    rc, out, _ = run(["git", "-C", repo, "archive", "--format=tar", "-o", archive, "HEAD"], workdir)
+    rc, out, _ = run(["git", "-C", repo, "archive", "--format=tar", "-o", archive,
+                      pinned], workdir)
     if rc:
         raise SystemExit("git archive 失败: %s" % out)
     with tarfile.open(archive) as tf:
@@ -194,7 +212,7 @@ def main():
         "sha256": sha256_file(archive),
         "top_level_entries": len(os.listdir(src_root)),
         "members": len(members),
-        "sources": "git archive HEAD",
+        "sources": "git archive %s" % pinned,
     }
 
     # ---------- 2. 编译清单 ----------
@@ -214,14 +232,17 @@ def main():
     if missing_src:
         raise SystemExit("链接清单中的 .obj 找不到对应源码: %s" % missing_src)
 
-    # 跟踪源码与清单交叉核对
-    rc, tracked, _ = run(["git", "-C", repo, "ls-files", "*.c", "*.cla", "*.asm"], workdir)
-    tracked = [l.strip() for l in tracked.splitlines() if l.strip()]
+    # 跟踪源码与清单交叉核对（用固定提交的树，不读索引/工作区）
+    rc, tracked, _ = run(["git", "-C", repo, "ls-tree", "-r", "--name-only", pinned], workdir)
+    tracked = [l.strip() for l in tracked.splitlines()
+               if l.strip().endswith((".c", ".cla", ".asm"))
+               and not l.strip().startswith("reference/")]
     listed = {r["src"] for r in unit_rows}
     unbuilt = sorted(set(tracked) - listed)
     phantom = sorted(listed - set(tracked))
     summary["manifest"] = {
-        "source_of_manifest": "Debug/ccsObjs.opt (CCS-generated link list, from git archive HEAD)",
+        "source_of_manifest": "Debug/ccsObjs.opt (CCS-generated link list, from git archive %s)" % pinned[:8],
+        "pinned_sha": pinned,
         "obj_count": len(objs),
         "cmd_files": cmd_files,
         "libs": lib_items,

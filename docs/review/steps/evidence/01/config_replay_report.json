@@ -2,24 +2,32 @@
   "meta": {
     "step": "01",
     "item": "A03",
-    "generated_at": "2026-10-30T10:09:39",
-    "head_sha": "f7978e1bbfdff4943630efa6713e5ed30ec10930",
-    "repo_root": "D:\\Project\\CCS-Project",
+    "generated_at": "2026-10-30T10:40:44",
+    "source_commit": "b20258bd2260ac4aafcdb510c41b7a0483328987",
+    "source_tree": "D:\\Project\\out\\step01\\src",
+    "source_file_sha256": {
+      "Broad/src/DrvCfg_EP15K.c": "1e5aff3ff3ce62340337a4408ecde2dc9aef2f9a57246a6e1353e437e4386ea9",
+      "Drivers/inc/Hw_PwmDriver.h": "e1df41260a7ba87c6c4c2e05aa412ded8964f53dff461b68177b71562cb0c675",
+      "Drivers/src/Hw_AdcDriver.c": "6c9b5c73530cd520a9782ea0b9fdc3fa4f4f1c24ae39c7b1ffc352dbd267d17d",
+      "Drivers/src/Hw_PwmDriver.c": "21dbc9fd1bd461cfa34b0cc6e6282feb337de74a870c19fbb1ba7765a6d27a6e",
+      "Drivers/src/Hw_XbarDriver.c": "0957f2172df5b578c39e4f93c8a28d73dd164f2748f72bc45e5008892553dc8b",
+      "device/headers/include/F2837xS_adc.h": "a27099d9481bc8424f7133615513bcf97a8f0005e5d956132a685503591bdb72"
+    },
     "expected_config": "docs/review/steps/evidence/01/expected_config.json",
     "statement": "静态配置核对：比对配置表与驱动写入逻辑，不验证板上时序、极性或闭环行为。"
   },
   "summary": {
     "counts": {
-      "PASS": 23,
+      "PASS": 21,
       "FAIL": 4,
-      "PENDING": 3,
+      "PENDING": 7,
       "INFO": 0
     },
     "by_domain": {
       "adc": {
-        "PASS": 9,
+        "PASS": 7,
         "FAIL": 0,
-        "PENDING": 1,
+        "PENDING": 3,
         "INFO": 0
       },
       "xbar": {
@@ -37,7 +45,7 @@
       "pwm": {
         "PASS": 5,
         "FAIL": 2,
-        "PENDING": 1,
+        "PENDING": 3,
         "INFO": 0
       }
     },
@@ -49,8 +57,12 @@
       "A03-PWM-06"
     ],
     "pending_items": [
+      "A03-ADC-04",
+      "A03-ADC-05",
       "A03-ADC-10",
       "A03-XB-05",
+      "A03-PWM-09",
+      "A03-PWM-10",
       "A03-PWM-08"
     ]
   },
@@ -111,8 +123,8 @@
     {
       "id": "A03-ADC-04",
       "domain": "adc",
-      "title": "SOC15(A) 为 ADCINT1 锚点：触发源 5、ACQPS 120",
-      "basis": "RULED_DESIGN",
+      "title": "SOC15(A) 的触发源 5 / ACQPS 120 与配置表一致",
+      "basis": "PENDING",
       "expected": {
         "trig": 5,
         "acqps": 120
@@ -121,14 +133,14 @@
         "trig": 5,
         "acqps": 120
       },
-      "verdict": "PASS",
-      "detail": "锚点必须是本批最后一个完成转换的 SOC，否则 ADCINT1 早于其他通道 EOC"
+      "verdict": "PENDING",
+      "detail": "值一致只说明表内自洽；SOC15 是否真为本批最后完成、能否充当 ADCINT1 屏障，需要跨 ADC 的每 SOC 起止时刻证明，本步骤没有该证明（01_current_logic.md:95、03_validation_plan.md:71）"
     },
     {
       "id": "A03-ADC-05",
       "domain": "adc",
-      "title": "ADC-A 的 INT1 选 SOC15、INT2 选 SOC9 且均连续模式",
-      "basis": "RULED_DESIGN",
+      "title": "ADC-A 的 INT1/INT2 触发 SOC 与连续模式",
+      "basis": "PENDING",
       "expected": {
         "int1_sel": 15,
         "int2_sel": 9,
@@ -139,8 +151,8 @@
         "int2_sel": 9,
         "cont": 1
       },
-      "verdict": "PASS",
-      "detail": "INT1CONT/INT2CONT 由驱动固定写 1（Hw_AdcDriver.c:240-255）"
+      "verdict": "PENDING",
+      "detail": "INT1SEL=15 依赖 SOC15 屏障假设，INT2SEL=9 依赖 CLA Task2 读 SOC8/9 的配对；两者都只是与现有代码一致，缺少独立设计依据"
     },
     {
       "id": "A03-ADC-06",
@@ -341,7 +353,7 @@
       "expected": "必须有专属硬件 TZ 源（母线过流不能只靠软件轮询）",
       "actual": "无 BUS TZ 条目",
       "verdict": "FAIL",
-      "detail": "F03：当前仅靠启动时 OST 锁存，母线过流无硬件级封波路径；本步骤只登记，不修"
+      "detail": "F03：EPWM8 没有专属 TRIP 源。StartSystem() 用 Hw_PwmStop(HW_PWM_ID7) 写 TZFRC.OST，由硬件锁存封住两路门极（main.c:193-195；注释说明 DC 互补路径会把 A 强制低变成 B 高，AQCSFRC 不足以封锁）。在允许 BUS 解锁运行之前，必须落实并验证其硬件保护路径；本步骤只登记，不修"
     },
     {
       "id": "A03-TZ-05",
@@ -402,57 +414,73 @@
     {
       "id": "A03-PWM-03",
       "domain": "pwm",
-      "title": "四路 PV：周期 4999 UP、相位 0/1250/2500/3750",
+      "title": "四路 PV：周期 4999、UP 计数",
       "basis": "RULED_DESIGN",
       "expected": {
         "period": 4999,
-        "mode": "TB_COUNT_UP",
-        "phases": {
-          "HW_PWM_ID6": 0,
-          "HW_PWM_ID8": 1250,
-          "HW_PWM_ID4": 2500,
-          "HW_PWM_ID5": 3750
-        }
+        "mode": "TB_COUNT_UP"
       },
       "actual": {
         "period": 4999,
-        "mode": "TB_COUNT_UP",
-        "phases": {
-          "HW_PWM_ID6": 0,
-          "HW_PWM_ID8": 1250,
-          "HW_PWM_ID4": 2500,
-          "HW_PWM_ID5": 3750
-        }
+        "mode": "TB_COUNT_UP"
+      },
+      "verdict": "PASS",
+      "detail": "周期沿用修复中确定的 4999；相位单独判（A03-PWM-09）"
+    },
+    {
+      "id": "A03-PWM-09",
+      "domain": "pwm",
+      "title": "四路 PV 交错相位 0/1250/2500/3750",
+      "basis": "PENDING",
+      "expected": {
+        "HW_PWM_ID6": 0,
+        "HW_PWM_ID8": 1250,
+        "HW_PWM_ID4": 2500,
+        "HW_PWM_ID5": 3750
+      },
+      "actual": {
+        "HW_PWM_ID6": 0,
+        "HW_PWM_ID8": 1250,
+        "HW_PWM_ID4": 2500,
+        "HW_PWM_ID5": 3750
+      },
+      "verdict": "PENDING",
+      "detail": "值一致只说明与表自洽；90° 交错、对齐点以及是否随 TBPRD 重算，缺少独立设计依据（01_current_logic.md:35 要求严格 20 kHz 时重算相位）"
+    },
+    {
+      "id": "A03-PWM-04",
+      "domain": "pwm",
+      "title": "BUS：周期 2500 UPDOWN、独立同步（FREE）",
+      "basis": "RULED_DESIGN",
+      "expected": {
+        "period": 2500,
+        "mode": "TB_COUNT_UPDOWN",
+        "sync": "HW_PWM_FREE"
+      },
+      "actual": {
+        "period": 2500,
+        "mode": "TB_COUNT_UPDOWN",
+        "sync": "HW_PWM_FREE"
       },
       "verdict": "PASS",
       "detail": ""
     },
     {
-      "id": "A03-PWM-04",
+      "id": "A03-PWM-10",
       "domain": "pwm",
-      "title": "BUS：周期 2500 UPDOWN、CMPA 1250、FREE",
-      "basis": "RULED_DESIGN",
-      "expected": {
-        "period": 2500,
-        "mode": "TB_COUNT_UPDOWN",
-        "cmpa": 1250,
-        "sync": "HW_PWM_FREE"
-      },
-      "actual": {
-        "period": 2500,
-        "mode": "TB_COUNT_UPDOWN",
-        "cmpa": 1250,
-        "sync": "HW_PWM_FREE"
-      },
-      "verdict": "PASS",
-      "detail": ""
+      "title": "BUS 初始占空比 CMPA = 1250",
+      "basis": "PENDING",
+      "expected": 1250,
+      "actual": 1250,
+      "verdict": "PENDING",
+      "detail": "BUS 尚无平衡 PI 与占空比下发策略（05_fix_status.md:16），50% 只是初始值，没有独立依据可判为批准值"
     },
     {
       "id": "A03-PWM-05",
       "domain": "pwm",
       "title": "全局装载（GLD）按表启用并生效",
       "basis": "RULED_DESIGN",
-      "expected": "bGload=1 的组应真正启用影子装载",
+      "expected": "bGload=1 的组应真正启用全局装载",
       "actual": {
         "table_bGload": {
           "HW_PWM_ID0": 1,
@@ -469,7 +497,7 @@
         "driver_forces_GLD_off": true
       },
       "verdict": "FAIL",
-      "detail": "F09：表意图=周期同步装载，驱动在配置尾部无条件清 GLD/GLDMODE，实际为直写；冲突未修，A03 不能总体判通过"
+      "detail": "F09：表意图=跨模块同步装载；驱动在配置尾部（Hw_PwmDriver.c:178-182）无条件清 GLD/GLDMODE/OSHTLD，全局装载在运行时被关闭。CMP 并非无阴影直写——CMPCTL LOADAMODE=CTR_ZERO、SHDWAMODE=SHADOW（:265-268）仍保留本地 ZERO 装载，缺的是组内同步与同周期一致性"
     },
     {
       "id": "A03-PWM-06",
