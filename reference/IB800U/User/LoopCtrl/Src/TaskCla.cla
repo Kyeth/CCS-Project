@@ -1,0 +1,913 @@
+/**
+ * @file
+ * @author yetingheng  (004182)
+ * @brief
+ * @version 0.1
+ * @date 2026-03-26
+ *
+ * @copyright Copyright (c) 2026
+ *
+ */
+#include "TaskCla.h"
+#include "CLAmath.h"
+
+#define DAMNYOU 1
+
+#define UPDNLMT(Var,Max,Min)  {(Var)=((Var)>=(Max))?(Max):(Var);(Var)=((Var)<=(Min))?(Min):(Var);}
+#define UPLMT(Var,Max)  {(Var)=((Var)>=(Max))?(Max):(Var);}
+#define DNLMT(Var,Min)  {(Var)=((Var)<=(Min))?(Min):(Var);}
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+
+#define MAXDUTY 43
+#define MINDUTY 0
+#define LS      0.246034e-6
+#define CS      19.8e-6
+#define Ao      5.19972e9
+#define Ntr     0.0666667
+#define FREQMAX 200
+// CLA可读可写、CPU只读
+#pragma DATA_SECTION(ClaCnt, "Cla1ToCpuMsgRAM");
+#pragma DATA_SECTION(CpuState, "CpuToCla1MsgRAM");
+volatile unsigned int ClaCnt;
+CPUSTATE CpuState;
+
+#pragma CODE_SECTION(TaskCla_1, "Cla1Prog");
+__interrupt void TaskCla_1(void)
+{
+
+    switch(CpuState.Mode)
+    {
+        case SRDAB_IDLE:
+        {
+            // do nothing
+            break;
+        }
+        case SRDAB_CHARGE:
+        {
+            // 充电控制环
+            RunChargeClosedLoop();
+            break;
+        }
+        case SRDAB_DIS_CHARGE:
+        {
+            // 放电控制环
+            RunDischargeClosedLoop();
+            break;
+        }
+        case SRDAB_DISCHG_SOFT_START:
+        {
+            // 软启动
+            DisChargeSoftStart();
+            break;
+        }
+        case SRDAB_ADJUST_DUTY:
+        {
+            // 定频调宽
+            RunPowerClosedLoop();
+            break;
+        }
+        case SRDAB_CHG_SOFT_START:
+        {
+            // 消除内部电压
+            ChargeSoftStart();
+            break;
+        }
+        case SRDAB_RELAY_CHK:
+        {
+            // 扰压检测继电器
+            DisturbRelayVolt();
+            break;
+        }
+        case SRDAB_LLC_MODE:
+        {
+            // 开环LLC控制
+            DisChargeLLCLoop();
+            break;
+        }
+        case SRDAB_ONE_BOOST:
+        {
+            // 第一路升压
+            RouteOneVolt();
+            break;
+        }
+        case SRDAB_TWO_BOOST:
+        {
+            // 第二路降压
+            RouteTwoVolt();
+            break;
+        }
+        case AGING_MODE:
+        {
+            // 老化
+            AgingLLCLoop();
+            break;
+        }
+        default:break;
+    }
+
+    if (stClaOutputParam.ClaCnt < 100000.0f)
+    {
+        stClaOutputParam.ClaCnt += 1.0f;
+    }
+    else
+    {
+        stClaOutputParam.ClaCnt = 0.0f;
+    }
+
+}
+
+float LIMITSTEP_FUNC(LIMSTEP *v)
+{
+    v->Current = v->Target;
+    v->Delta = v->Current - v->Last;
+
+    if(v->Delta > 0)
+    {
+        v->Sign = 1.0f;
+    }
+    else if(v->Delta < 0)
+    {
+        v->Sign = -1.0f;
+    }
+    else
+    {
+        v->Sign = 0.0f;
+    }
+
+    if(fabsf(v->Delta) > v->Step)
+    {
+        v->Current = v->Last + v->Step * v->Sign;
+    }
+
+    v->Out = v->Current;
+    v->Last = v->Current;
+
+    return v->Out;
+}
+/*************************************************
+Function: CNTL_PI_F_FUNC
+Input: PI控制
+Output:
+*************************************************/
+#pragma CODE_SECTION(CNTL_PI_F_FUNC, "Cla1Prog");
+void CNTL_PI_F_FUNC(CNTL_PI_F *v)
+{
+    v->Err = v->Ref - v->Fbk;
+
+
+    if (v->ErrLimit > 0.1f)
+    {
+        if (v->Err > v->ErrLimit)
+        {
+            v->Err = v->ErrLimit;
+        }
+        else if (v->Err < -v->ErrLimit)
+        {
+            v->Err = -v->ErrLimit;
+        }
+    }
+
+    if(v->RealseEn == 1)
+    {
+        if ((v->Err > 0.5f) && (v->i1 < -1.0f))
+        {
+            v->i1 *= 0.1f;
+            v->ui = v->i1;
+        }
+    }
+
+    v->up = v->Err * v->Kp;
+    v->ui_temp = v->i1 + v->Err * v->Ki;
+    v->out_ui = v->up + v->ui_temp;
+
+    if (((v->out_ui >= v->Umin) && (v->out_ui <= v->Umax)) ||
+        ((v->out_ui > v->Umax) && (v->Err < 0)) ||
+        ((v->out_ui < v->Umin) && (v->Err > 0)))
+    {
+        v->ui = v->ui_temp;
+        v->i1 = v->ui;
+    }
+    else
+    {
+        v->ui = v->i1;
+    }
+    v->v1 = v->up + v->ui;
+
+    if (v->v1 > v->Umax)
+        v->Out = v->Umax;
+    else if (v->v1 < v->Umin)
+        v->Out = v->Umin;
+    else
+        v->Out = v->v1;
+}
+
+float RmpCntlCalc(RMPCNTL *v)
+{
+    if (v->TargetValue > v->SetpointValue + v->StepValue)
+    {
+        v->SetpointValue = v->SetpointValue + v->StepValue;
+    }
+    else if (v->TargetValue < v->SetpointValue - v->StepValue)
+    {
+        v->SetpointValue = v->SetpointValue - v->StepValue;
+    }
+    else
+    {
+        v->SetpointValue = v->TargetValue;
+    }
+
+    if (v->SetpointValue > v->RampHighLimit)
+    {
+        v->SetpointValue = v->RampHighLimit;
+    }
+    else if (v->SetpointValue < v->RampLowLimit)
+    {
+        v->SetpointValue = v->RampLowLimit;
+    }
+    return v->SetpointValue;
+}
+
+float GetStepSet(float FsVal)
+{
+    float a = 0;
+
+    if(FsVal < 84.0f)
+    {
+        a = 0.1f;
+    }
+    else if(FsVal < 105.0f)
+    {
+        a = FsVal*0.019f - 1.496f;
+    }
+    else if(FsVal <= 118.0f)
+    {
+        a = FsVal*0.3462 - 35.8516f;
+    }
+    else
+    {
+        a = 15.0f;
+    }
+
+    return a;
+}
+/*************************************************
+Function: RunChargeClosedLoop
+Input: 充电闭环
+Output:
+*************************************************/
+void RunChargeClosedLoop(void)
+{
+    UPDNLMT(CtrlPara.fs0,128.0f,75.0f);
+
+    if(CtrlPara.LoopStart == 1)
+    {
+        // 稳压模式
+        if(CpuAdcSample.ParalelCtrlState == 1)
+        {
+            CtrlPara.VoltPICtrl.Ref = CpuAdcSample.Vout;
+            CtrlPara.VoltPICtrl.Fbk = CpuAdcSample.Vref;
+
+            CNTL_PI_F_FUNC(&CtrlPara.VoltPICtrl);
+
+            CtrlPara.CurrPICtrl.Ref = CtrlPara.VoltPICtrl.Out;
+            //            CtrlPara.CurrPICtrl.Fbk = CpuAdcSample.IErr;
+            CtrlPara.CurrPICtrl.Fbk = CpuAdcSample.IBus;
+
+            CNTL_PI_F_FUNC(&CtrlPara.CurrPICtrl);
+
+            CtrlPara.fCurrRef = CtrlPara.CurrPICtrl.Out;
+        }
+        // 电流跟随模式
+        else if(CpuAdcSample.ParalelCtrlState == 2)
+        {
+            // 从机放弃电压环直接跟随平均电流
+            CtrlPara.PowerCurrPICtrl.Ref = CpuAdcSample.TargetAvgCurr;
+            CtrlPara.PowerCurrPICtrl.Fbk = CpuAdcSample.IBus;
+
+            CNTL_PI_F_FUNC(&CtrlPara.PowerCurrPICtrl);
+
+            CtrlPara.fCurrRef = CtrlPara.PowerCurrPICtrl.Out;
+        }
+
+
+        CtrlPara.ChargeStep.Step = 5.0f;
+        CtrlPara.ChargeStep.Target = CtrlPara.fCurrRef;
+        CtrlPara.fd1 = LIMITSTEP_FUNC(&CtrlPara.ChargeStep);
+    }
+    else
+    {
+        CtrlPara.fd1 = 0.0f;
+    }
+
+    CtrlPara.fClaFreq = CtrlPara.fs1 - CtrlPara.fd1;
+
+    UPDNLMT(CtrlPara.fClaFreq,200.0f,73.0f);
+
+    CtrlPara.ClaRefFreq.TargetValue = CtrlPara.fClaFreq;
+
+    if(CtrlPara.fClaFreqSet < 84.0f)
+    {
+        CtrlPara.ClaRefFreq.StepValue = 0.5f;
+    }
+    else if(CtrlPara.fClaFreqSet < 100.0f)
+    {
+        CtrlPara.ClaRefFreq.StepValue = 1.0f;
+    }
+    else if(CtrlPara.fClaFreqSet < 128.0f)
+    {
+        CtrlPara.ClaRefFreq.StepValue = 2.0f;
+    }
+    else
+    {
+        CtrlPara.ClaRefFreq.StepValue = 5.0f;
+    }
+
+    CtrlPara.fClaFreqSet = RmpCntlCalc(&CtrlPara.ClaRefFreq);
+
+    CtrlPara.G = CLAdiv(CpuAdcSample.Vref , CpuAdcSample.Vbat) * Ntr;
+    CtrlPara.Gdiv = CLAdiv(1.0f , (CtrlPara.G + 0.001f));
+    CtrlPara.Kr = CLAdiv((0.5f * CLAMATH_PI * 72109) , (CtrlPara.fClaFreqSet * 1000 + 0.01f));
+
+//    CtrlPara.Kr *= 1.2f;
+
+    CtrlPara.Krdiv = CLAdiv(1.0f , CtrlPara.Kr);
+    CtrlPara.SinKr = CLAsin(CtrlPara.Kr);
+
+
+    if(CtrlPara.G < 1)
+    {
+        CtrlPara.fPhase = (0.5f * (1 - CtrlPara.Krdiv * CLAasin(CtrlPara.G * CtrlPara.SinKr)) + CtrlPara.PhsOffset);
+    }
+    else
+    {
+        CtrlPara.fPhase = (0.5f * (1 - CtrlPara.Krdiv * CLAasin(CtrlPara.Gdiv * CtrlPara.SinKr)) + CtrlPara.PhsOffset);
+    }
+
+    UPDNLMT(CtrlPara.fPhase,0.25f,0);
+
+    DNLMT(CpuAdcSample.IErr , 0.01f);
+
+    CtrlPara.A = Ao;
+
+    CtrlPara.C = 2 * Ntr * CpuAdcSample.Vbat * CLAsin(CLAMATH_PI * CtrlPara.fPhase);
+
+    if(CpuAdcSample.ParalelCtrlState == 1)
+    {
+        CtrlPara.D = (CLAMATH_PI * CLAMATH_PI * CLAMATH_PI * LS) * CpuAdcSample.IErr;
+    }
+    else
+    {
+        CtrlPara.D = (CLAMATH_PI * CLAMATH_PI * CLAMATH_PI * LS) * CpuAdcSample.TargetAvgCurr;
+    }
+
+    CtrlPara.B = CLAdiv(CtrlPara.C , CtrlPara.D);
+
+    CtrlPara.fs0 = (CLAsqrt((CtrlPara.A + CtrlPara.B * CtrlPara.B)) + CtrlPara.B) * 0.001f;
+
+    UPDNLMT(CtrlPara.fs0,128.0f,75.0f);
+
+    CtrlPara.ClaRefFs0.TargetValue = CtrlPara.fs0;
+
+    CtrlPara.fsdelta = CtrlPara.fs0 - CtrlPara.fslate;
+
+    if((CtrlPara.fsdelta <= 5.0f)&&(CtrlPara.LoopStart == 0)&&((CpuAdcSample.IErr >= CpuAdcSample.SetCurr - 0.1f)||(CpuAdcSample.TargetAvgCurr > 2.0f)))
+    {
+        if(++CtrlPara.LoopCnt >= 3)
+        {
+            CtrlPara.LoopCnt = 0;
+            CtrlPara.LoopStart = 1;
+            CtrlPara.VoltPICtrl.i1 = CpuAdcSample.IErr;
+        }
+    }
+
+    CtrlPara.fslate = CtrlPara.fs0;
+
+    CtrlPara.dfreq = 100 * (CtrlPara.G - 1);
+
+    CtrlPara.fsFreq = CtrlPara.fClaFreqSet - CtrlPara.dfreq;
+
+    CtrlPara.ClaRefFs0.StepValue = GetStepSet(CtrlPara.fsFreq);
+
+    CtrlPara.fs1 = RmpCntlCalc(&CtrlPara.ClaRefFs0);
+
+    UPDNLMT(CtrlPara.fs1,128.0f,75.0f);
+
+    stClaOutputParam.Prd = CLAdiv((float)LLCSYSTEMCLOCKHZ , (CtrlPara.fClaFreqSet));
+
+    UPDNLMT(stClaOutputParam.Prd,1644.0f,600.0f);
+
+    stClaOutputParam.Phase = CtrlPara.fPhase * stClaOutputParam.Prd * 0.5f;
+
+    stClaOutputParam.BranchCMPA = 11 + stClaOutputParam.Phase;
+    stClaOutputParam.BranchCMPB = 11 + stClaOutputParam.Prd * 0.5f + stClaOutputParam.Phase;
+//    stClaOutputParam.BranchCMPC = stClaOutputParam.Prd * 0.25f;   // 交错
+    stClaOutputParam.BranchCMPC = 0;
+    stClaOutputParam.BranchCMPD = 11 + stClaOutputParam.Prd * 0.25;
+
+    stClaOutputParam.PrimaryCMPA = 11;
+    stClaOutputParam.PrimaryCMPB = 11 + stClaOutputParam.Prd * 0.5f ;
+//    stClaOutputParam.PrimaryCMPC = stClaOutputParam.Prd * 0.25f; // 交错
+    stClaOutputParam.PrimaryCMPC = 0;
+
+//    if(stClaOutputParam.Prd > 800.0f)
+//    {
+//        stClaOutputParam.DeadTime = 0.0f;
+//    }
+//    else
+//    {
+//        stClaOutputParam.DeadTime = 18.0f;
+//    }
+
+    stClaOutputParam.BranchDeadFed = 42;
+    stClaOutputParam.BranchDeadRed = 42;
+
+    stClaOutputParam.PrimaryDeadFed = 42;
+    stClaOutputParam.PrimaryDeadRed = 42;
+}
+/*************************************************
+Function: RunPowerClosedLoop
+Input: 定频调宽
+Output:
+*************************************************/
+void RunPowerClosedLoop(void)
+{
+    // 稳压模式
+    if (CpuAdcSample.ParalelCtrlState == 1)
+    {
+        CtrlPara.VoltLLCPICtrl.Ref = CpuAdcSample.Vout;
+        CtrlPara.VoltLLCPICtrl.Fbk = CpuAdcSample.Vref;
+
+        CNTL_PI_F_FUNC(&CtrlPara.VoltLLCPICtrl);
+
+        CtrlPara.CurrLLCPICtrl.Ref = CtrlPara.VoltLLCPICtrl.Out;
+//        CtrlPara.CurrLLCPICtrl.Fbk = CpuAdcSample.IErr;
+        CtrlPara.CurrLLCPICtrl.Fbk = CpuAdcSample.IBus;
+
+        CNTL_PI_F_FUNC(&CtrlPara.CurrLLCPICtrl);
+
+        CtrlPara.fCurrRef = CtrlPara.CurrLLCPICtrl.Out;
+    }
+    // 电流跟随模式
+    else if (CpuAdcSample.ParalelCtrlState == 2)
+    {
+        // 从机放弃电压环直接跟随平均电流
+        CtrlPara.PowerCurrLLCPICtrl.Ref = CpuAdcSample.TargetAvgCurr;
+        CtrlPara.PowerCurrLLCPICtrl.Fbk = CpuAdcSample.IBus;
+
+        CNTL_PI_F_FUNC(&CtrlPara.PowerCurrLLCPICtrl);
+
+        CtrlPara.fCurrRef = CtrlPara.PowerCurrLLCPICtrl.Out;
+    }
+
+    CtrlPara.fClaDuty = CtrlPara.fCurrRef + 0.17f;
+    UPDNLMT(CtrlPara.fClaDuty,0.474452f,0.0f);
+
+    CtrlPara.fDeadTime = 822.0f - CtrlPara.fClaDuty * 2.0f * 822.0f;
+
+    stClaOutputParam.Prd = 1644.0f;
+
+    stClaOutputParam.BranchCMPA = 11 ;
+    stClaOutputParam.BranchCMPB = 11 + stClaOutputParam.Prd * 0.5f;
+    stClaOutputParam.BranchCMPC = 0;
+    stClaOutputParam.BranchCMPD = 11 + stClaOutputParam.Prd * 0.25;
+
+    stClaOutputParam.PrimaryCMPA = 11;
+    stClaOutputParam.PrimaryCMPB = 11 + stClaOutputParam.Prd * 0.5f;
+    stClaOutputParam.PrimaryCMPC = 0;
+
+    stClaOutputParam.BranchDeadFed = CtrlPara.fDeadTime;
+    stClaOutputParam.BranchDeadRed = CtrlPara.fDeadTime;
+
+    stClaOutputParam.PrimaryDeadFed = CtrlPara.fDeadTime;
+    stClaOutputParam.PrimaryDeadRed = CtrlPara.fDeadTime;
+}
+
+/*************************************************
+Function: RunDischargeClosedLoop
+Input: 放电闭环
+Output:
+*************************************************/
+void RunDischargeClosedLoop(void)
+{
+    UPDNLMT(CtrlPara.fs0,128.0f,75.0f);
+    DNLMT(CpuAdcSample.IBus , 0.01f);
+
+    if(CtrlPara.LoopStart == 1)
+    {
+        // 稳压模式
+        if(CpuAdcSample.ParalelCtrlState == 1)
+        {
+            CtrlPara.DisVoltPICtrl.Ref = CpuAdcSample.Vref;
+            CtrlPara.DisVoltPICtrl.Fbk = CpuAdcSample.Vout;
+
+            CNTL_PI_F_FUNC(&CtrlPara.DisVoltPICtrl);
+
+            CtrlPara.DisCurrPICtrl.Ref = CtrlPara.DisVoltPICtrl.Out;
+            CtrlPara.DisCurrPICtrl.Fbk = CpuAdcSample.IErr;
+//            CtrlPara.DisCurrPICtrl.Fbk = CpuAdcSample.IBus;
+
+            CNTL_PI_F_FUNC(&CtrlPara.DisCurrPICtrl);
+
+            CtrlPara.fCurrRef = CtrlPara.DisCurrPICtrl.Out;
+        }
+        // 电流跟随模式
+        else if(CpuAdcSample.ParalelCtrlState == 2)
+        {
+            // 从机放弃电压环直接跟随平均电流
+            CtrlPara.PowerDisCurrPICtrl.Ref = CpuAdcSample.TargetAvgCurr;
+            CtrlPara.PowerDisCurrPICtrl.Fbk = CpuAdcSample.IBus;
+
+            CNTL_PI_F_FUNC(&CtrlPara.PowerDisCurrPICtrl);
+
+            CtrlPara.fCurrRef = CtrlPara.PowerDisCurrPICtrl.Out;
+        }
+
+        // 斜率收敛
+        if(CtrlPara.fClaFreqSet <= 108.0f)
+        {
+            CtrlPara.DisChargeStep.Step = 0.5f;
+        }
+        else
+        {
+            CtrlPara.DisChargeStep.Step = 1.0f;
+        }
+        CtrlPara.DisChargeStep.Target = CtrlPara.fCurrRef;
+        CtrlPara.fd1 = LIMITSTEP_FUNC(&CtrlPara.DisChargeStep);
+    }
+    else
+    {
+        CtrlPara.fd1 = 0.0f;
+    }
+
+    CtrlPara.fClaFreq = CtrlPara.fs1 - CtrlPara.fd1;
+
+    UPDNLMT(CtrlPara.fClaFreq,200.0f,73.0f);
+
+    CtrlPara.ClaRefFreq.TargetValue = CtrlPara.fClaFreq;
+
+    if(CtrlPara.fClaFreqSet < 84.0f)
+    {
+        CtrlPara.ClaRefFreq.StepValue = 0.5f;
+    }
+    else if(CtrlPara.fClaFreqSet < 100.0f)
+    {
+        CtrlPara.ClaRefFreq.StepValue = 2.0f;
+    }
+    else if(CtrlPara.fClaFreqSet < 128.0f)
+    {
+        CtrlPara.ClaRefFreq.StepValue = 4.0f;
+    }
+    else
+    {
+        CtrlPara.ClaRefFreq.StepValue = 8.0f;
+    }
+
+    CtrlPara.fClaFreqSet = RmpCntlCalc(&CtrlPara.ClaRefFreq);
+
+//    CtrlPara.fClaFreqSet = CtrlPara.fClaFreq;
+
+    CtrlPara.G = CLAdiv(CpuAdcSample.Vref , CpuAdcSample.Vbat) * Ntr;
+    CtrlPara.Gdiv = CLAdiv(1.0f , (CtrlPara.G + 0.001f));
+    CtrlPara.Kr = CLAdiv((0.5f * CLAMATH_PI * 72109) , (CtrlPara.fClaFreqSet * 1000 + 0.01f));
+
+    CtrlPara.Kr *= 1.2f;
+
+    CtrlPara.Krdiv = CLAdiv(1.0f , CtrlPara.Kr);
+    CtrlPara.SinKr = CLAsin(CtrlPara.Kr);
+
+
+    if(CtrlPara.G < 1)
+    {
+        CtrlPara.fPhase = (0.5f * (1 - CtrlPara.Krdiv * CLAasin(CtrlPara.G * CtrlPara.SinKr)) + CtrlPara.PhsOffset);
+    }
+    else
+    {
+        CtrlPara.fPhase = (0.5f * (1 - CtrlPara.Krdiv * CLAasin(CtrlPara.Gdiv * CtrlPara.SinKr)) + CtrlPara.PhsOffset);
+    }
+
+    UPDNLMT(CtrlPara.fPhase,0.25f,0);
+
+    DNLMT(CpuAdcSample.IErr , 0.01f);
+    DNLMT(CpuAdcSample.Iout , 0.01f);
+
+    CtrlPara.A = Ao;
+
+    CtrlPara.C = 2 * Ntr * CpuAdcSample.Vbat * CLAsin(CLAMATH_PI * CtrlPara.fPhase);
+
+    if(CpuAdcSample.ParalelCtrlState == 1)
+    {
+        CtrlPara.D = (CLAMATH_PI * CLAMATH_PI * CLAMATH_PI * LS) * CpuAdcSample.IErr;
+//        CtrlPara.D = (CLAMATH_PI * CLAMATH_PI * CLAMATH_PI * LS) * CpuAdcSample.IBus;
+    }
+    else
+    {
+        CtrlPara.D = (CLAMATH_PI * CLAMATH_PI * CLAMATH_PI * LS) * CpuAdcSample.TargetAvgCurr;
+    }
+
+    CtrlPara.B = CLAdiv(CtrlPara.C , CtrlPara.D);
+
+    CtrlPara.fs0 = (CLAsqrt((CtrlPara.A + CtrlPara.B * CtrlPara.B)) + CtrlPara.B) * 0.001f;
+
+    UPDNLMT(CtrlPara.fs0,128.0f,75.0f);
+
+    CtrlPara.ClaRefFs0.TargetValue = CtrlPara.fs0;
+
+    CtrlPara.fsdelta = CtrlPara.fs0 - CtrlPara.fslate;
+//    (CtrlPara.fsdelta <= 5.0f)
+    if((CtrlPara.fClaFreqSet < 128.0f)&&(CtrlPara.LoopStart == 0)&&(((CpuAdcSample.IErr >= CpuAdcSample.SetCurr - 0.1f)&&(CpuAdcSample.Vref > CpuAdcSample.Vout))||(CpuAdcSample.TargetAvgCurr > 2.0f)))
+    {
+        if(++CtrlPara.LoopCnt >= 3)
+        {
+            CtrlPara.LoopCnt = 0;
+            CtrlPara.LoopStart = 1;
+            CtrlPara.DisVoltPICtrl.i1 = CpuAdcSample.IErr + 0.1f;
+        }
+    }
+
+    CtrlPara.fslate = CtrlPara.fs0;
+
+    CtrlPara.dfreq = 100 * (CtrlPara.G - 1);
+
+    CtrlPara.fsFreq = CtrlPara.fClaFreqSet - CtrlPara.dfreq;
+
+    CtrlPara.ClaRefFs0.StepValue = GetStepSet(CtrlPara.fsFreq);
+
+    CtrlPara.fs1 = RmpCntlCalc(&CtrlPara.ClaRefFs0);
+
+    UPDNLMT(CtrlPara.fs1,128.0f,75.0f);
+
+    stClaOutputParam.Prd = CLAdiv((float)LLCSYSTEMCLOCKHZ , (CtrlPara.fClaFreqSet));
+
+    UPDNLMT(stClaOutputParam.Prd,1600.0f,600.0f);
+
+    stClaOutputParam.Phase = CtrlPara.fPhase * stClaOutputParam.Prd * 0.5;
+
+    stClaOutputParam.PrimaryPhase = CtrlPara.fPhase * stClaOutputParam.Prd;
+    stClaOutputParam.BranchPhase = 0;
+
+    stClaOutputParam.BranchCMPA = 11;
+    stClaOutputParam.BranchCMPB = 11 + stClaOutputParam.Prd * 0.5;
+//    stClaOutputParam.BranchCMPC = stClaOutputParam.Prd * 0.25;
+    stClaOutputParam.BranchCMPC = 0;
+    stClaOutputParam.BranchCMPD = 11 + stClaOutputParam.Prd * 0.25;
+
+    stClaOutputParam.PrimaryCMPA = 11 + stClaOutputParam.Phase;
+    stClaOutputParam.PrimaryCMPB = 11 + stClaOutputParam.Prd * 0.5f + stClaOutputParam.Phase;
+//    stClaOutputParam.PrimaryCMPC = stClaOutputParam.Prd * 0.25;
+    stClaOutputParam.PrimaryCMPC = 0;
+
+//    if(stClaOutputParam.Prd > 800.0f)
+//    {
+//        stClaOutputParam.DeadTime = 0.0f;
+//    }
+//    else
+//    {
+//        stClaOutputParam.DeadTime = 18.0f;
+//    }
+    stClaOutputParam.BranchDeadFed = 42;
+    stClaOutputParam.BranchDeadRed = 42;
+
+    stClaOutputParam.PrimaryDeadFed = 42;
+    stClaOutputParam.PrimaryDeadRed = 42;
+}
+
+void AgingLLCLoop(void)
+{
+    if(CpuAdcSample.AgingIDir > 0)
+    {
+        // 从机放弃电压环直接跟随平均电流
+        CtrlPara.DisChargeAgingICtrl.Ref = CpuAdcSample.AgingISet;
+        CtrlPara.DisChargeAgingICtrl.Fbk = CpuAdcSample.IBus;
+
+        CNTL_PI_F_FUNC(&CtrlPara.DisChargeAgingICtrl);
+
+        CtrlPara.fCurrRef = CtrlPara.DisChargeAgingICtrl.Out;
+    }
+    else if(CpuAdcSample.AgingIDir < 0)
+    {
+        // 从机放弃电压环直接跟随平均电流
+        CtrlPara.ChargeAgingICtrl.Ref = CpuAdcSample.AgingISet;
+        CtrlPara.ChargeAgingICtrl.Fbk = CpuAdcSample.IBus;
+
+        CNTL_PI_F_FUNC(&CtrlPara.ChargeAgingICtrl);
+
+        CtrlPara.fCurrRef = CtrlPara.ChargeAgingICtrl.Out;
+    }
+    else
+    {
+        CtrlPara.fCurrRef = 0;
+    }
+    CtrlPara.fClaFreqSet = FREQMAX - CtrlPara.fCurrRef;
+    CtrlPara.G = CLAdiv(CpuAdcSample.Vout , CpuAdcSample.Vbat) * Ntr;
+    CtrlPara.Gdiv = CLAdiv(1.0f , (CtrlPara.G + 0.001f));
+    CtrlPara.Kr = CLAdiv((0.5f * CLAMATH_PI * 72109) , (CtrlPara.fClaFreqSet * 1000 + 0.01f));
+    CtrlPara.Kr *= 1.2f;
+    CtrlPara.Krdiv = CLAdiv(1.0f , CtrlPara.Kr);
+    CtrlPara.SinKr = CLAsin(CtrlPara.Kr);
+    if(CtrlPara.G < 1)
+    {
+        CtrlPara.fPhase = (0.5f * (1 - CtrlPara.Krdiv * CLAasin(CtrlPara.G * CtrlPara.SinKr)) + CtrlPara.PhsOffset);
+    }
+    else
+    {
+        CtrlPara.fPhase = (0.5f * (1 - CtrlPara.Krdiv * CLAasin(CtrlPara.Gdiv * CtrlPara.SinKr)) + CtrlPara.PhsOffset);
+    }
+    UPDNLMT(CtrlPara.fPhase,0.25f,0);
+    stClaOutputParam.Prd = CLAdiv((float)LLCSYSTEMCLOCKHZ , (CtrlPara.fClaFreqSet));
+    UPDNLMT(stClaOutputParam.Prd,1644.0f,400.0f);
+    stClaOutputParam.Phase = CtrlPara.fPhase * stClaOutputParam.Prd * 0.5f;
+    if(CpuAdcSample.AgingIDir > 0)
+    {
+        stClaOutputParam.BranchCMPA = 11;
+        stClaOutputParam.BranchCMPB = 11 + stClaOutputParam.Prd * 0.5;
+        stClaOutputParam.PrimaryCMPA = 11 + stClaOutputParam.Phase;
+        stClaOutputParam.PrimaryCMPB = 11 + stClaOutputParam.Prd * 0.5f + stClaOutputParam.Phase;
+    }
+    else if(CpuAdcSample.AgingIDir < 0)
+    {
+        stClaOutputParam.BranchCMPA = 11 + stClaOutputParam.Phase;
+        stClaOutputParam.BranchCMPB = 11 + stClaOutputParam.Prd * 0.5f + stClaOutputParam.Phase;
+        stClaOutputParam.PrimaryCMPA = 11;
+        stClaOutputParam.PrimaryCMPB = 11 + stClaOutputParam.Prd * 0.5f ;
+    }
+    else
+    {
+        stClaOutputParam.BranchCMPA = 11;
+        stClaOutputParam.BranchCMPB = 11 + stClaOutputParam.Prd * 0.5f;
+        stClaOutputParam.PrimaryCMPA = 11;
+        stClaOutputParam.PrimaryCMPB = 11 + stClaOutputParam.Prd * 0.5f ;
+    }
+    stClaOutputParam.BranchCMPD = 11 + stClaOutputParam.Prd * 0.25;
+    stClaOutputParam.BranchCMPC = 0;
+    stClaOutputParam.PrimaryCMPC = 0;
+    stClaOutputParam.BranchDeadFed = 42;
+    stClaOutputParam.BranchDeadRed = 42;
+    stClaOutputParam.PrimaryDeadFed = 42;
+    stClaOutputParam.PrimaryDeadRed = 42;
+}
+
+void DisChargeLLCLoop(void)
+{
+    stClaOutputParam.Prd = CtrlPara.fSoftPrd;
+
+    stClaOutputParam.BranchCMPA = 11 ;
+    stClaOutputParam.BranchCMPB = 11 + stClaOutputParam.Prd * 0.5f;
+    stClaOutputParam.BranchCMPC = 0;
+    stClaOutputParam.BranchCMPD = 11 + stClaOutputParam.Prd * 0.25;
+
+    stClaOutputParam.PrimaryCMPA = 0;
+    stClaOutputParam.PrimaryCMPB = stClaOutputParam.Prd;
+    stClaOutputParam.PrimaryCMPC = 0;
+
+    stClaOutputParam.BranchDeadFed = 42;
+    stClaOutputParam.BranchDeadRed = 42;
+
+    stClaOutputParam.PrimaryDeadFed = 42;
+    stClaOutputParam.PrimaryDeadRed = 42;
+}
+
+void DisChargeSoftStart(void)
+{
+    float Prd;
+    float DeadTime;
+
+    Prd = RmpCntlCalc(&CtrlPara.ClaRefSoftFreq);
+    stClaOutputParam.Prd = Prd;
+
+    // 电池电压>21V,固定大死区,降低一次侧MOSFET VDS应力
+    if (CpuAdcSample.Vbat < 21.0f) // < 21V
+    {
+        DeadTime = ((float)1645 - Prd) * 1.50f;
+        if (CpuAdcSample.Vout < 100.0f) // < 100V
+        {
+            DeadTime = 575.0f;
+        }
+        else if (DeadTime > 575.0f)
+        {
+            DeadTime = 575.0f;
+        }
+        else if (DeadTime < 500.0f)
+        {
+            DeadTime = 500.0f;
+        }
+    }
+    else if (CpuAdcSample.Vbat > 22.0f) // > 22V
+    {
+        DeadTime = 575.0f;
+    }
+    else
+    {
+        DeadTime = 575.0f;
+    }
+
+    // Update the Frequency & Duty
+    stClaOutputParam.PrimaryDuty = 0;
+    stClaOutputParam.PrimaryCMPA = 0;
+    stClaOutputParam.PrimaryCMPB = Prd;
+    stClaOutputParam.BranchCMPA = 0;
+    stClaOutputParam.BranchCMPB = Prd * 0.5;
+    stClaOutputParam.BranchDuty = 50;
+    stClaOutputParam.Phase = 0;
+
+    stClaOutputParam.BranchDeadFed = DeadTime;
+    stClaOutputParam.BranchDeadRed = DeadTime;
+
+    stClaOutputParam.PrimaryDeadFed = DeadTime;
+    stClaOutputParam.PrimaryDeadRed = DeadTime;
+}
+
+void ChargeSoftStart(void)
+{
+    float Prd;
+
+    Prd = RmpCntlCalc(&CtrlPara.ClaZeroSoftFreq);
+
+    stClaOutputParam.Prd = Prd;
+
+    stClaOutputParam.PrimaryDuty = 50;
+    stClaOutputParam.PrimaryCMPA = 0;
+    stClaOutputParam.PrimaryCMPB = Prd * 0.5;
+    stClaOutputParam.BranchCMPA = 0;
+    stClaOutputParam.BranchCMPB = Prd;
+    stClaOutputParam.BranchDuty = 0;
+    stClaOutputParam.Phase = 0;
+
+    stClaOutputParam.BranchDeadFed = 575;
+    stClaOutputParam.BranchDeadRed = 575;
+
+    stClaOutputParam.PrimaryDeadFed = 575;
+    stClaOutputParam.PrimaryDeadRed = 575;
+}
+
+void DisturbRelayVolt(void)
+{
+    float Duty;
+
+    Duty = RmpCntlCalc(&CtrlPara.ClaTestDuty);
+    // 300kHz缓启动 速度做到1秒~2秒 基础目标为达到电池的15倍电压高度转为闭环，如果时间达到或者电压达到都直接转为闭环
+
+    stClaOutputParam.Prd = 1200;
+
+    stClaOutputParam.PrimaryDuty = 0;
+    stClaOutputParam.PrimaryCMPA = 0;
+    stClaOutputParam.PrimaryCMPB = 1200;
+    stClaOutputParam.BranchCMPA = 0;
+    stClaOutputParam.BranchCMPB = 600;
+    stClaOutputParam.BranchDuty = 50;
+    stClaOutputParam.Phase = 0;
+
+    stClaOutputParam.BranchDeadFed = Duty;
+    stClaOutputParam.BranchDeadRed = Duty;
+
+    stClaOutputParam.PrimaryDeadFed = Duty;
+    stClaOutputParam.PrimaryDeadRed = Duty;
+}
+
+void RouteOneVolt(void)
+{
+    float Duty;
+
+    Duty = RmpCntlCalc(&CtrlPara.ClaRoute1Duty);
+    // 300kHz缓启动 速度做到1秒~2秒 基础目标为达到电池的15倍电压高度转为闭环，如果时间达到或者电压达到都直接转为闭环
+
+    stClaOutputParam.Prd = 1200;
+
+    stClaOutputParam.PrimaryDuty = 0;
+    stClaOutputParam.PrimaryCMPA = 0;
+    stClaOutputParam.PrimaryCMPB = 1200;
+    stClaOutputParam.BranchCMPA = 0;
+    stClaOutputParam.BranchCMPB = 600;
+    stClaOutputParam.BranchDuty = 50;
+    stClaOutputParam.Phase = 0;
+
+    stClaOutputParam.BranchDeadFed = Duty;
+    stClaOutputParam.BranchDeadRed = Duty;
+
+    stClaOutputParam.PrimaryDeadFed = Duty;
+    stClaOutputParam.PrimaryDeadRed = Duty;
+}
+
+void RouteTwoVolt(void)
+{
+    float Duty;
+
+    Duty = RmpCntlCalc(&CtrlPara.ClaRoute2Duty);
+    // 300kHz缓启动 速度做到1秒~2秒 基础目标为达到电池的15倍电压高度转为闭环，如果时间达到或者电压达到都直接转为闭环
+
+    stClaOutputParam.Prd = 1200;
+
+    stClaOutputParam.BranchDuty = 0;
+    stClaOutputParam.BranchCMPA = 0;
+    stClaOutputParam.BranchCMPB = 1200;
+    stClaOutputParam.PrimaryCMPA = 0;
+    stClaOutputParam.PrimaryCMPB = 600;
+    stClaOutputParam.PrimaryDuty = 50;
+    stClaOutputParam.Phase = 0;
+
+    stClaOutputParam.BranchDeadFed = Duty;
+    stClaOutputParam.BranchDeadRed = Duty;
+
+    stClaOutputParam.PrimaryDeadFed = Duty;
+    stClaOutputParam.PrimaryDeadRed = Duty;
+}
