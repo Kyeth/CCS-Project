@@ -418,16 +418,29 @@ def main():
            detail="实际: %s" % {i: (pwm_by_id[i]["u16Period"], tok_str(pwm_by_id[i]["u16CtrMode"]),
                                    pwm_by_id[i]["u16CmpA"], pwm_by_id[i]["u16DeadTime"]) for i in inv_ids})
 
-    ck.cmp("A03-PWM-02", dom, "逆变 AQ：CAU=SET、CAD=CLEAR",
+    aq_actual = {i: {"CAU": tok_str(pwm_by_id[i]["stAqA"][2]),
+                     "CAD": tok_str(pwm_by_id[i]["stAqA"][3])} for i in inv_ids}
+    aq_bad = {i: v for i, v in aq_actual.items()
+              if v["CAU"] != exp_p["inv"]["aq_cau"] or v["CAD"] != exp_p["inv"]["aq_cad"]}
+    ck.add("A03-PWM-02", dom, "六路逆变 AQ：逐路检查 CAU=SET、CAD=CLEAR", "RULED_DESIGN",
            {"CAU": exp_p["inv"]["aq_cau"], "CAD": exp_p["inv"]["aq_cad"]},
-           {"CAU": pwm_by_id["HW_PWM_ID0"]["stAqA"][2], "CAD": pwm_by_id["HW_PWM_ID0"]["stAqA"][3]})
+           aq_actual,
+           "PASS" if not aq_bad else "FAIL",
+           "逐路核对 6 路 INV 的 AQ A 通道事件（不再只看 HW_PWM_ID0）；"
+           "不符项：%s。B 通道为互补输出，动作由 AQ/TZ 组合决定，本项不断言" % (sorted(aq_bad) or "无"))
 
     pv_ids = exp_p["pv"]["pwms"]
-    ck.cmp("A03-PWM-03", dom, "四路 PV：周期 4999、UP 计数",
-           {"period": exp_p["pv"]["period"], "mode": exp_p["pv"]["ctr_mode"]},
-           {"period": pwm_by_id[pv_ids[0]]["u16Period"],
-            "mode": tok_str(pwm_by_id[pv_ids[0]]["u16CtrMode"])},
-           detail="周期沿用修复中确定的 4999；相位单独判（A03-PWM-09）")
+    pv_actual = {i: {"period": pwm_by_id[i]["u16Period"],
+                     "ctr_mode": tok_str(pwm_by_id[i]["u16CtrMode"])} for i in pv_ids}
+    pv_bad = {i: v for i, v in pv_actual.items()
+              if v["period"] != exp_p["pv"]["period"]
+              or v["ctr_mode"] != exp_p["pv"]["ctr_mode"]}
+    ck.add("A03-PWM-03", dom, "四路 PV：逐路检查周期 4999 与 UP 计数", "RULED_DESIGN",
+           {"period": exp_p["pv"]["period"], "ctr_mode": exp_p["pv"]["ctr_mode"]},
+           pv_actual,
+           "PASS" if not pv_bad else "FAIL",
+           "逐路核对 4 路 PV 的 TBPRD 与 CTRMODE（不再只看首路）；"
+           "不符项：%s。相位单独判（A03-PWM-09）" % (sorted(pv_bad) or "无"))
     ck.cmp_design("A03-PWM-09", dom, "四路 PV 交错相位 0/1250/2500/3750",
                   {"value": exp_p["pv"]["phases"],
                    "basis": exp_p["pv"].get("phases_basis", "PENDING")},

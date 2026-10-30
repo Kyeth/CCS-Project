@@ -2,8 +2,8 @@
   "meta": {
     "step": "01",
     "item": "A03",
-    "generated_at": "2026-10-30T10:40:44",
-    "source_commit": "b20258bd2260ac4aafcdb510c41b7a0483328987",
+    "generated_at": "2026-10-30T11:04:01",
+    "source_commit": "30d953f1123a58b0d9258adf19b82033273f4cb5",
     "source_tree": "D:\\Project\\out\\step01\\src",
     "source_file_sha256": {
       "Broad/src/DrvCfg_EP15K.c": "1e5aff3ff3ce62340337a4408ecde2dc9aef2f9a57246a6e1353e437e4386ea9",
@@ -398,34 +398,70 @@
     {
       "id": "A03-PWM-02",
       "domain": "pwm",
-      "title": "逆变 AQ：CAU=SET、CAD=CLEAR",
+      "title": "六路逆变 AQ：逐路检查 CAU=SET、CAD=CLEAR",
       "basis": "RULED_DESIGN",
       "expected": {
         "CAU": "AQ_SET",
         "CAD": "AQ_CLEAR"
       },
       "actual": {
-        "CAU": "AQ_SET",
-        "CAD": "AQ_CLEAR"
+        "HW_PWM_ID0": {
+          "CAU": "AQ_SET",
+          "CAD": "AQ_CLEAR"
+        },
+        "HW_PWM_ID1": {
+          "CAU": "AQ_SET",
+          "CAD": "AQ_CLEAR"
+        },
+        "HW_PWM_ID2": {
+          "CAU": "AQ_SET",
+          "CAD": "AQ_CLEAR"
+        },
+        "HW_PWM_ID3": {
+          "CAU": "AQ_SET",
+          "CAD": "AQ_CLEAR"
+        },
+        "HW_PWM_ID9": {
+          "CAU": "AQ_SET",
+          "CAD": "AQ_CLEAR"
+        },
+        "HW_PWM_ID10": {
+          "CAU": "AQ_SET",
+          "CAD": "AQ_CLEAR"
+        }
       },
       "verdict": "PASS",
-      "detail": ""
+      "detail": "逐路核对 6 路 INV 的 AQ A 通道事件（不再只看 HW_PWM_ID0）；不符项：无。B 通道为互补输出，动作由 AQ/TZ 组合决定，本项不断言"
     },
     {
       "id": "A03-PWM-03",
       "domain": "pwm",
-      "title": "四路 PV：周期 4999、UP 计数",
+      "title": "四路 PV：逐路检查周期 4999 与 UP 计数",
       "basis": "RULED_DESIGN",
       "expected": {
         "period": 4999,
-        "mode": "TB_COUNT_UP"
+        "ctr_mode": "TB_COUNT_UP"
       },
       "actual": {
-        "period": 4999,
-        "mode": "TB_COUNT_UP"
+        "HW_PWM_ID6": {
+          "period": 4999,
+          "ctr_mode": "TB_COUNT_UP"
+        },
+        "HW_PWM_ID8": {
+          "period": 4999,
+          "ctr_mode": "TB_COUNT_UP"
+        },
+        "HW_PWM_ID4": {
+          "period": 4999,
+          "ctr_mode": "TB_COUNT_UP"
+        },
+        "HW_PWM_ID5": {
+          "period": 4999,
+          "ctr_mode": "TB_COUNT_UP"
+        }
       },
       "verdict": "PASS",
-      "detail": "周期沿用修复中确定的 4999；相位单独判（A03-PWM-09）"
+      "detail": "逐路核对 4 路 PV 的 TBPRD 与 CTRMODE（不再只看首路）；不符项：无。相位单独判（A03-PWM-09）"
     },
     {
       "id": "A03-PWM-09",

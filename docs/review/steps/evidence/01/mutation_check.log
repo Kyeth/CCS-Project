@@ -1,0 +1,24 @@
+# 步骤 01 · 非首路故意改错测试（A03-PWM-02 / A03-PWM-03 覆盖性证明）
+#
+# 目的：证明这两项检查不是只看第一路。做法是在解包树的临时副本里，把一条"非首路"
+# 配置改错，再跑 config_replay.py，要求目标检查转为 FAIL。仓库工作区与解包树都不改动，
+# 所有改动只存在于 --work 指定的临时目录，不提交。
+#
+# 输入源码固定到：30d953f1123a58b0d9258adf19b82033273f4cb5
+# 命令：
+#   python docs/review/steps/evidence/01/mutation_check.py \
+#       --src /d/Project/out/step01/src \
+#       --work /d/Project/out/step01-mut \
+#       --rev 30d953f1123a58b0d9258adf19b82033273f4cb5
+#
+# 说明：每个用例的 FAIL 列表 = 正式基线已有的 4 项（A03-XB-06、A03-TZ-04、
+# A03-PWM-05、A03-PWM-06）+ 本次注入的 1 项；PENDING 仍为 7 项，说明注入只影响目标检查。
+
+[DETECTED] A03-PWM-02：逆变第 2 路（EPWM2/HW_PWM_ID1）AQ 的 CAU 由 AQ_SET 改成 AQ_CLEAR（第 158 行注入）
+        目标检查判定=FAIL，该次运行的 FAIL 列表=['A03-XB-06', 'A03-TZ-04', 'A03-PWM-02', 'A03-PWM-05', 'A03-PWM-06']，计数={'PASS': 20, 'FAIL': 5, 'PENDING': 7, 'INFO': 0}
+[DETECTED] A03-PWM-03：PV 第 2 路（EPWM9/HW_PWM_ID8）周期由 4999U 改成 3000U（第 222 行注入）
+        目标检查判定=FAIL，该次运行的 FAIL 列表=['A03-XB-06', 'A03-TZ-04', 'A03-PWM-03', 'A03-PWM-05', 'A03-PWM-06']，计数={'PASS': 20, 'FAIL': 5, 'PENDING': 7, 'INFO': 0}
+结论：全部检出（2/2）
+
+# 注入前基线（同一解包树、未改动）：PASS 21 / FAIL 4 / PENDING 7，
+# FAIL = A03-XB-06、A03-TZ-04、A03-PWM-05、A03-PWM-06。
