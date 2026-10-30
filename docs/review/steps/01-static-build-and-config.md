@@ -139,7 +139,7 @@ SHA="30d953f1123a58b0d9258adf19b82033273f4cb5"
 | 器件宏 | `_FLASH`、`DEBUG`、`CPU1`、`F2837xS` | `build_summary.json:compile.flags` |
 | 优化级 | 未显式指定；按编译器默认（`-O0`）记录 | `subdir_rules.mk` 无 `-O*`，`.cproject` 无优化选项 |
 | 产物 | `.out` SHA-256 `9a52f0c6…c1bc91`（1,032,000 B，与 `f7978e1`/`b20258b` 构建逐字节相同）；`.map` SHA-256 `5402559…452fec`（143,385 B，每次链接因时间戳首行而不同） | `evidence_hashes.json` |
-| 源码快照 | `git archive 30d953f` 的 `head.tar` SHA-256 `d4b4d7c0…d673f6`（26,931,200 B） | `evidence_hashes.json` |
+| 源码快照 | `git archive 30d953f` 的 `head.tar` SHA-256 `d4b4d7c0…4d673f679`（完整值见 `evidence_hashes.json:build_products_not_committed.head.tar`；26,931,200 B） | `evidence_hashes.json` |
 
 "空目录"证明：`build_summary.json:empty_output_dir` 记录编译前 `obj/` 为空、编译后 101 个 `.obj` 全部新生成，且没有早于构建开始的 `.obj`。
 
