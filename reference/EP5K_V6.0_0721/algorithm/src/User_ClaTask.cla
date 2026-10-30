@@ -1,0 +1,120 @@
+//###########################################################################
+#define MY_CLA   0
+
+#include "F28x_Project.h"
+#include "Sample.h"
+
+////***************************************************************************
+//__attribute__((interrupt("background"))) void Cla1BackgroundTask(void)
+//{
+//    for(;;)
+//    {
+////        if(Spll.ZCD_g)
+////        {
+////            Spll.ZCD_g = 0;
+////            __disable_interrupts();
+////            __enable_interrupts();
+////        }
+//    }
+//}
+
+
+
+//void SampleMultiplexer(void)
+//{
+//    if(Cla1ToCpuMsg.turn == 0)
+//    {
+//        Cla1ToCpuMsg.adresult1[Cla1ToCpuMsg.mux] = AdcdResultRegs.ADCRESULT3;   //选通采样
+//        Cla1ToCpuMsg.adresult2[Cla1ToCpuMsg.mux] = AdcbResultRegs.ADCRESULT3;   //选通采样
+//
+//        Cla1ToCpuMsg.mux++;
+//        if(Cla1ToCpuMsg.mux >= 8L)
+//            Cla1ToCpuMsg.mux = 0;
+//
+//        //切换通道
+//        GpioDataRegs.GPBDAT.bit.GPIO46 = (Cla1ToCpuMsg.mux & 0x01)==0x01;
+//        GpioDataRegs.GPBDAT.bit.GPIO47 = (Cla1ToCpuMsg.mux & 0x02)==0x02;
+//        GpioDataRegs.GPBDAT.bit.GPIO42 = (Cla1ToCpuMsg.mux & 0x04)==0x04;
+//
+//        Cla1ToCpuMsg.turn = 1;
+//    }
+//    else
+//    {
+//        AdcdRegs.ADCSOCFRC1.bit.SOC3 = 1;
+//        AdcbRegs.ADCSOCFRC1.bit.SOC3 = 1;
+//        Cla1ToCpuMsg.turn = 0;
+//    }
+//
+//}
+//***************************************************************************
+__interrupt void Cla1Task1(void)
+{
+    Cla1ToCpuMsg.cnt++;
+
+    //多次采样
+//    Cla1ToCpuMsg.muxV++;
+//    Cla1ToCpuMsg.adresultV1Sum += AdccResultRegs.ADCRESULT4;
+//    Cla1ToCpuMsg.adresultV2Sum += AdccResultRegs.ADCRESULT3;
+//    if(Cla1ToCpuMsg.muxV >= 8L)
+//    {
+//        Cla1ToCpuMsg.muxV = 0;
+//        Cla1ToCpuMsg.adresultV1 = Cla1ToCpuMsg.adresultV1Sum>>3;
+//        Cla1ToCpuMsg.adresultV2 = Cla1ToCpuMsg.adresultV2Sum>>3;
+//        Cla1ToCpuMsg.adresultV1Sum = 0;
+//        Cla1ToCpuMsg.adresultV2Sum = 0;
+//    }
+//
+//    AdccRegs.ADCSOCFRC1.bit.SOC3 = 1;
+//    AdccRegs.ADCSOCFRC1.bit.SOC4 = 1;
+
+    //多路选择器
+    if(Cla1ToCpuMsg.turn == 0)
+    {
+        Cla1ToCpuMsg.adresult1[Cla1ToCpuMsg.mux] = AdcdResultRegs.ADCRESULT3;   //选通采样
+        Cla1ToCpuMsg.adresult2[Cla1ToCpuMsg.mux] = AdcbResultRegs.ADCRESULT3;   //选通采样
+        Cla1ToCpuMsg.mux++;
+        if(Cla1ToCpuMsg.mux >= 8L)
+            Cla1ToCpuMsg.mux = 0;
+
+        //切换通道
+        GpioDataRegs.GPBDAT.bit.GPIO46 = (Cla1ToCpuMsg.mux & 0x01)==0x01;
+        GpioDataRegs.GPBDAT.bit.GPIO47 = (Cla1ToCpuMsg.mux & 0x02)==0x02;
+        GpioDataRegs.GPBDAT.bit.GPIO42 = (Cla1ToCpuMsg.mux & 0x04)==0x04;
+
+        Cla1ToCpuMsg.turn = 1;
+    }
+    else
+    {
+        AdcdRegs.ADCSOCFRC1.bit.SOC3 = 1;
+        AdcbRegs.ADCSOCFRC1.bit.SOC3 = 1;
+        Cla1ToCpuMsg.turn = 0;
+    }
+}
+
+//__interrupt void Cla1Task3(void){}
+//__interrupt void Cla1Task4(void){}
+//__interrupt void Cla1Task5(void){}
+//__interrupt void Cla1Task6(void){}
+//__interrupt void Cla1Task8(void){}
+//__interrupt void Cla1Task7(void)
+//{
+////    long i = 0;
+////    for(i=0;i<8;i++)
+////        freqTmp[i] = CpuToCla1Msg.fn;
+////    Cla1ToCpuMsg.AvgValue.fspll = CpuToCla1Msg.fn;
+////    Cla1ToCpuMsg.DisPlayValFinv = CpuToCla1Msg.fn;
+////    Cla1ToCpuMsg.DisPlayValFgrid = CpuToCla1Msg.fn;
+////    SPLL_1ph_SOGI_CLA_init(CpuToCla1Msg.fn,(1.0f/SPWM_Frequency),Spll);
+////    CLA_coeff_f_update(CpuToCla1Msg.fn);
+//}
+
+//__interrupt void Cla1Task2(void){}
+//__interrupt void Cla1Task3(void){}
+//__interrupt void Cla1Task4(void){}
+//__interrupt void Cla1Task5(void){}
+//__interrupt void Cla1Task6(void){}
+//__interrupt void Cla1Task8(void){}
+
+//===========================================================================
+// No more.
+//===========================================================================
