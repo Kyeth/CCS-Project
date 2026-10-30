@@ -1,6 +1,6 @@
 # General Minimal C28 Program
 
-Minimal peripheral framework for the TMS320F28374S PCS control board. Hardware requirements are held in the `Broad` configuration tables; `Drivers` applies those tables. The program initializes the clock, watchdog, GPIO, ePWM, ADC, CLA, SCI, CAN, and two CPU interrupt paths. It contains no component or application behavior.
+Minimal peripheral framework for the TMS320F28374S PCS control board. Hardware requirements are held in the `Broad` configuration tables; `Drivers` applies those tables. The entry points follow the IB800U lifecycle style: `PeripheralsInit`, `PlatformInit`, `ApplicationInit`, `TaskCreate`, and `StartSystem`. The `Platform/Schedule` component provides an empty cooperative task framework. No application behavior is registered.
 
 ## Branches
 

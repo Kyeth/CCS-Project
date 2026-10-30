@@ -12,6 +12,7 @@ SOURCES = [
     "main.c",
     "Broad/src/DrvCfg_EP15K.c",
     *[str(p.relative_to(ROOT)) for p in sorted((ROOT / "Drivers/src").glob("*.c"))],
+    "Platform/Schedule/Src/Schedule.c",
     "Drivers/src/Hw_ClaTask.cla",
     "device/common/source/F2837xS_Adc.c",
     "device/common/source/F2837xS_DefaultISR.c",
@@ -24,7 +25,7 @@ SOURCES = [
     "device/headers/source/F2837xS_GlobalVariableDefs.c",
 ]
 INCLUDES = [
-    ".", "Broad/inc", "Drivers/inc", "device/common/include",
+    ".", "Broad/inc", "Drivers/inc", "Platform/Schedule/Inc", "device/common/include",
     "device/headers/include", "device/driverlib", "device/driverlib/inc",
 ]
 FLAGS = [
