@@ -143,7 +143,8 @@ void Hw_SinglePwmInit(ST_PWM_CFG_ITEM *pstPwmCfgItem)
     pstPwmRegs->AQCSFRC.bit.CSFB = pstPwmCfgItem->u16InitForceB;
 
     /* 3. 配置时基模块。 */
-    pstPwmRegs->TBCTL.bit.PRDLD = TB_SHADOW;
+    /* The first period must be active before a nonzero TBCTR is preloaded. */
+    pstPwmRegs->TBCTL.bit.PRDLD = TB_IMMEDIATE;
     pstPwmRegs->TBCTL.bit.CTRMODE = pstPwmCfgItem->u16CtrMode;
     pstPwmRegs->TBCTL.bit.PHSDIR = pstPwmCfgItem->u16SyncCntLoadDir;
     pstPwmRegs->TBCTL.bit.CLKDIV = TB_DIV1;
@@ -151,8 +152,18 @@ void Hw_SinglePwmInit(ST_PWM_CFG_ITEM *pstPwmCfgItem)
     pstPwmRegs->TBCTL.bit.FREE_SOFT = 2U;
 
     pstPwmRegs->TBPRD = pstPwmCfgItem->u16Period;
-    pstPwmRegs->TBCTR = 0U;
-    pstPwmRegs->TBPHS.bit.TBPHS = pstPwmCfgItem->u16Phase;
+    pstPwmRegs->TBCTL.bit.PRDLD = TB_SHADOW;
+    pstPwmRegs->TBPRD = pstPwmCfgItem->u16Period;
+    if (pstPwmCfgItem->u16SyncMode == HW_PWM_FREE)
+    {
+        pstPwmRegs->TBCTR = pstPwmCfgItem->u16Phase;
+        pstPwmRegs->TBPHS.bit.TBPHS = 0U;
+    }
+    else
+    {
+        pstPwmRegs->TBCTR = 0U;
+        pstPwmRegs->TBPHS.bit.TBPHS = pstPwmCfgItem->u16Phase;
+    }
 
     /* The Broad table selects ZERO, pass-through, or disabled SYNCO. */
     if (pstPwmCfgItem->u16SyncOutSel == HW_EPWM_SYNC_OUT_FROM_CNTR_ZERO)
@@ -168,21 +179,14 @@ void Hw_SinglePwmInit(ST_PWM_CFG_ITEM *pstPwmCfgItem)
         pstPwmRegs->TBCTL.bit.SYNCOSEL = TB_SYNC_DISABLE;
     }
 
-    if ((pstPwmCfgItem->u16SyncMode == HW_PWM_MASTER) &&
-        (pstPwmCfgItem->u16PwmId == HW_PWM_ID0))
+    if (pstPwmCfgItem->u16SyncMode == HW_PWM_SLAVE)
     {
-        /* 主模块不接收外部相位加载，纯粹产生SYNCO */
-        pstPwmRegs->TBCTL.bit.PHSEN = 0U;
-    }
-    else if ((pstPwmCfgItem->u16SyncMode == HW_PWM_SLAVE) ||
-             (pstPwmCfgItem->u16PwmId == HW_PWM_ID6))
-    {
-        /* 从模块接收SYNCI，并将TBPHS加载到TBCTR */
+        /* Only synchronized slaves reload TBCTR from TBPHS. */
         pstPwmRegs->TBCTL.bit.PHSEN = 1U;
     }
     else
     {
-        /* 独立运行模块 */
+        /* Masters and free-running modules ignore SYNCI. */
         pstPwmRegs->TBCTL.bit.PHSEN = 0U;
     }
 

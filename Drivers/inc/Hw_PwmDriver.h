@@ -99,7 +99,7 @@ typedef struct
     Uint16 u16Period;
     Uint16 u16CmpA;
     Uint16 u16CmpB;
-    Uint16 u16Phase;        /* 相位偏移 (TBPHS) */
+    Uint16 u16Phase;        /* SLAVE: TBPHS；FREE: TBCLKSYNC放开前预置TBCTR */
     Uint16 u16CtrMode;
 
     Uint16 u16SyncMode;     /* 见 E_HW_PWM_SYNC_MODE */

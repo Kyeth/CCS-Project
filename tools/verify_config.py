@@ -91,11 +91,20 @@ def verify(sheet: Path) -> None:
     assert len(syncs) == 12
     sync_by_id = {int(pwm_id): mode for pwm_id, mode in syncs}
     for pwm_id, expected_mode in {
-        0: "CNTR_ZERO", 1: "SYNCIN", 3: "SYNCIN", 4: "SYNCIN",
-        6: "CNTR_ZERO", 7: "SYNCIN", 9: "SYNCIN",
+        0: "CNTR_ZERO", 1: "SYNCIN", 3: "SYNCIN",
+        7: "SYNCIN", 9: "SYNCIN",
     }.items():
         assert sync_by_id[pwm_id] == expected_mode, f"ePWM{pwm_id+1} sync chain"
         checks += 1
+    pv_free = re.findall(
+        r"HW_PWM_ID(\d+),\s*HW_PWM_TYPE_PV,\s*4999U,\s*0U,\s*0U,\s*(\d+)U,\s*TB_COUNT_UP,\s*"
+        r"HW_PWM_FREE,\s*1U,\s*HW_EPWM_SYNC_IN_FROM_DISABLE,\s*"
+        r"HW_EPWM_SYNC_OUT_FROM_DISABLE", pwm_part
+    )
+    assert {int(pwm_id): int(offset) for pwm_id, offset in pv_free} == {
+        6: 0, 8: 1250, 4: 2500, 5: 3750
+    }, "PV counters must free-run from distinct startup offsets"
+    checks += 4
     fan = pwm_part.split("HW_PWM_ID11, HW_PWM_TYPE_FAN", 1)[1]
     assert re.search(r"\{AQ_NO_ACTION,\s*AQ_NO_ACTION,\s*AQ_SET,\s*AQ_CLEAR", fan), "EPWM12B action"
     checks += 1

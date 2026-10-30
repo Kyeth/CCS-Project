@@ -10,7 +10,7 @@
 | --- | --- |
 | 晶振 / SYSCLK / ePWMCLK / LSPCLK | 10 / 200 / 100 / 50 MHz |
 | INV、BUS | ePWM 上下计数，TBPRD=2500，20 kHz |
-| PV1–PV4 | ePWM 向上计数，TBPRD=4999，20 kHz；相位 0/90/180/270° |
+| PV1–PV4 | ePWM 向上计数，TBPRD=4999，20 kHz；共同启动时预置 TBCTR=0/1250/2500/3750，对应初始相位 0/90/180/270°；运行中独立计数 |
 | 外置风扇 | EPWM12B，上下计数，TBPRD=5000，10 kHz；动作写在 B 通道 |
 | ADC | ADCA/B/C/D，50 MHz ADC 时钟；EPWM1 SOCA 在 CTR=ZERO 触发 SOC；ADCA SOC15 EOC 产生 ADCINT1 |
 | CLA / CPU | ADCINT1 → CLA Task1（按地址分别滤波 MUX B3/D3）→ PIE11.1 主控制 ISR；CPU 更新 MUX 地址 GPIO46/47/42，供下一采样周期使用 |
@@ -20,6 +20,8 @@
 | CAN | A 500 kbit/s，B 1 Mbit/s；外部总线模式，当前不发送应用报文 |
 
 MUX 轮询地址为 `0→1→2→3→4→6→7→0`，跳过未定义的地址 5。地址 4 是 VISO；当前仅发布带地址标签的滤波 ADC 码值，不做电压换算或保护判定。
+
+PV 的 EPWM5/6 位于由 EPWM4 控制同步输入的链内，而 EPWM4 用于 INV。PV 四路因此设置 `PHSEN=0`、`SYNCOSEL=DISABLE`，在 `TBCLKSYNC=0` 时预置各自 `TBCTR`，由同一次 `TBCLKSYNC=1` 开始运行。驱动先以立即模式写入活动 `TBPRD`，再写入相同的影子值，避免非零启动计数跳过首次零点装载。此方案仅提供启动时的错相，不提供运行中的周期重新对齐；改变 PV 周期或时钟分频后必须重新评估错相。依据为项目所有者提供的 F2837xS 技术参考手册 SPRUHX5I 第 14.4.3.3、14.4.4 节。
 
 ## 安全默认态
 
@@ -38,7 +40,7 @@ python tools/build_minimal.py --cgt 'E:\CCS\ccs\tools\compiler\ti-cgt-c2000_22.6
 python tools/verify_config.py --pin-sheet 'Z:\Git1029\CCS-Project\docs\review\2026-10-29\15KW软件管脚整理文档.xlsx'
 ```
 
-独立构建产物默认在项目目录外的 `CCS-Project-minimal-build/`，避免 CCS 工程扫描到另一套 `.obj`。IB800U 风格改写后，本机用 CGT 22.6.2.LTS 完成 24 个编译单元、零编译警告、链接成功；CCS headless 使用 CGT 22.6.4.LTS 清理后全量构建，生成 `.out/.hex`，0 错误、0 警告。管脚、ADC、频率、同步链及通信静态核对在改写前为 130 项通过，本次没有修改配置表。所有构建产物只供本机复核，未做烧录或实板测试。
+独立构建产物默认在项目目录外的 `CCS-Project-minimal-build/`，避免 CCS 工程扫描到另一套 `.obj`。当前版本用 CGT 22.6.2.LTS 完成 24 个编译单元、零编译警告、链接成功；IB800U 风格改写后曾由 CCS headless 使用 CGT 22.6.4.LTS 清理后全量构建，生成 `.out/.hex`，0 错误、0 警告。当前 PV 独立运行配置的静态核对为 132 项通过。所有构建产物只供本机复核，未做烧录或实板测试。
 
 ## 首次实板验收顺序
 
