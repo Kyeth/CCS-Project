@@ -142,6 +142,9 @@ extern void Hw_DisableAllPwmCLKSync(void);
 /* Latch all PWM outputs low with one-shot TZ. */
 extern void Hw_StopAllPWM(void);
 
+/* Latch all PWM outputs high with one-shot TZ. */
+extern void Hw_OpenAllPWM(void);
+
 /* ============ 数字比较（DC）故障源配置 ============
  * 硬件机制（F2837xS ePWM 的 TZ 子模块）：
  *   - DCAH/DCBH 各是一个“或门”，输入取自 ePWM X-BAR 的 TRIP4~TRIP12，

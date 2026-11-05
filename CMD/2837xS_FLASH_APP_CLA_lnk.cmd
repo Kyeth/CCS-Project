@@ -72,7 +72,9 @@ MEMORY
     RAMM1             : origin = 0x000400, length = 0x0003F8
 
     RAMGS0            : origin = 0x00C000, length = 0x001000
-    RAMGS1            : origin = 0x00D000, length = 0x001000
+    RAMGS1            : origin = 0x00D000, length = 0x000C00
+    /* 05B：.portbuf 专用预留区（1024 字），从 RAMGS1 尾部切出 */
+    RAMGS1_PORTBUF    : origin = 0x00DC00, length = 0x000400
     RAMGS2            : origin = 0x00E000, length = 0x001000
     RAMGS3            : origin = 0x00F000, length = 0x001000
     RAMGS4            : origin = 0x010000, length = 0x001000
@@ -144,6 +146,10 @@ SECTIONS
     .bss:output      : > RAMGS0, PAGE = 1, ALIGN(4)
     .data            : >> RAMGS0 | RAMGS1, PAGE = 1, ALIGN(4)
     .sysmem          : > RAMGS0, PAGE = 1, ALIGN(4)
+
+    /* 05B：SCI TX 环（3 x 128 字 = 0x180 字）落在独立预留区 RAMGS1_PORTBUF。
+       该区 0x400 字；本步只占 0x180，余 0x280 留给 05C 协议层缓冲。 */
+    .portbuf         : > RAMGS1_PORTBUF, PAGE = 1, ALIGN(4)
 #else
     .ebss            : >> RAMGS0 | RAMGS1 | RAMGS2 | RAMGS3, PAGE = 1, ALIGN(4)
     .esysmem         : > RAMGS0, PAGE = 1, ALIGN(4)

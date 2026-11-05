@@ -1,6 +1,11 @@
 /**
  * @file Schedule.c
+ * @author yetingheng (004182)
  * @brief Cooperative scheduler; callbacks run only from the main loop.
+ * @version 0.2
+ * @date 2026-11-04
+ *
+ * @copyright Copyright (c) 2026
  */
 
 #include "Schedule.h"

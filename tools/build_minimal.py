@@ -11,9 +11,20 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCES = [
     "main.c",
     "Broad/src/DrvCfg_EP15K.c",
+    "Broad/src/DrvCfg_Sample.c",
     *[str(p.relative_to(ROOT)) for p in sorted((ROOT / "Drivers/src").glob("*.c"))],
     "Platform/Schedule/Src/Schedule.c",
     "Platform/Status/Src/BringupStatus.c",
+    "Platform/Sample/Src/SampleData.c",
+    "Platform/Sample/Src/AdcSample.c",
+    "Platform/Sample/Src/AdcCalib.c",
+    "Platform/Pll/Src/PllData.c",
+    "Platform/Common/Src/RingBuff.c",
+    "Platform/Common/Src/CanQueue.c",
+    "Platform/Port/Src/SciPort.c",
+    "Platform/Port/Src/CanPort.c",
+    "Platform/Port/Src/PortTask.c",
+    "Platform/Port/Src/PortCritical.c",
     "Drivers/src/Hw_ClaTask.cla",
     "device/common/source/F2837xS_Adc.c",
     "device/common/source/F2837xS_DefaultISR.c",
@@ -26,7 +37,10 @@ SOURCES = [
     "device/headers/source/F2837xS_GlobalVariableDefs.c",
 ]
 INCLUDES = [
-    ".", "Broad/inc", "Drivers/inc", "Platform/Schedule/Inc", "Platform/Status/Inc", "device/common/include",
+    ".", "Broad/inc", "Drivers/inc", "Platform/Schedule/Inc", "Platform/Status/Inc",
+    "Platform/Sample/Inc", "Platform/Pll/Inc", "Platform/Common/Inc",
+    "Platform/Port/Inc",
+    "device/common/include",
     "device/headers/include", "device/driverlib", "device/driverlib/inc",
 ]
 FLAGS = [

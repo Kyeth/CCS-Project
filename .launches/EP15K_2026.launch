@@ -10,7 +10,7 @@
 <stringAttribute key="com.ti.ccstudio.debug.debugModel.ATTR_PROGRAM.TMS320F28374S.ccxml.Texas Instruments XDS100v3 USB Debug Probe/C28xx_CPU1" value="${build_artifact:EP15K_2026}"/>
 <stringAttribute key="com.ti.ccstudio.debug.debugModel.ATTR_PROJECT.TMS320F28374S.ccxml.Texas Instruments XDS100v3 USB Debug Probe/C28xx_CPU1" value="EP15K_2026"/>
 <stringAttribute key="com.ti.ccstudio.debug.debugModel.ATTR_TARGET_CONFIG" value="${target_config_active_default:EP15K_2026}"/>
-<stringAttribute key="com.ti.ccstudio.debug.debugModel.MRU_PROGRAM.TMS320F28374S.ccxml.Texas Instruments XDS100v3 USB Debug Probe/C28xx_CPU1" value="D:\2026WorkPlace\EP15K_2026_0.1\EP15K_2026\Debug\EP15K_2026.out"/>
+<stringAttribute key="com.ti.ccstudio.debug.debugModel.MRU_PROGRAM.TMS320F28374S.ccxml.Texas Instruments XDS100v3 USB Debug Probe/C28xx_CPU1" value="D:\MinMain\CCS-Project-minimal\Debug\EP15K_2026.out"/>
 <listAttribute key="org.eclipse.debug.core.MAPPED_RESOURCE_PATHS">
 <listEntry value="/EP15K_2026"/>
 </listAttribute>

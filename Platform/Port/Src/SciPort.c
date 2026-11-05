@@ -1,0 +1,1164 @@
+/**
+ * @file SciPort.c
+ * @author yetingheng (004182)
+ * @brief SCI 端口层实现：RX 批次搬运、接收恢复状态机、TX 前缀推进
+ * @version 0.2
+ * @date 2026-11-05
+ *
+ * @copyright Copyright (c) 2026
+ *
+ * 执行上下文（05A 定稿，05B 沿用）：
+ *   - 生产者 SciPortService100us()：100 us 心跳，写两环与观察记录，也是
+ *     唯一允许从 FIFO 取字节的上下文；
+ *   - 消费者 SciPortPopBatch()：协议层，读两环；
+ *   - SciPortTask()/SciPortTaskOne()：1 ms 前台，推进 TX；
+ *   - SciPortRecover()：1 ms 前台，推进接收恢复状态机。
+ * 生产者只写 head，消费者只写 tail；临界区保存并恢复整字 ST1。
+ */
+
+#include "SciPort.h"
+#include "Hw_TimeBase.h"
+#include "PortBudget.h"
+
+#define SCI_PORT_TICKS_PER_US_DEF (200UL) /* 200 MHz，SetSysclkHz 可覆盖 */
+#define SCI_PORT_RESYNC_DRAIN_MAX (32U)   /* 每轮丢弃上限（跨轮继续） */
+
+/* 存储：容量为 05A 定稿值（A/C/D = 64/256/128 字节，段环 16/32/16 条）。
+ * TX 三环由链接脚本放进 .portbuf，与 .bss 的可执行/初始化段分开核算。 */
+static volatile Uint16 s_au16RxBufA[64];
+static volatile Uint16 s_au16RxBufC[256];
+static volatile Uint16 s_au16RxBufD[128];
+static volatile Uint16 s_au16SegBufA[16U * SCI_SEG_ITEM_WORDS];
+static volatile Uint16 s_au16SegBufC[32U * SCI_SEG_ITEM_WORDS];
+static volatile Uint16 s_au16SegBufD[16U * SCI_SEG_ITEM_WORDS];
+
+#ifdef __TMS320C28XX__
+#pragma DATA_SECTION(s_au16TxBufA, ".portbuf")
+#pragma DATA_SECTION(s_au16TxBufC, ".portbuf")
+#pragma DATA_SECTION(s_au16TxBufD, ".portbuf")
+#endif
+static volatile Uint16 s_au16TxBufA[128];
+static volatile Uint16 s_au16TxBufC[128];
+static volatile Uint16 s_au16TxBufD[128];
+
+static ST_SCI_PORT s_astSciPort[SCI_PORT_NUM];
+static Uint32 s_u32TicksPerUs = SCI_PORT_TICKS_PER_US_DEF;
+
+/* ------------------------------------------------------------------ */
+/* 驱动接口：默认绑真实驱动，桩测试可覆盖                              */
+/* ------------------------------------------------------------------ */
+
+static Uint16 SciPortTryGetTickDefault(Uint32 *pu32Tick)
+{
+    Uint32 u32Tick;
+
+    if (Hw_TimeBaseIsReady() == 0U)
+    {
+        return 0U;
+    }
+
+    u32Tick = Hw_TimeBaseTicks();
+
+    /* 读取期间校验失败会锁存故障，读后必须复查。 */
+    if (Hw_TimeBaseIsReady() == 0U)
+    {
+        return 0U;
+    }
+
+    *pu32Tick = u32Tick;
+    return 1U;
+}
+
+static const ST_SCI_PORT_DRV s_stSciPortDrvDefault =
+{
+    Hw_SciTryReadByte,
+    Hw_SciTryWriteByte,
+    SciPortTryGetTickDefault,
+    Hw_SciGetRxStatus,
+    Hw_SciClearRxError,
+    Hw_SciGetTxIdle
+};
+
+/* ------------------------------------------------------------------ */
+/* 内部工具                                                            */
+/* ------------------------------------------------------------------ */
+
+static ST_SCI_PORT *SciPortFind(Uint16 u16PortId)
+{
+    Uint16 i;
+
+    for (i = 0U; i < SCI_PORT_NUM; i++)
+    {
+        if (s_astSciPort[i].u16PortId == u16PortId)
+        {
+            return &s_astSciPort[i];
+        }
+    }
+
+    return (ST_SCI_PORT *)0;
+}
+
+static Uint16 SciPortGapToUs(Uint32 u32Ticks)
+{
+    if (s_u32TicksPerUs == 0U)
+    {
+        return 0xFFFFU;
+    }
+
+    u32Ticks = u32Ticks / s_u32TicksPerUs;
+
+    if (u32Ticks > 0xFFFFUL)
+    {
+        return 0xFFFFU;
+    }
+
+    return (Uint16)u32Ticks;
+}
+
+/* 新的故障事件：代次递增并置流中断。所有会破坏字节流连续性的路径都走这里。 */
+static void SciPortNoteFault(ST_SCI_PORT *p)
+{
+    p->u16FaultGen++;
+    p->bStreamBreak = 1U;
+}
+
+/* 软件侧失效处理：两环、序号、观察基准一次清空。调用者必须已在临界区内。
+ * 每次恢复只执行一次——恢复期间不再重复清空，避免把“恢复后新到达的数据”
+ * 也删掉，也避免每轮清空导致旧批次与新批次被拼在一起。 */
+static void SciPortSoftInvalidateInCritical(ST_SCI_PORT *p)
+{
+    (void)RingBuffClear(&p->stRxRing);
+    (void)RingBuffClear(&p->stSegRing);
+    p->u16RxSeq = 0U;
+    p->u16RxSeqConsumed = 0U;
+    p->u16EmptyRounds = 0U;
+    p->u32TickEmptyLast = 0U;
+    p->bTimeBaseValid = 0U;
+    p->bTimingBad = 0U;
+    p->bSwInvalidated = 1U;
+}
+
+/* 状态、阶段成组提交：心跳要么看到旧组合，要么看到新组合，不会看到半套。 */
+static void SciPortCommit(ST_SCI_PORT *p, Uint16 u16State, Uint16 u16Phase)
+{
+    ST_PORT_IRQ_STATE stIrq = PORT_ENTER_CRITICAL();
+
+    p->u16RxState = u16State;
+    p->u16RecPhase = u16Phase;
+
+    PORT_EXIT_CRITICAL(stIrq);
+}
+
+/* 进入恢复：软件侧失效 + 状态/阶段/门禁成组提交 + 硬件错误事件计数。
+ * 只有“因硬件错误从 IDLE 进入”才算硬件事件；纯软件重同步与显式重试不计。 */
+static void SciPortEnterRecover(ST_SCI_PORT *p, Uint16 u16Status, Uint16 bHardwareEvent)
+{
+    ST_PORT_IRQ_STATE stIrq = PORT_ENTER_CRITICAL();
+
+    if (p->bSwInvalidated == 0U)
+    {
+        SciPortSoftInvalidateInCritical(p);
+    }
+
+    p->u16RxState = SCI_RX_RECOVER_REQ;
+    p->u16RecPhase = SCI_REC_PHASE_CLASSIFY;
+    p->u16RxErrSeen = (Uint16)(p->u16RxErrSeen | u16Status);
+    p->bRxSuspend = 1U;
+    p->bTxSuspended = 1U;
+    p->bWaitBaseValid = 0U;
+    p->u16ClearResult = HW_SCI_CLEAR_OK;
+    p->u16RecRemain = 0U;
+    SciPortNoteFault(p);
+
+    if ((bHardwareEvent != 0U) && (p->u32RxErrEvents < 0xFFFFFFFFUL))
+    {
+        p->u32RxErrEvents++;
+    }
+
+    PORT_EXIT_CRITICAL(stIrq);
+}
+
+/* 恢复失败/结果不确定：停止硬件访问，等显式重试。 */
+static void SciPortPause(ST_SCI_PORT *p)
+{
+    ST_PORT_IRQ_STATE stIrq = PORT_ENTER_CRITICAL();
+
+    p->u16RxState = SCI_RX_PAUSED;
+    p->u16RecPhase = SCI_REC_PHASE_NONE;
+    p->bRxSuspend = 1U;
+    p->bTxSuspended = 1U;
+    p->bWaitBaseValid = 0U;
+    SciPortNoteFault(p);
+
+    PORT_EXIT_CRITICAL(stIrq);
+}
+
+/* 丢弃 FIFO 残留的一步：打满配额返回 1（可能仍有残留），读到空返回 0。 */
+static Uint16 SciPortIsrDrop(ST_SCI_PORT *p)
+{
+    Uint16 u16Byte;
+    Uint16 i;
+
+    if (p->pstDrv == (const ST_SCI_PORT_DRV *)0)
+    {
+        return 0U;
+    }
+
+    for (i = 0U; i < SCI_PORT_RX_QUOTA; i++)
+    {
+        if (p->pstDrv->pfTryRead(p->u16PortId, &u16Byte) == 0U)
+        {
+            return 0U;
+        }
+
+        if (p->u32RecoverDrop < 0xFFFFFFFFUL)
+        {
+            p->u32RecoverDrop++;
+        }
+    }
+
+    return 1U;
+}
+
+/* 单端口一轮搬运。返回 1 = 本轮有批次提交，0 = 无动作。 */
+static Uint16 SciPortServiceRx(ST_SCI_PORT *p)
+{
+    Uint16 au16Buf[SCI_PORT_RX_QUOTA];
+    ST_SCI_RX_SEG stSeg;
+    ST_SCI_RX_STATUS stStatus;
+    Uint32 u32Tick;
+    Uint32 u32Gap;
+    Uint16 u16Count = 0U;
+    Uint16 u16Byte;
+    Uint16 u16State;
+    Uint16 i;
+
+    if ((p->bFrozen != 0U) || (p->pstDrv == (const ST_SCI_PORT_DRV *)0))
+    {
+        return 0U;
+    }
+
+    u16State = p->u16RxState;
+
+    /* 前台正在操作硬件或已暂停：本轮完全不碰寄存器。 */
+    if ((u16State == SCI_RX_HW_RESET) || (u16State == SCI_RX_PAUSED))
+    {
+        return 0U;
+    }
+
+    /* 丢弃阶段：纯软件重同步、硬件恢复请求、硬件已清等待排空。
+     * 每轮仍按配额丢，直到真正读到空；只有不需要前台继续推进的状态
+     * （SW_RESYNC / DRAIN_ISR）才允许回到 IDLE——RECOVER_REQ 不能被读空吞掉。 */
+    if ((u16State == SCI_RX_SW_RESYNC) || (u16State == SCI_RX_DRAIN_ISR) ||
+        (u16State == SCI_RX_RECOVER_REQ))
+    {
+        if (SciPortIsrDrop(p) == 0U)
+        {
+            ST_PORT_IRQ_STATE stIrq;
+
+            p->bTimeBaseValid = 0U;
+            p->u16EmptyRounds = 0U;
+            p->u32TickEmptyLast = 0U;
+
+            if (u16State != SCI_RX_RECOVER_REQ)
+            {
+                /* 排空完成：IDLE + NONE 与暂停标志在同一临界区内提交。 */
+                stIrq = PORT_ENTER_CRITICAL();
+                p->u16RxState = SCI_RX_IDLE;
+                p->u16RecPhase = SCI_REC_PHASE_NONE;
+                p->bRxSuspend = 0U;
+                p->bStreamBreak = 1U;
+                PORT_EXIT_CRITICAL(stIrq);
+            }
+
+            return 0U;
+        }
+
+        p->u16EmptyRounds = 0U;
+        p->u32TickEmptyLast = 0U;
+        return 0U;
+    }
+
+    /* IDLE：每轮都查接收状态，不能因为本轮 FIFO 空就跳过。
+     * 这是“硬件溢出/帧错误一定会被看见”的唯一入口。 */
+    if (p->pstDrv->pfGetStatus(p->u16PortId, &stStatus, 0U) == 0U)
+    {
+        /* 状态不可读：按硬件未知处理，进入恢复（不能当成无错误）。 */
+        if (p->u16RxErrorCount < 0xFFFFU)
+        {
+            p->u16RxErrorCount++;
+        }
+
+        SciPortEnterRecover(p, 0U, 1U);
+        return 0U;
+    }
+
+    if (stStatus.u16Status != 0U)
+    {
+        if (p->u16RxErrorCount < 0xFFFFU)
+        {
+            p->u16RxErrorCount++;
+        }
+
+        SciPortEnterRecover(p, stStatus.u16Status, 1U);
+        return 0U;
+    }
+
+    /* 时间读取失败：本轮不发布时标，也不改任何观察量。 */
+    if (p->pstDrv->pfTryGetTick(&u32Tick) == 0U)
+    {
+        /* 时间源失效：本轮不搬，同时作废旧基准，恢复后必须重新建基准。 */
+        p->bTimingBad = 1U;
+        p->bTimeBaseValid = 0U;
+        return 0U;
+    }
+
+    if (p->bTimeBaseValid == 0U)
+    {
+        /* 首轮只建立基准，不做判定。 */
+        p->u32LastTick = u32Tick;
+        p->bTimeBaseValid = 1U;
+        return 0U;
+    }
+
+    /* 递减计数器：差值只能按无符号减法取。 */
+    u32Gap = (Uint32)(p->u32LastTick - u32Tick);
+    if (u32Gap > p->u32MaxGap)
+    {
+        p->u32MaxGap = u32Gap;
+    }
+
+    if (SciPortGapToUs(u32Gap) > SCI_PORT_SERVICE_GAP_LIMIT_US)
+    {
+        p->bTimingBad = 1U;
+    }
+
+    p->u32LastTick = u32Tick;
+
+    /* 最多读出配额字节；配额到即结束本轮，不做额外探测。 */
+    for (i = 0U; i < SCI_PORT_RX_QUOTA; i++)
+    {
+        if (p->pstDrv->pfTryRead(p->u16PortId, &u16Byte) == 0U)
+        {
+            break;
+        }
+
+        au16Buf[u16Count] = u16Byte;
+        u16Count++;
+    }
+
+    if (u16Count == 0U)
+    {
+        if (p->u16EmptyRounds < 0xFFFFU)
+        {
+            p->u16EmptyRounds++;
+        }
+
+        p->u32TickEmptyLast = u32Tick;
+        return 0U;
+    }
+
+    /* 双环都够放才提交；否则整批拒收，不留半批。 */
+    if ((RingBuffFree(&p->stSegRing) == 0U) ||
+        (RingBuffFree(&p->stRxRing) < u16Count))
+    {
+        p->u16RxRejected = (Uint16)(p->u16RxRejected + u16Count);
+        SciPortNoteFault(p);
+        p->u16EmptyRounds = 0U;
+        p->u32TickEmptyLast = 0U;
+        return 0U;
+    }
+
+    (void)RingBuffWrite(&p->stRxRing, au16Buf, u16Count);
+
+    stSeg.u32Tick = u32Tick;
+    stSeg.u32TickEmptyLast = p->u32TickEmptyLast;
+    stSeg.u16SeqStart = p->u16RxSeq;
+    stSeg.u16Count = u16Count;
+    stSeg.u16EmptyRounds = p->u16EmptyRounds;
+    (void)RingBuffWriteExact(&p->stSegRing, (const Uint16 *)&stSeg, 1U);
+
+    p->u16RxSeq = (Uint16)(p->u16RxSeq + u16Count);
+    p->u16EmptyRounds = 0U;
+    p->u32TickEmptyLast = 0U;
+
+    /* 读满配额说明本轮被截断，后到字节要等下一轮。 */
+    if (u16Count >= SCI_PORT_RX_QUOTA)
+    {
+        p->u16RoundsFull++;
+        p->bTimingBad = 1U;
+    }
+
+    return 1U;
+}
+
+/* TX：按硬件实际接纳的前缀逐字节 Drop；遇到忙停止本轮。
+ * 恢复期间（含强制复位后的冻结）不发起任何新事务。 */
+static void SciPortServiceTx(ST_SCI_PORT *p)
+{
+    Uint16 u16Byte;
+    Uint16 k;
+    Uint16 u16Accepted = 0U;
+
+    if ((p->bFrozen != 0U) || (p->bTxSuspended != 0U) ||
+        (p->pstDrv == (const ST_SCI_PORT_DRV *)0))
+    {
+        return;
+    }
+
+    for (k = 0U; k < SCI_PORT_TX_QUOTA; k++)
+    {
+        /* 前台轮次预算：已开始的写入允许完成，下一个字节前先看预算。 */
+        if (PortBudgetHasLeft() == 0U)
+        {
+            if (p->u16TxBudgetStop < 0xFFFFU)
+            {
+                p->u16TxBudgetStop++;
+            }
+
+            return;
+        }
+
+        if (RingBuffPeek(&p->stTxRing, 0U, &u16Byte) == 0U)
+        {
+            return;
+        }
+
+        if (p->pstDrv->pfTryWrite(p->u16PortId, u16Byte) == 0U)
+        {
+            /* 头文件定义：统计“本轮一个字节都没送进去”的情形；
+               已经接受过前缀再遇忙属于正常截断，不算停滞。 */
+            if (u16Accepted == 0U)
+            {
+                p->u16TxStall++;
+            }
+
+            return;
+        }
+
+        u16Accepted++;
+        (void)RingBuffDrop(&p->stTxRing, 1U);
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/* 恢复状态机                                                          */
+/* ------------------------------------------------------------------ */
+
+/* 一轮恢复推进：每轮至多执行一个受限硬件动作，返回 SCI_RECOVER_*。 */
+static Uint16 SciPortRecoverAdvance(ST_SCI_PORT *p, Uint16 *pu16Remain)
+{
+    Uint16 u16Phase = p->u16RecPhase;
+
+    if (u16Phase == SCI_REC_PHASE_CLASSIFY)
+    {
+        ST_SCI_RX_STATUS stStatus;
+
+        if (PortBudgetHasLeft() == 0U)
+        {
+            return SCI_RECOVER_BUSY;
+        }
+
+        if (p->pstDrv->pfGetStatus(p->u16PortId, &stStatus, 0U) == 0U)
+        {
+            SciPortPause(p);
+            return SCI_RECOVER_UNKNOWN;
+        }
+
+        p->u16RxErrSeen = (Uint16)(p->u16RxErrSeen | stStatus.u16Status);
+        p->u16RecRemain = stStatus.u16RxFifoLevel;
+        *pu16Remain = p->u16RecRemain;
+
+        if (stStatus.u16Status == 0U)
+        {
+            /* 无需复位：等心跳排空残余后回 IDLE。 */
+            SciPortCommit(p, SCI_RX_DRAIN_ISR, SCI_REC_PHASE_NONE);
+            return SCI_RECOVER_OK;
+        }
+
+        /* 仍有错误：先等发送空闲，期间不补发新字节。 */
+        {
+            ST_PORT_IRQ_STATE stIrq = PORT_ENTER_CRITICAL();
+
+            p->u16RecPhase = SCI_REC_PHASE_WAIT_TX;
+            p->bTxSuspended = 1U;
+            p->bWaitBaseValid = 0U;
+
+            PORT_EXIT_CRITICAL(stIrq);
+        }
+
+        return SCI_RECOVER_BUSY;
+    }
+
+    if (u16Phase == SCI_REC_PHASE_WAIT_TX)
+    {
+        Uint32 u32Tick;
+        Uint32 u32Elapsed;
+        Uint16 u16Idle;
+
+        if (PortBudgetHasLeft() == 0U)
+        {
+            return SCI_RECOVER_BUSY;
+        }
+
+        if (p->pstDrv->pfTryGetTick(&u32Tick) == 0U)
+        {
+            /* 时间源失效：保持暂停，不判超时；同时作废旧基准。 */
+            if (p->u32TimeSrcFail < 0xFFFFFFFFUL)
+            {
+                p->u32TimeSrcFail++;
+            }
+
+            p->bWaitBaseValid = 0U;
+            return SCI_RECOVER_BUSY;
+        }
+
+        if (p->bWaitBaseValid == 0U)
+        {
+            /* 时间源重置或刚进入本阶段：只重建基准，本轮不判超时。 */
+            p->u32WaitStartTick = u32Tick;
+            p->bWaitBaseValid = 1U;
+            return SCI_RECOVER_BUSY;
+        }
+
+        if (p->pstDrv->pfIsTxIdle(p->u16PortId, &u16Idle) == 0U)
+        {
+            /* 查询失败不能最终变成“忙超时”。 */
+            SciPortPause(p);
+            return SCI_RECOVER_UNKNOWN;
+        }
+
+        if (u16Idle != 0U)
+        {
+            /* 发送空闲：先提交 HW_RESET + RESET，再在下一轮访问硬件。 */
+            SciPortCommit(p, SCI_RX_HW_RESET, SCI_REC_PHASE_RESET);
+            return SCI_RECOVER_BUSY;
+        }
+
+        u32Elapsed = (Uint32)(p->u32WaitStartTick - u32Tick);
+
+        if (u32Elapsed >= (s_u32TicksPerUs * (SCI_PORT_WAIT_TX_LIMIT_MS * 1000UL)))
+        {
+            /* 超过判定阈值才算强制复位；此刻才记损失并清 TX 环。 */
+            (void)SciPortTxResetQueue(p->u16PortId);
+            SciPortCommit(p, SCI_RX_HW_RESET, SCI_REC_PHASE_RESET);
+            return SCI_RECOVER_BUSY;
+        }
+
+        return SCI_RECOVER_BUSY;
+    }
+
+    if (u16Phase == SCI_REC_PHASE_RESET)
+    {
+        Uint16 u16Result;
+        ST_PORT_IRQ_STATE stIrq;
+
+        /* 进入本阶段时已提交过 HW_RESET；这里再确认一次状态。 */
+        if (p->u16RxState != SCI_RX_HW_RESET)
+        {
+            SciPortCommit(p, SCI_RX_HW_RESET, SCI_REC_PHASE_RESET);
+        }
+
+        if (PortBudgetHasLeft() == 0U)
+        {
+            /* 未执行：阶段保持 RESET，下一轮从这里继续，且不重复记损失。 */
+            return SCI_RECOVER_BUSY;
+        }
+
+        u16Result = p->pstDrv->pfClearRxError(p->u16PortId, pu16Remain);
+
+        stIrq = PORT_ENTER_CRITICAL();
+        p->u16ClearResult = u16Result;
+        p->u16RecRemain = *pu16Remain;
+        p->u16RecPhase = SCI_REC_PHASE_RESET_DONE;
+        PORT_EXIT_CRITICAL(stIrq);
+    }
+
+    /* SCI_REC_PHASE_RESET_DONE：评估清除结果。 */
+    {
+        Uint16 u16Result = p->u16ClearResult;
+        ST_PORT_IRQ_STATE stIrq;
+
+        if (u16Result == HW_SCI_CLEAR_OK)
+        {
+            stIrq = PORT_ENTER_CRITICAL();
+            p->u16RxState = SCI_RX_DRAIN_ISR;
+            p->u16RecPhase = SCI_REC_PHASE_NONE;
+            p->bWaitBaseValid = 0U;
+
+            if (p->bTxResetLoss == 0U)
+            {
+                p->bTxSuspended = 0U;
+            }
+
+            PORT_EXIT_CRITICAL(stIrq);
+            return SCI_RECOVER_OK;
+        }
+
+        if (u16Result == HW_SCI_CLEAR_WAIT_TX)
+        {
+            stIrq = PORT_ENTER_CRITICAL();
+            p->u16RxState = SCI_RX_RECOVER_REQ;
+            p->u16RecPhase = SCI_REC_PHASE_WAIT_TX;
+            p->bTxSuspended = 1U;
+            p->bWaitBaseValid = 0U;
+            PORT_EXIT_CRITICAL(stIrq);
+            return SCI_RECOVER_BUSY;
+        }
+
+        *pu16Remain = (Uint16)(*pu16Remain | SCI_RECOVER_OUT_STILL_ERR);
+        SciPortPause(p);
+        return (u16Result == HW_SCI_CLEAR_UNREADABLE) ? SCI_RECOVER_UNKNOWN
+                                                     : SCI_RECOVER_FAIL;
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/* 对外接口                                                            */
+/* ------------------------------------------------------------------ */
+
+void SciPortInit(void)
+{
+    Uint16 i;
+
+    for (i = 0U; i < SCI_PORT_NUM; i++)
+    {
+        ST_SCI_PORT *p = &s_astSciPort[i];
+        Uint16 *pu16Raw = (Uint16 *)p;
+        Uint16 u16Words = (Uint16)(sizeof(ST_SCI_PORT) / sizeof(Uint16));
+        Uint16 j;
+
+        for (j = 0U; j < u16Words; j++)
+        {
+            pu16Raw[j] = 0U;
+        }
+    }
+
+    s_astSciPort[0].u16PortId = HW_SCI_ID_A;
+    s_astSciPort[1].u16PortId = HW_SCI_ID_C;
+    s_astSciPort[2].u16PortId = HW_SCI_ID_D;
+
+    (void)RingBuffInitItems(&s_astSciPort[0].stRxRing, s_au16RxBufA,
+                            (Uint32)(64UL * 1UL), 64U, 1U);
+    (void)RingBuffInitItems(&s_astSciPort[0].stSegRing, s_au16SegBufA,
+                            (Uint32)(16UL * SCI_SEG_ITEM_WORDS), 16U,
+                            SCI_SEG_ITEM_WORDS);
+    (void)RingBuffInitItems(&s_astSciPort[0].stTxRing, s_au16TxBufA,
+                            (Uint32)(128UL * 1UL), 128U, 1U);
+
+    (void)RingBuffInitItems(&s_astSciPort[1].stRxRing, s_au16RxBufC,
+                            (Uint32)(256UL * 1UL), 256U, 1U);
+    (void)RingBuffInitItems(&s_astSciPort[1].stSegRing, s_au16SegBufC,
+                            (Uint32)(32UL * SCI_SEG_ITEM_WORDS), 32U,
+                            SCI_SEG_ITEM_WORDS);
+    (void)RingBuffInitItems(&s_astSciPort[1].stTxRing, s_au16TxBufC,
+                            (Uint32)(128UL * 1UL), 128U, 1U);
+
+    (void)RingBuffInitItems(&s_astSciPort[2].stRxRing, s_au16RxBufD,
+                            (Uint32)(128UL * 1UL), 128U, 1U);
+    (void)RingBuffInitItems(&s_astSciPort[2].stSegRing, s_au16SegBufD,
+                            (Uint32)(16UL * SCI_SEG_ITEM_WORDS), 16U,
+                            SCI_SEG_ITEM_WORDS);
+    (void)RingBuffInitItems(&s_astSciPort[2].stTxRing, s_au16TxBufD,
+                            (Uint32)(128UL * 1UL), 128U, 1U);
+
+    for (i = 0U; i < SCI_PORT_NUM; i++)
+    {
+        s_astSciPort[i].pstDrv = &s_stSciPortDrvDefault;
+        s_astSciPort[i].u16RxState = SCI_RX_IDLE;
+        s_astSciPort[i].u16RecPhase = SCI_REC_PHASE_NONE;
+    }
+}
+
+Uint16 SciPortBindDriver(Uint16 u16PortId, const ST_SCI_PORT_DRV *pstDrv)
+{
+    ST_SCI_PORT *p = SciPortFind(u16PortId);
+
+    if ((p == (ST_SCI_PORT *)0) || (pstDrv == (const ST_SCI_PORT_DRV *)0))
+    {
+        return 0U;
+    }
+
+    p->pstDrv = pstDrv;
+    return 1U;
+}
+
+void SciPortSetSysclkHz(Uint32 u32SysclkHz)
+{
+    Uint32 u32TicksPerUs = u32SysclkHz / 1000000UL;
+
+    s_u32TicksPerUs = (u32TicksPerUs == 0UL) ? 1UL : u32TicksPerUs;
+}
+
+Uint16 SciPortService100us(void)
+{
+    Uint16 i;
+    Uint16 u16Active = 0U;
+
+    for (i = 0U; i < SCI_PORT_NUM; i++)
+    {
+        u16Active = (Uint16)(u16Active + SciPortServiceRx(&s_astSciPort[i]));
+    }
+
+    return u16Active;
+}
+
+void SciPortTask(void)
+{
+    Uint16 i;
+
+    for (i = 0U; i < SCI_PORT_NUM; i++)
+    {
+        SciPortServiceTx(&s_astSciPort[i]);
+    }
+}
+
+void SciPortTaskOne(Uint16 u16PortId)
+{
+    ST_SCI_PORT *p = SciPortFind(u16PortId);
+
+    if (p == (ST_SCI_PORT *)0)
+    {
+        return;
+    }
+
+    SciPortServiceTx(p);
+}
+
+Uint16 SciPortRecover(Uint16 u16PortId, Uint16 *pu16Remain)
+{
+    ST_SCI_PORT *p = SciPortFind(u16PortId);
+
+    if (pu16Remain != (Uint16 *)0)
+    {
+        *pu16Remain = 0U;
+    }
+
+    if ((p == (ST_SCI_PORT *)0) || (pu16Remain == (Uint16 *)0) ||
+        (p->pstDrv == (const ST_SCI_PORT_DRV *)0) ||
+        (p->pstDrv->pfGetStatus == (Uint16 (*)(Uint16, ST_SCI_RX_STATUS *, Uint16))0) ||
+        (p->pstDrv->pfClearRxError == (Uint16 (*)(Uint16, Uint16 *))0) ||
+        (p->pstDrv->pfIsTxIdle == (Uint16 (*)(Uint16, Uint16 *))0))
+    {
+        return SCI_RECOVER_PARAM;
+    }
+
+    switch (p->u16RxState)
+    {
+    case SCI_RX_IDLE:
+        return SCI_RECOVER_IDLE_OK;
+
+    case SCI_RX_SW_RESYNC:
+    case SCI_RX_DRAIN_ISR:
+        /* 等心跳排空，前台无事可做。 */
+        return SCI_RECOVER_BUSY;
+
+    case SCI_RX_PAUSED:
+        /* 暂停只能经 SciPortRecoverRetry() 退出。 */
+        return SCI_RECOVER_FAIL;
+
+    default:
+        break;
+    }
+
+    *pu16Remain = (Uint16)(p->u16RecRemain | SCI_RECOVER_OUT_VALID);
+
+    return SciPortRecoverAdvance(p, pu16Remain);
+}
+
+Uint16 SciPortRecoverRetry(Uint16 u16PortId)
+{
+    ST_SCI_PORT *p = SciPortFind(u16PortId);
+    ST_PORT_IRQ_STATE stIrq;
+
+    if ((p == (ST_SCI_PORT *)0) || (p->pstDrv == (const ST_SCI_PORT_DRV *)0))
+    {
+        return SCI_RECOVER_PARAM;
+    }
+
+    if (p->u16RxState != SCI_RX_PAUSED)
+    {
+        return (p->u16RxState == SCI_RX_IDLE) ? SCI_RECOVER_IDLE_OK : SCI_RECOVER_BUSY;
+    }
+
+    stIrq = PORT_ENTER_CRITICAL();
+
+    /* 新的一次恢复尝试：重新做软件失效，但不再计一次硬件错误事件。 */
+    SciPortSoftInvalidateInCritical(p);
+    p->u16RxState = SCI_RX_RECOVER_REQ;
+    p->u16RecPhase = SCI_REC_PHASE_CLASSIFY;
+    p->u16RxErrSeen = 0U;
+    p->u16ClearResult = HW_SCI_CLEAR_OK;
+    p->u16RecRemain = 0U;
+    p->bRxSuspend = 1U;
+    p->bTxSuspended = 1U;
+    p->bWaitBaseValid = 0U;
+    SciPortNoteFault(p);
+
+    PORT_EXIT_CRITICAL(stIrq);
+
+    return SCI_RECOVER_OK;
+}
+
+Uint16 SciPortRxState(Uint16 u16PortId)
+{
+    ST_SCI_PORT *p = SciPortFind(u16PortId);
+
+    return (p == (ST_SCI_PORT *)0) ? 0xFFFFU : p->u16RxState;
+}
+
+Uint16 SciPortRecPhase(Uint16 u16PortId)
+{
+    ST_SCI_PORT *p = SciPortFind(u16PortId);
+
+    return (p == (ST_SCI_PORT *)0) ? 0xFFFFU : p->u16RecPhase;
+}
+
+Uint16 SciPortClearResult(Uint16 u16PortId)
+{
+    ST_SCI_PORT *p = SciPortFind(u16PortId);
+
+    return (p == (ST_SCI_PORT *)0) ? 0xFFFFU : p->u16ClearResult;
+}
+
+Uint16 SciPortRxErrSeen(Uint16 u16PortId)
+{
+    ST_SCI_PORT *p = SciPortFind(u16PortId);
+
+    return (p == (ST_SCI_PORT *)0) ? 0U : p->u16RxErrSeen;
+}
+
+Uint32 SciPortRxErrEvents(Uint16 u16PortId)
+{
+    ST_SCI_PORT *p = SciPortFind(u16PortId);
+
+    return (p == (ST_SCI_PORT *)0) ? 0UL : p->u32RxErrEvents;
+}
+
+Uint32 SciPortRecoverDrop(Uint16 u16PortId)
+{
+    ST_SCI_PORT *p = SciPortFind(u16PortId);
+
+    return (p == (ST_SCI_PORT *)0) ? 0UL : p->u32RecoverDrop;
+}
+
+Uint32 SciPortTimeSrcFail(Uint16 u16PortId)
+{
+    ST_SCI_PORT *p = SciPortFind(u16PortId);
+
+    return (p == (ST_SCI_PORT *)0) ? 0UL : p->u32TimeSrcFail;
+}
+
+Uint16 SciPortIsTxSuspended(Uint16 u16PortId)
+{
+    ST_SCI_PORT *p = SciPortFind(u16PortId);
+
+    return (p == (ST_SCI_PORT *)0) ? 1U : p->bTxSuspended;
+}
+
+Uint16 SciPortTxResetQueue(Uint16 u16PortId)
+{
+    ST_SCI_PORT *p = SciPortFind(u16PortId);
+    ST_PORT_IRQ_STATE stIrq;
+    Uint16 u16Dropped;
+
+    if ((p == (ST_SCI_PORT *)0) || (p->pstDrv == (const ST_SCI_PORT_DRV *)0))
+    {
+        return 0U;
+    }
+
+    stIrq = PORT_ENTER_CRITICAL();
+
+    u16Dropped = (Uint16)RingBuffUsed(&p->stTxRing);
+    (void)RingBuffClear(&p->stTxRing);
+
+    /* 只有“实际执行了复位”才记损失与冻结，预算不足时不会走到这里。 */
+    p->u32TxResetDrop = p->u32TxResetDrop + (Uint32)u16Dropped;
+    p->bTxResetLoss = 1U;
+    p->bTxSuspended = 1U;
+
+    PORT_EXIT_CRITICAL(stIrq);
+
+    return 1U;
+}
+
+Uint16 SciPortTxResume(Uint16 u16PortId)
+{
+    ST_SCI_PORT *p = SciPortFind(u16PortId);
+    ST_PORT_IRQ_STATE stIrq;
+    Uint16 u16Ret = 0U;
+
+    if (p == (ST_SCI_PORT *)0)
+    {
+        return 0U;
+    }
+
+    stIrq = PORT_ENTER_CRITICAL();
+
+    /* 只有“恢复已完成（IDLE）且确实发生过强制复位丢弃”才能解冻；
+     * PAUSED / HW_RESET / 恢复中一律拒绝，避免绕过未完成的恢复流程。 */
+    if ((p->u16RxState == SCI_RX_IDLE) && (p->bTxResetLoss != 0U))
+    {
+        p->bTxResetLoss = 0U;
+        p->bTxSuspended = 0U;
+        u16Ret = 1U;
+    }
+
+    PORT_EXIT_CRITICAL(stIrq);
+
+    return u16Ret;
+}
+
+Uint32 SciPortTxResetDrop(Uint16 u16PortId)
+{
+    ST_SCI_PORT *p = SciPortFind(u16PortId);
+
+    return (p == (ST_SCI_PORT *)0) ? 0UL : p->u32TxResetDrop;
+}
+
+Uint16 SciPortPopBatch(Uint16 u16PortId, Uint16 *pu16Dst, Uint16 u16Max,
+                       ST_SCI_RX_SEG *pstSeg)
+{
+    ST_SCI_PORT *p = SciPortFind(u16PortId);
+    ST_PORT_IRQ_STATE stIrq;
+    ST_SCI_RX_SEG stSeg;
+    Uint16 u16Read;
+
+    if ((p == (ST_SCI_PORT *)0) || (pu16Dst == (Uint16 *)0) ||
+        (pstSeg == (ST_SCI_RX_SEG *)0))
+    {
+        return 0U;
+    }
+
+    stIrq = PORT_ENTER_CRITICAL();
+
+    if (RingBuffPeek(&p->stSegRing, 0U, (Uint16 *)&stSeg) == 0U)
+    {
+        PORT_EXIT_CRITICAL(stIrq);
+        return 0U;
+    }
+
+    if (stSeg.u16Count == 0U)
+    {
+        (void)RingBuffDrop(&p->stSegRing, 1U);
+        PORT_EXIT_CRITICAL(stIrq);
+        return 0U;
+    }
+
+    if (stSeg.u16Count > u16Max)
+    {
+        PORT_EXIT_CRITICAL(stIrq);
+        return 0U;
+    }
+
+    if (stSeg.u16SeqStart != p->u16RxSeqConsumed)
+    {
+        SciPortNoteFault(p);
+        PORT_EXIT_CRITICAL(stIrq);
+        return 0U;
+    }
+
+    u16Read = RingBuffRead(&p->stRxRing, pu16Dst, stSeg.u16Count);
+
+    if (u16Read != stSeg.u16Count)
+    {
+        SciPortNoteFault(p);
+        PORT_EXIT_CRITICAL(stIrq);
+        return 0U;
+    }
+
+    (void)RingBuffDrop(&p->stSegRing, 1U);
+    p->u16RxSeqConsumed = (Uint16)(p->u16RxSeqConsumed + stSeg.u16Count);
+    *pstSeg = stSeg;
+
+    PORT_EXIT_CRITICAL(stIrq);
+    return stSeg.u16Count;
+}
+
+Uint16 SciPortWriteTx(Uint16 u16PortId, const Uint16 *pu16Data, Uint16 u16Count)
+{
+    ST_SCI_PORT *p = SciPortFind(u16PortId);
+    Uint16 u16Written;
+
+    if ((p == (ST_SCI_PORT *)0) || (pu16Data == (const Uint16 *)0) ||
+        (u16Count == 0U))
+    {
+        return 0U;
+    }
+
+    u16Written = RingBuffWriteExact(&p->stTxRing, pu16Data, u16Count);
+
+    if (u16Written == 0U)
+    {
+        p->u16TxRejected = (Uint16)(p->u16TxRejected + u16Count);
+    }
+
+    return u16Written;
+}
+
+Uint16 SciPortTxFree(Uint16 u16PortId)
+{
+    ST_SCI_PORT *p = SciPortFind(u16PortId);
+
+    if (p == (ST_SCI_PORT *)0)
+    {
+        return 0U;
+    }
+
+    return RingBuffFree(&p->stTxRing);
+}
+
+void SciPortResync(Uint16 u16PortId)
+{
+    ST_SCI_PORT *p = SciPortFind(u16PortId);
+    ST_PORT_IRQ_STATE stIrq;
+
+    if (p == (ST_SCI_PORT *)0)
+    {
+        return;
+    }
+
+    stIrq = PORT_ENTER_CRITICAL();
+
+    /* 任何状态下都先做软件侧失效：这是“把旧流切断”的唯一手段。 */
+    SciPortSoftInvalidateInCritical(p);
+
+    switch (p->u16RxState)
+    {
+    case SCI_RX_IDLE:
+        /* 纯软件重同步：进入丢弃阶段，由心跳排空 FIFO 残留。
+         * 纯软件事件不计入硬件错误事件数，但代次仍要递增。 */
+        p->u16RxState = SCI_RX_SW_RESYNC;
+        p->u16RecPhase = SCI_REC_PHASE_NONE;
+        p->bRxSuspend = 1U;
+        SciPortNoteFault(p);
+        break;
+
+    case SCI_RX_SW_RESYNC:
+    case SCI_RX_DRAIN_ISR:
+    case SCI_RX_RECOVER_REQ:
+    case SCI_RX_HW_RESET:
+    case SCI_RX_PAUSED:
+    default:
+        /* 恢复流程中再次请求：合并为“重做软件失效”，不改变状态机阶段，
+         * 也不打断已经在进行的清除；调用方可用 SciPortRxState() 观察合并结果。 */
+        SciPortNoteFault(p);
+        break;
+    }
+
+    PORT_EXIT_CRITICAL(stIrq);
+}
+
+Uint16 SciPortIsStreamBreak(Uint16 u16PortId)
+{
+    ST_SCI_PORT *p = SciPortFind(u16PortId);
+
+    return (p == (ST_SCI_PORT *)0) ? 0U : p->bStreamBreak;
+}
+
+Uint16 SciPortFaultGeneration(Uint16 u16PortId)
+{
+    ST_SCI_PORT *p = SciPortFind(u16PortId);
+
+    return (p == (ST_SCI_PORT *)0) ? 0U : p->u16FaultGen;
+}
+
+Uint16 SciPortClearStreamBreak(Uint16 u16PortId, Uint16 u16Generation)
+{
+    ST_SCI_PORT *p = SciPortFind(u16PortId);
+    ST_PORT_IRQ_STATE stIrq;
+    Uint16 u16Cleared = 0U;
+
+    if (p == (ST_SCI_PORT *)0)
+    {
+        return 0U;
+    }
+
+    stIrq = PORT_ENTER_CRITICAL();
+
+    /* 丢弃/恢复仍在进行：此时确认等于谎报“已恢复”。 */
+    if ((p->bRxSuspend != 0U) || (p->u16RxState != SCI_RX_IDLE))
+    {
+        u16Cleared = 0U;
+    }
+    /* 代次不一致说明确认期间又发生了新故障：保留故障，交给前台重新处理。 */
+    else if (p->u16FaultGen == u16Generation)
+    {
+        p->bStreamBreak = 0U;
+        u16Cleared = 1U;
+    }
+
+    PORT_EXIT_CRITICAL(stIrq);
+    return u16Cleared;
+}
+
+Uint16 SciPortIsResyncDraining(Uint16 u16PortId)
+{
+    ST_SCI_PORT *p = SciPortFind(u16PortId);
+    Uint16 u16State;
+
+    if (p == (ST_SCI_PORT *)0)
+    {
+        return 0U;
+    }
+
+    u16State = p->u16RxState;
+
+    return ((u16State == SCI_RX_SW_RESYNC) || (u16State == SCI_RX_DRAIN_ISR))
+               ? 1U
+               : 0U;
+}
+
+Uint16 SciPortRxErrorCount(Uint16 u16PortId)
+{
+    ST_SCI_PORT *p = SciPortFind(u16PortId);
+
+    return (p == (ST_SCI_PORT *)0) ? 0U : p->u16RxErrorCount;
+}
+
+Uint16 SciPortTxBudgetStop(Uint16 u16PortId)
+{
+    ST_SCI_PORT *p = SciPortFind(u16PortId);
+
+    return (p == (ST_SCI_PORT *)0) ? 0U : p->u16TxBudgetStop;
+}
+
+Uint16 SciPortIsTimingBad(Uint16 u16PortId)
+{
+    ST_SCI_PORT *p = SciPortFind(u16PortId);
+
+    return (p == (ST_SCI_PORT *)0) ? 0U : p->bTimingBad;
+}
+
+Uint16 SciPortRxRejected(Uint16 u16PortId)
+{
+    ST_SCI_PORT *p = SciPortFind(u16PortId);
+
+    return (p == (ST_SCI_PORT *)0) ? 0U : p->u16RxRejected;
+}
+
+Uint16 SciPortTxStall(Uint16 u16PortId)
+{
+    ST_SCI_PORT *p = SciPortFind(u16PortId);
+
+    return (p == (ST_SCI_PORT *)0) ? 0U : p->u16TxStall;
+}
+
+Uint16 SciPortRxUsed(Uint16 u16PortId)
+{
+    ST_SCI_PORT *p = SciPortFind(u16PortId);
+
+    return (p == (ST_SCI_PORT *)0) ? 0U : RingBuffUsed(&p->stRxRing);
+}
+
+Uint32 SciPortMaxGap(Uint16 u16PortId)
+{
+    ST_SCI_PORT *p = SciPortFind(u16PortId);
+
+    return (p == (ST_SCI_PORT *)0) ? 0UL : p->u32MaxGap;
+}
+
+Uint16 SciPortTicksToUs(Uint32 u32Ticks)
+{
+    return SciPortGapToUs(u32Ticks);
+}

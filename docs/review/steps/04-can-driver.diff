@@ -1,0 +1,2487 @@
+# 步骤 04 代码 diff（CAN 驱动修正 + CPU Timer0 时间基准）
+# 新增文件对空文件比较；已跟踪文件对 HEAD（5bb641f）比较。
+# 对应 docs/review/steps/04-can-driver.md：v4 实施 + 第二~四轮代码审阅返工后的最终版本。
+
+# ============ Drivers/inc/Hw_TimeBase.h (新增) ============
+diff --git a/Drivers/inc/Hw_TimeBase.h b/Drivers/inc/Hw_TimeBase.h
+new file mode 100644
+index 0000000..0afb3fa
+--- /dev/null
++++ b/Drivers/inc/Hw_TimeBase.h
+@@ -0,0 +1,75 @@
++/**
++ * @file Hw_TimeBase.h
++ * @author yetingheng (004182)
++ * @brief F2837xS 自由运行时间基准（CPU Timer0）
++ * @version 0.1
++ * @date 2026-11-03
++ *
++ * @copyright Copyright (c) 2026
++ *
++ * 说明：CPU Timer0 被独占用作"经过时间测量"的硬件时基，不产生中断、不参与调度。
++ *      Timer1 仍负责 100 us 心跳（见步骤 03），两者互不影响。
++ *      计数器为 32 位递减、200 MHz 下约 21.47 s 回绕一次，所有差值按无符号减法处理。
++ */
++
++#ifndef HW_TIME_BASE_H
++#define HW_TIME_BASE_H
++
++#include "F2837xS_device.h"
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++/**
++ * @brief 启动 Timer0 自由运行
++ *
++ * 必须在系统时钟配置完成之后、任何按时间等待的模块初始化之前调用，且只调用一次。
++ * 内部顺序：显式使能 PCLKCR0.CPUTIMER0 -> 停表 -> 配预分频/周期 -> 装载 -> 放行
++ *          -> 回读配置 -> 自旋确认计数确实在递减。
++ *
++ * @param u32SysclkHz 系统时钟频率（Hz），用于换算微秒
++ * @return 1 = 启动成功并就绪，0 = 失败（时钟位未使能、参数非法、配置未生效或计数未运行）
++ */
++Uint16 Hw_TimeBaseInit(Uint32 u32SysclkHz);
++
++/**
++ * @brief 读取当前计数
++ *
++ * @return TIMH:TIM 的原始递减计数（不做取反）；读取校验失败时返回 0
++ *
++ * 说明：32 位计数由两个 16 位寄存器拼成，读取期间可能跨低字回绕，
++ *      内部用"高字-低字-高字"三读校验。连续校验失败时不返回拼接值，
++ *      而是锁存故障并使 Hw_TimeBaseIsReady() 变为 0，调用方必须以就绪标志为准。
++ */
++Uint32 Hw_TimeBaseTicks(void);
++
++/**
++ * @brief 计算从 u32Start 到现在的经过时间
++ *
++ * @param u32Start 之前由 Hw_TimeBaseTicks() 取得的起点
++ * @return (u32Start - now)，单位 SYSCLK 周期；递减计数下可安全跨越一次回绕
++ *         读取失败时返回 0 并锁存故障，调用方必须查 Hw_TimeBaseIsReady()
++ */
++Uint32 Hw_TimeBaseElapsed(Uint32 u32Start);
++
++/**
++ * @brief 查询时间基准是否就绪
++ *
++ * @return 1 = 已成功启动，0 = 未启动或启动失败
++ */
++Uint16 Hw_TimeBaseIsReady(void);
++
++/**
++ * @brief 微秒换算为 SYSCLK 周期数
++ *
++ * @param u32Us 微秒数
++ * @return 周期数；未就绪或系统时钟未知时返回 0
++ */
++Uint32 Hw_TimeBaseUsToTicks(Uint32 u32Us);
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif /* HW_TIME_BASE_H */
+
+# ============ Drivers/src/Hw_TimeBase.c (新增) ============
+diff --git a/Drivers/src/Hw_TimeBase.c b/Drivers/src/Hw_TimeBase.c
+new file mode 100644
+index 0000000..4cd65bd
+--- /dev/null
++++ b/Drivers/src/Hw_TimeBase.c
+@@ -0,0 +1,176 @@
++/**
++ * @file Hw_TimeBase.c
++ * @author yetingheng (004182)
++ * @brief F2837xS 自由运行时间基准（CPU Timer0）
++ * @version 0.1
++ * @date 2026-11-03
++ *
++ * @copyright Copyright (c) 2026
++ *
++ */
++
++#include "Hw_TimeBase.h"
++
++/* 4096 次读仍不一致说明定时器被别处改写或时钟异常，退回未就绪 */
++#define HW_TIMEBASE_READ_RETRY          (4U)
++
++/* 启动后检查计数是否真的在动的自旋上限 */
++#define HW_TIMEBASE_START_CHECK         (1000U)
++
++/* 每微秒的 SYSCLK 周期数（200 MHz -> 200） */
++#define HW_TIMEBASE_US_DIVISOR          (1000000UL)
++
++/* Timer0 只写一次，之后只读；就绪标志供所有按时间等待的模块查询 */
++static Uint16 s_bTimeBaseReady = 0U;
++static Uint32 s_u32SysclkHz = 0UL;
++
++static Uint16 Hw_TimeBaseReadRaw(Uint32 *pu32Value)
++{
++    Uint32 u32HiFirst;
++    Uint32 u32Low;
++    Uint32 u32HiSecond;
++    Uint16 u16Retry;
++
++    for (u16Retry = 0U; u16Retry < HW_TIMEBASE_READ_RETRY; u16Retry++)
++    {
++        u32HiFirst  = (Uint32)CpuTimer0Regs.TIM.bit.MSW;
++        u32Low      = (Uint32)CpuTimer0Regs.TIM.bit.LSW;
++        u32HiSecond = (Uint32)CpuTimer0Regs.TIM.bit.MSW;
++
++        if (u32HiFirst == u32HiSecond)
++        {
++            *pu32Value = (Uint32)((u32HiFirst << 16U) | u32Low);
++            return 1U;
++        }
++    }
++
++    /* 连续不一致：显式上报时间源故障，绝不返回可能撕裂的拼接值 */
++    s_bTimeBaseReady = 0U;
++
++    return 0U;
++}
++
++Uint16 Hw_TimeBaseInit(Uint32 u32SysclkHz)
++{
++    Uint32 u32First;
++    Uint16 u16Spin;
++    Uint16 u16Running;
++
++    s_bTimeBaseReady = 0U;
++    s_u32SysclkHz = 0UL;
++
++    if (u32SysclkHz == 0UL)
++    {
++        return 0U;
++    }
++
++    /* 1. 显式使能 Timer0 时钟：本工程没有调用 InitPeripheralClocks()，不能依赖默认值 */
++    EALLOW;
++    CpuSysRegs.PCLKCR0.bit.CPUTIMER0 = 1U;
++    EDIS;
++
++    if (CpuSysRegs.PCLKCR0.bit.CPUTIMER0 == 0U)
++    {
++        return 0U;
++    }
++
++    /* 2. 先停表，保证下面改写配置时计数器不动 */
++    CpuTimer0Regs.TCR.bit.TSS = 1U;
++
++    /* 3. 永不产生中断：本定时器只用于测量 */
++    CpuTimer0Regs.TCR.bit.TIE = 0U;
++
++    /* 4. 预分频（TDDR:TDDRH）与周期（PRD:PRDH）全部显式写死，不继承复位或他人残留 */
++    CpuTimer0Regs.TPR.all  = 0x0000U;
++    CpuTimer0Regs.TPRH.all = 0x0000U;
++    CpuTimer0Regs.PRD.all  = 0xFFFFFFFFUL;
++
++    /* 5. 直接把计数器置为满量程，避免依赖 TRB 从 PRD 装载的时序 */
++    CpuTimer0Regs.TIM.all = 0xFFFFFFFFUL;
++
++    /* 6. 清可能残留的中断标志，然后放行 */
++    CpuTimer0Regs.TCR.bit.TIF = 1U;
++    CpuTimer0Regs.TCR.bit.TRB = 1U;
++    CpuTimer0Regs.TCR.bit.TSS = 0U;
++
++    /* 7. 回读配置：任何一项没写进去都按失败处理 */
++    if ((CpuTimer0Regs.TPR.all != 0x0000U) || (CpuTimer0Regs.TPRH.all != 0x0000U) ||
++        (CpuTimer0Regs.PRD.all != 0xFFFFFFFFUL) || (CpuTimer0Regs.TCR.bit.TSS != 0U) ||
++        (CpuTimer0Regs.TCR.bit.TIE != 0U))
++    {
++        return 0U;
++    }
++
++    /* 8. 验证计数确实在递减：不运行则所有按时间的等待都不会到期 */
++    u32First = CpuTimer0Regs.TIM.all;
++    u16Running = 0U;
++
++    for (u16Spin = 0U; u16Spin < HW_TIMEBASE_START_CHECK; u16Spin++)
++    {
++        if (CpuTimer0Regs.TIM.all != u32First)
++        {
++            u16Running = 1U;
++            break;
++        }
++    }
++
++    if (u16Running == 0U)
++    {
++        CpuTimer0Regs.TCR.bit.TSS = 1U;
++        return 0U;
++    }
++
++    s_u32SysclkHz = u32SysclkHz;
++    s_bTimeBaseReady = 1U;
++
++    return 1U;
++}
++
++Uint32 Hw_TimeBaseTicks(void)
++{
++    Uint32 u32Value;
++
++    if (Hw_TimeBaseReadRaw(&u32Value) == 0U)
++    {
++        /* 故障已在读取处锁存，Hw_TimeBaseIsReady() 随之为 0 */
++        return 0UL;
++    }
++
++    return u32Value;
++}
++
++Uint32 Hw_TimeBaseElapsed(Uint32 u32Start)
++{
++    Uint32 u32Now;
++
++    /* 递减计数器：经过的周期数 = 起点 - 当前值，模 2^32 自动吸收一次回绕 */
++    if (Hw_TimeBaseReadRaw(&u32Now) == 0U)
++    {
++        return 0UL;
++    }
++
++    return (Uint32)(u32Start - u32Now);
++}
++
++Uint16 Hw_TimeBaseIsReady(void)
++{
++    return s_bTimeBaseReady;
++}
++
++Uint32 Hw_TimeBaseUsToTicks(Uint32 u32Us)
++{
++    Uint32 u32TicksPerUs;
++
++    if ((s_bTimeBaseReady == 0U) || (s_u32SysclkHz == 0UL))
++    {
++        return 0UL;
++    }
++
++    u32TicksPerUs = s_u32SysclkHz / HW_TIMEBASE_US_DIVISOR;
++    if (u32TicksPerUs == 0UL)
++    {
++        return 0UL;
++    }
++
++    return u32Us * u32TicksPerUs;
++}
+
+# ============ Drivers/inc/Hw_CanDriver.h (重写) ============
+diff --git a/Drivers/inc/Hw_CanDriver.h b/Drivers/inc/Hw_CanDriver.h
+index be1aaba..88b8bfe 100644
+--- a/Drivers/inc/Hw_CanDriver.h
++++ b/Drivers/inc/Hw_CanDriver.h
+@@ -1,14 +1,21 @@
+ /**
+  * @file Hw_CanDriver.h
+  * @author yetingheng (004182)
+- * @brief F2837xS CAN驱动头文件
+- * @version 0.1
+- * @date 2026-10-23
++ * @brief F2837xS CAN驱动头文件（eCAN-A / eCAN-B）
++ * @version 0.2
++ * @date 2026-11-03
+  *
+  * @copyright Copyright (c) 2026
+  *
+- * 说明：F2837xS的CAN模块是32位寄存器的DCAN，报文对象通过IF1/IF2接口寄存器读写，
+- *      本驱动只使用IF1写、IF2读，不使用IF3。
++ * 说明：F2837xS的CAN模块是32位寄存器的DCAN，报文对象通过IF1/IF2接口寄存器读写。
++ *      本驱动只用IF1做发送、IF2做接收，不使用IF3；另有不占用IF的状态寄存器查询。
++ *
++ * 运行期约定（步骤 04）：
++ *  - 运行期API返回明确状态码 OK/EMPTY/BUSY/ERR/UNKNOWN，调用方不得把 BUSY 当 ERR 重试、
++ *    也不得把 UNKNOWN 当"未提交"自动重发。
++ *  - 初始化API仍返回 0/1（1=成功），与工程既有驱动保持一致。
++ *  - 超时按时间预算判定（Hw_TimeBase），不按循环次数。
++ *  - 每个接收对象独立配置ID/掩码/帧类型/方向比较，不再共用一个模块级过滤值。
+  */
+ 
+ #ifndef HW_CAN_DRIVER_H
+@@ -35,26 +42,50 @@ typedef enum
+ /* 一帧最多8字节 */
+ #define HW_CAN_DATA_LEN_MAX             (8U)
+ 
++/* 运行期状态码：EMPTY 可直接再查，BUSY 稍后重试，ERR 重试无效，UNKNOWN 需模块恢复 */
++#define HW_CAN_EMPTY                    (0U)
++#define HW_CAN_OK                       (1U)
++#define HW_CAN_BUSY                     (2U)
++#define HW_CAN_ERR                      (3U)
++#define HW_CAN_UNKNOWN                  (4U)
++
++/* 接收输出里的实际帧类型 */
++#define HW_CAN_FRAME_STD                (0U)
++#define HW_CAN_FRAME_EXT                (1U)
++
++/* 单个接收对象的过滤配置，顺序与 u16RxObjNum 起的邮箱一一对应
++ * 过渡允许 u32Id/u32Mask 都为 0（接收该帧类型的全部数据帧），真实ID由使用者后续确定
++ * u16InitDlc 是对象初始化的DLС字段，不是长度过滤条件，实际长度校验另行定义
++ * bDirCmp 固定为1：只接收数据帧，不收远程帧 */
++typedef struct
++{
++    Uint32 u32Id;
++    Uint32 u32Mask;
++    Uint16 bExtId;
++    Uint16 bDirCmp;
++    Uint16 u16InitDlc;
++    Uint16 u16Reserved;
++} ST_CAN_RX_OBJ_CFG;
++
+ /* 一个CAN模块的配置项
+  * u16TxObjNum/u16RxObjNum 是报文对象起始编号（1~32），发送对象在前、接收对象在后
+- * u32RxAcceptId/u32RxAcceptMask 只在接收对象上用，屏蔽位为1表示必须与ID一致
+- * u16RxDlc 接收对象的初始DLC，一般填8 */
++ * pstRxObjCfg 指向逐接收对象配置数组，长度必须 >= u16RxObjCnt
++ * bTxExtId 只决定发送帧类型，每模块固定 */
+ typedef struct
+ {
+-    Uint16 u16CanId;                /* 模块编号，E_HW_CAN_ID */
+-    Uint32 u32Baudrate;             /* 波特率，如500000 */
+-    Uint16 u16TxObjNum;             /* 发送报文对象起始编号 */
+-    Uint16 u16TxObjCnt;             /* 发送报文对象个数 */
+-    Uint16 u16RxObjNum;             /* 接收报文对象起始编号 */
+-    Uint16 u16RxObjCnt;             /* 接收报文对象个数 */
+-    Uint32 u32RxAcceptId;           /* 接收验收ID */
+-    Uint32 u32RxAcceptMask;         /* 接收验收屏蔽，1=必须匹配 */
+-    Uint16 bExtId;                  /* 1:29位扩展帧 0:11位标准帧 */
+-    Uint16 bLoopback;               /* 1:内部回环自测 0:正常 */
+-    Uint16 bAutoBusOn;              /* 1:使能自动总线恢复(ABO) */
++    Uint16 u16CanId;
++    Uint32 u32Baudrate;
++    Uint16 u16TxObjNum;
++    Uint16 u16TxObjCnt;
++    Uint16 u16RxObjNum;
++    Uint16 u16RxObjCnt;
++    const ST_CAN_RX_OBJ_CFG *pstRxObjCfg;
++    Uint16 bTxExtId;
++    Uint16 bLoopback;
++    Uint16 bAutoBusOn;
+ } ST_CAN_CFG_ITEM;
+ 
+-/* 全部CAN模块的配置表 */
++/* CAN全局配置 */
+ typedef struct
+ {
+     const ST_CAN_CFG_ITEM *pstCanCfgItem;
+@@ -62,35 +93,111 @@ typedef struct
+     Uint32 u32SysclkHz;
+ } ST_CAN_CFG;
+ 
+-/* 初始化配置表中的全部CAN模块 */
+-void Hw_CanInit(const ST_CAN_CFG *pstCanCfg);
++/**
++ * @brief 初始化全部eCAN模块
++ * @param pstCanCfg 全局配置
++ * @return 1=全部成功，0=任一模块失败（失败模块保持未初始化状态）
++ * 时间基准未就绪时直接返回0，不进入任何按时间等待
++ */
++Uint16 Hw_CanInit(const ST_CAN_CFG *pstCanCfg);
++
++/**
++ * @brief 查询模块是否已成功初始化
++ * @param u16CanId 模块编号
++ * @return 1=已初始化，0=未初始化或参数非法
++ */
+ Uint16 Hw_CanIsInitialized(Uint16 u16CanId);
+ 
+-/* 发送一帧，u16ObjIdx是发送对象序号（0~u16TxObjCnt-1），
+- * pu16Data按"一个Uint16放一个字节"排列，u16Len为0~8，返回1表示已装载并启动发送 */
++/**
++ * @brief 查询模块是否处于未决状态（上次事务结果不确定）
++ * @param u16CanId 模块编号
++ * @return 1=未决，必须先 Hw_CanRecoverModule()；0=正常
++ */
++Uint16 Hw_CanIsPending(Uint16 u16CanId);
++
++/**
++ * @brief 发送一帧
++ * @param u16CanId  模块编号
++ * @param u16ObjIdx 发送对象序号（0起，相对u16TxObjNum）
++ * @param u32MsgId  报文ID
++ * @param pu16Data  数据缓冲，每单元一字节（低8位有效）
++ * @param u16Len    数据长度（0~8）
++ * @return HW_CAN_OK/BUSY/ERR/UNKNOWN
++ * OK只表示本地提交被接受，不表示已上线；UNKNOWN表示提交后等待完成失败，
++ * 驱动不会自动重发，是否重发由上层按协议序号或幂等规则决定
++ */
+ Uint16 Hw_CanSend(Uint16 u16CanId, Uint16 u16ObjIdx, Uint32 u32MsgId,
+                   const Uint16 *pu16Data, Uint16 u16Len);
+ 
+-/* 查询发送是否完成，返回1表示该对象已发送完毕（TxRqst已清零） */
++/**
++ * @brief 查询发送对象是否已完成（读CAN_TXRQ_21，不占用IF）
++ * @param u16CanId  模块编号
++ * @param u16ObjIdx 发送对象序号（0起）
++ * @return 1=发送请求已不在（可能已发出、也可能从未提交或被取消），0=仍在等待或参数非法
++ */
+ Uint16 Hw_CanIsTxDone(Uint16 u16CanId, Uint16 u16ObjIdx);
+ 
+-/* 读取一帧接收数据，返回1表示读到了新数据
+- * u16ObjIdx是接收对象序号（0~u16RxObjCnt-1），pu32MsgId可为空，pu16Len可为空 */
+-Uint16 Hw_CanReadRx(Uint16 u16CanId, Uint16 u16ObjIdx, Uint32 *pu32MsgId,
+-                    Uint16 *pu16Data, Uint16 *pu16Len);
+-
+-/* 查询是否有待读的接收数据，返回1表示有新数据 */
++/**
++ * @brief 查询接收对象是否有新数据（读CAN_NDAT_21，不占用IF）
++ * @param u16CanId  模块编号
++ * @param u16ObjIdx 接收对象序号（0起）
++ * @return 1=有新数据，0=无新数据或参数非法
++ * 只是瞬时状态，不替代 Hw_CanReadRx() 内部的新数据检查
++ */
+ Uint16 Hw_CanIsRxReady(Uint16 u16CanId, Uint16 u16ObjIdx);
+ 
+-/* 读取错误状态寄存器CAN_ES的原始值 */
++/**
++ * @brief 读出一帧并清除NewDat
++ * @param u16CanId      模块编号
++ * @param u16ObjIdx     接收对象序号（0起）
++ * @param pu32MsgId     输出报文ID（可为NULL）
++ * @param pu16Data      输出数据缓冲，容量至少HW_CAN_DATA_LEN_MAX单元（可为NULL）
++ * @param pu16Len       输出数据长度（可为NULL）
++ * @param pu16FrameType 输出帧类型 HW_CAN_FRAME_STD/EXT（可为NULL）
++ * @param pu16MsgLst    输出MsgLst标志0/1（可为NULL）
++ * @return HW_CAN_OK/EMPTY/BUSY/ERR/UNKNOWN
++ * EMPTY时所有输出参数内容无效；UNKNOWN时该模块接收路径已被标记为未决。
++ * MsgLst 是"自上次由CPU清除此标志以来发生过覆盖"的粘滞标志，不是次数
++ */
++Uint16 Hw_CanReadRx(Uint16 u16CanId, Uint16 u16ObjIdx, Uint32 *pu32MsgId,
++                    Uint16 *pu16Data, Uint16 *pu16Len,
++                    Uint16 *pu16FrameType, Uint16 *pu16MsgLst);
++
++/**
++ * @brief 读硬件状态寄存器
++ * @param u16CanId 模块编号
++ * @return CANES原始值；参数非法返回0
++ * 仍返回硬件状态位，不列入运行期状态码体系
++ */
+ Uint16 Hw_CanGetStatus(Uint16 u16CanId);
+ 
+-/* 查询是否处于总线关闭状态，返回1表示Bus-Off */
++/**
++ * @brief 查询是否处于总线关闭
++ * @param u16CanId 模块编号
++ * @return 1=总线关闭，0=正常或参数非法
++ */
+ Uint16 Hw_CanIsBusOff(Uint16 u16CanId);
+ 
+-/* 总线关闭后的恢复：重新进入初始化再退出，返回1表示成功 */
++/**
++ * @brief 恢复总线关闭（保留对象：只进出初始化，不碰报文RAM）
++ * @param u16CanId 模块编号
++ * @return HW_CAN_OK/BUSY/ERR/UNKNOWN
++ * 与 Hw_CanRecoverModule 的分工：本入口保持位时序与全部报文对象不变，
++ * 因此不会清掉未发完的帧；存在未决事务时返回 BUSY，必须先走模块级恢复
++ */
+ Uint16 Hw_CanRecoverBusOff(Uint16 u16CanId);
+ 
++/**
++ * @brief 模块级恢复：从任意未决或故障状态重建整个模块
++ * @param u16CanId 模块编号
++ * @return HW_CAN_OK/BUSY/ERR/UNKNOWN
++ * 内部使用CTL.SWR，因此不依赖IF1/IF2是否卡住。恢复只保证驱动重新可用，
++ * 不证明此前UNKNOWN帧未上线，也不自动重发任何帧。
++ * 能否恢复由"配置是否有效"决定；恢复失败时未决标志保留，
++ * 可再次调用本函数重试，期间该模块的其它接口一律返回 ERR
++ */
++Uint16 Hw_CanRecoverModule(Uint16 u16CanId);
++
+ #ifdef __cplusplus
+ }
+ #endif
+
+# ============ Drivers/src/Hw_CanDriver.c (重写) ============
+diff --git a/Drivers/src/Hw_CanDriver.c b/Drivers/src/Hw_CanDriver.c
+index 809fbe2..f8fba00 100644
+--- a/Drivers/src/Hw_CanDriver.c
++++ b/Drivers/src/Hw_CanDriver.c
+@@ -2,14 +2,19 @@
+  * @file Hw_CanDriver.c
+  * @author yetingheng (004182)
+  * @brief F2837xS CAN驱动源文件
+- * @version 0.1
+- * @date 2026-10-23
++ * @version 0.2
++ * @date 2026-11-03
+  *
+  * @copyright Copyright (c) 2026
+  *
++ * 说明（步骤 04）：
++ *  - 位时序、对象配置、收发事务全部带时间预算，预算由 Hw_TimeBase 提供，不再用循环次数。
++ *  - IF1 只走发送路径，IF2 只走接收路径；忙状态与完成状态改用 CAN_TXRQ_21/CAN_NDAT_21 查询，不占 IF。
++ *  - 提交结果不确定时置未决标志，只有 Hw_CanRecoverModule() 能清除，驱动不自动重发。
+  */
+ 
+ #include "Hw_CanDriver.h"
++#include "Hw_TimeBase.h"
+ 
+ /* 位时间按20个Tq规划：同步段1 + TSEG1(14) + TSEG2(5)，采样点75% */
+ #define HW_CAN_TQ_PER_BIT               (20UL)
+@@ -17,6 +22,13 @@
+ #define HW_CAN_TSEG2                    (4U)
+ #define HW_CAN_SJW                      (3U)
+ 
++/* 波特率预分频取值范围：总分频值 1~1024 */
++#define HW_CAN_PRESCALER_MIN            (1UL)
++#define HW_CAN_PRESCALER_MAX            (1024UL)
++
++/* 允许的波特率误差：0.5% = 1/200；用"差值 > 目标/200"判断，避免任何乘法溢出 */
++#define HW_CAN_BAUD_ERR_DIVISOR         (200UL)
++
+ /* CAN_CTL各控制位的掩码 */
+ #define HW_CAN_CTL_INIT                 (1UL << 0U)
+ #define HW_CAN_CTL_CCE                  (1UL << 6U)
+@@ -34,7 +46,7 @@
+ #define HW_CAN_RAM_INIT_KEY_DONE        (0x0005UL)
+ #define HW_CAN_RAM_INIT_MASK            (0x003FUL)
+ 
+-/* IFxCMD的访问位 */
++/* IFxCMD的访问位（bits[23:16]） */
+ #define HW_CAN_CMD_DATA_B               (1UL << 16U)
+ #define HW_CAN_CMD_DATA_A               (1UL << 17U)
+ #define HW_CAN_CMD_TXRQST               (1UL << 18U)
+@@ -45,17 +57,33 @@
+ #define HW_CAN_CMD_BUSY                 (1UL << 15U)
+ #define HW_CAN_CMD_MSGNUM_M             (0x00FFUL)
+ 
++/* 命令组合（写 .all 时这些位已经位于 bits[23:16]）
++ * 读全部并清NewDat = 0x37；写发送对象 = 0xB4（有数据再或 DATA_A/DATA_B 得 0xB7）；
++ * 写接收对象 = 0x74（ARB+CONTROL+MASK+DIR 传输） */
++#define HW_CAN_CMD_READ_ALL             (HW_CAN_CMD_TXRQST | HW_CAN_CMD_ARB | \
++                                         HW_CAN_CMD_CONTROL | HW_CAN_CMD_DATA_A | HW_CAN_CMD_DATA_B)
++#define HW_CAN_CMD_WRITE_TX             (HW_CAN_CMD_DIR | HW_CAN_CMD_ARB | \
++                                         HW_CAN_CMD_CONTROL | HW_CAN_CMD_TXRQST)
++#define HW_CAN_CMD_WRITE_RX             (HW_CAN_CMD_DIR | HW_CAN_CMD_ARB | \
++                                         HW_CAN_CMD_CONTROL | HW_CAN_CMD_MASK)
++
++/* IFxMSK：Msk[28:0] + MDir(30) + MXtd(31)，bit29保留 */
++#define HW_CAN_MSK_MDIR                 (1UL << 30U)
++#define HW_CAN_MSK_MXTD                 (1UL << 31U)
++#define HW_CAN_MSK_STD_M                (0x000007FFUL)
++
+ /* IFxARB的Dir/Xtd/MsgVal位 */
+ #define HW_CAN_ARB_DIR                  (1UL << 29U)
+ #define HW_CAN_ARB_XTD                  (1UL << 30U)
+ #define HW_CAN_ARB_MSGVAL               (1UL << 31U)
+ #define HW_CAN_ID_MASK                  (0x1FFFFFFFUL)
+ 
+-/* IFxMCTL的EoB/TxRqst/UMask/NewDat位 */
++/* IFxMCTL的EoB/TxRqst/UMask/IntPnd/MsgLst/NewDat位 */
+ #define HW_CAN_MCTL_DLC_M               (0x000FUL)
+ #define HW_CAN_MCTL_EOB                 (1UL << 7U)
+ #define HW_CAN_MCTL_TXRQST              (1UL << 8U)
+ #define HW_CAN_MCTL_UMASK               (1UL << 12U)
++#define HW_CAN_MCTL_MSGLST              (1UL << 14U)
+ #define HW_CAN_MCTL_NEWDAT              (1UL << 15U)
+ 
+ /* CAN_ES的总线关闭标志（bit7） */
+@@ -64,12 +92,23 @@
+ /* 报文对象编号范围，F2837xS固定1~32 */
+ #define HW_CAN_OBJ_NUM_MIN              (1U)
+ 
+-/* 轮询上限，防止模块异常时死等 */
+-#define HW_CAN_POLL_TIMEOUT             (200000UL)
++/* 时间预算：运行期单个API 20us、单次IF等待 10us；初始化阶段 10ms/阶段、全程 50ms */
++#define HW_CAN_API_BUDGET_US            (20UL)
++#define HW_CAN_STAGE_BUDGET_US          (10UL)
++#define HW_CAN_INIT_OBJ_BUDGET_US       (1000UL)
++#define HW_CAN_INIT_STAGE_BUDGET_US     (10000UL)
++#define HW_CAN_INIT_TOTAL_BUDGET_US     (50000UL)
++
++/* 等待循环的硬兜底次数：仅在计数被外部停住时避免死等，不参与预算判定 */
++#define HW_CAN_WAIT_SPIN_MAX            (1000000UL)
+ 
+ /* 外设时钟使能后的稳定延时计数 */
+ #define HW_CAN_CLOCK_DELAY_CNT          (16U)
+ 
++/* 未决标志：分别记录发送/接收路径上一次事务结果不确定 */
++#define HW_CAN_PENDING_TX               (0x0001U)
++#define HW_CAN_PENDING_RX               (0x0002U)
++
+ /* CAN寄存器基址表 */
+ static volatile struct CAN_REGS * const gCanRegs[HW_CAN_ID_MAX] =
+ {
+@@ -79,7 +118,11 @@ static volatile struct CAN_REGS * const gCanRegs[HW_CAN_ID_MAX] =
+ 
+ /* 保存每个模块的配置项，发送/接收时按它换算报文对象编号 */
+ static ST_CAN_CFG_ITEM gCanCfg[HW_CAN_ID_MAX];
++static Uint16 gCanCfgValid[HW_CAN_ID_MAX] = {0U, 0U};
+ static Uint16 gCanInited[HW_CAN_ID_MAX] = {0U, 0U};
++static Uint16 gCanPending[HW_CAN_ID_MAX] = {0U, 0U};
++static Uint16 gCanRecovering[HW_CAN_ID_MAX] = {0U, 0U};
++static Uint32 gCanSysclkHz = 0UL;
+ 
+ /* 取模块寄存器指针，编号非法返回空指针 */
+ static volatile struct CAN_REGS *Hw_CanGetRegs(Uint16 u16CanId)
+@@ -92,7 +135,7 @@ static volatile struct CAN_REGS *Hw_CanGetRegs(Uint16 u16CanId)
+     return gCanRegs[u16CanId];
+ }
+ 
+-/* 毫秒级空循环延时，用于外设时钟打开后与软复位后的稳定等待 */
++/* 空循环延时，用于外设时钟打开后与软复位后的稳定等待（非计时用途） */
+ static void Hw_CanDelayLoop(Uint16 u16Cnt)
+ {
+     volatile Uint16 u16Delay;
+@@ -113,218 +156,566 @@ static void Hw_CanEnableClock(const ST_CAN_CFG_ITEM *pstCanCfgItem)
+     Hw_CanDelayLoop(HW_CAN_CLOCK_DELAY_CNT);
+ }
+ 
+-/* 等待IF1的Busy位清零，超时返回0 */
+-static Uint16 Hw_CanWaitIf1Idle(volatile struct CAN_REGS *pstRegs)
++/* 预算判定：API 起点与阶段起点各自独立计时，任一超时即失败；时间源失效按超时处理 */
++static Uint16 Hw_CanBudgetOk(Uint32 u32ApiStart, Uint32 u32ApiLimit)
++{
++    Uint32 u32Elapsed;
++
++    if (Hw_TimeBaseIsReady() == 0U)
++    {
++        return 0U;
++    }
++
++    /* 本次读取若失败，故障标志会立刻清零就绪状态，按预算耗尽处理 */
++    u32Elapsed = Hw_TimeBaseElapsed(u32ApiStart);
++
++    if (Hw_TimeBaseIsReady() == 0U)
++    {
++        return 0U;
++    }
++
++    return ((u32Elapsed < u32ApiLimit) ? 1U : 0U);
++}
++
++static Uint16 Hw_CanStageOk(Uint32 u32ApiStart, Uint32 u32ApiLimit,
++                            Uint32 u32StageStart, Uint32 u32StageLimit)
++{
++    Uint32 u32Elapsed;
++
++    if (Hw_CanBudgetOk(u32ApiStart, u32ApiLimit) == 0U)
++    {
++        return 0U;
++    }
++
++    /* 阶段计时同样要在读取后复查就绪：读失败时返回值不可信，按预算耗尽处理 */
++    u32Elapsed = Hw_TimeBaseElapsed(u32StageStart);
++
++    if (Hw_TimeBaseIsReady() == 0U)
++    {
++        return 0U;
++    }
++
++    return ((u32Elapsed < u32StageLimit) ? 1U : 0U);
++}
++
++/**
++ * @brief 等待 IF1 空闲
++ *
++ * 说明：C28x 不允许对 32 位外设寄存器取地址，因此直接传寄存器结构体指针，
++ *      在函数内部逐次读取 CAN_IF1CMD。预算按绝对起点计算，不做重新起算。
++ */
++static Uint16 Hw_CanWaitIf1Idle(volatile struct CAN_REGS *pstRegs, Uint32 u32ApiStart,
++                                Uint32 u32ApiLimit, Uint32 u32StageStart,
++                                Uint32 u32StageLimit)
+ {
+-    Uint32 u32Wait = 0UL;
++    Uint32 u32Spin;
+ 
+-    while ((pstRegs->CAN_IF1CMD.all & HW_CAN_CMD_BUSY) != 0UL)
++    for (u32Spin = 0UL; u32Spin < HW_CAN_WAIT_SPIN_MAX; u32Spin++)
+     {
+-        u32Wait++;
+-        if (u32Wait > HW_CAN_POLL_TIMEOUT)
++        /* 先确认时间源与两条预算仍然成立，再判定空闲，避免"已空闲"掩盖超预算 */
++        if (Hw_CanStageOk(u32ApiStart, u32ApiLimit, u32StageStart, u32StageLimit) == 0U)
+         {
+             return 0U;
+         }
++
++        if ((pstRegs->CAN_IF1CMD.all & HW_CAN_CMD_BUSY) == 0UL)
++        {
++            return 1U;
++        }
+     }
+ 
+-    return 1U;
++    return 0U;
+ }
+ 
+-/* 等待IF2的Busy位清零，超时返回0 */
+-static Uint16 Hw_CanWaitIf2Idle(volatile struct CAN_REGS *pstRegs)
++/**
++ * @brief 与 Hw_CanWaitIf1Idle 相同，等待 IF2 空闲
++ */
++static Uint16 Hw_CanWaitIf2Idle(volatile struct CAN_REGS *pstRegs, Uint32 u32ApiStart,
++                                Uint32 u32ApiLimit, Uint32 u32StageStart,
++                                Uint32 u32StageLimit)
+ {
+-    Uint32 u32Wait = 0UL;
++    Uint32 u32Spin;
+ 
+-    while ((pstRegs->CAN_IF2CMD.all & HW_CAN_CMD_BUSY) != 0UL)
++    for (u32Spin = 0UL; u32Spin < HW_CAN_WAIT_SPIN_MAX; u32Spin++)
+     {
+-        u32Wait++;
+-        if (u32Wait > HW_CAN_POLL_TIMEOUT)
++        /* 先确认时间源与两条预算仍然成立，再判定空闲，避免"已空闲"掩盖超预算 */
++        if (Hw_CanStageOk(u32ApiStart, u32ApiLimit, u32StageStart, u32StageLimit) == 0U)
+         {
+             return 0U;
+         }
++
++        if ((pstRegs->CAN_IF2CMD.all & HW_CAN_CMD_BUSY) == 0UL)
++        {
++            return 1U;
++        }
+     }
+ 
+-    return 1U;
++    return 0U;
+ }
+ 
+-/* 按SYSCLK和波特率写CAN_BTR，位时间固定20个Tq */
+-static Uint16 Hw_CanConfigBitTiming(volatile struct CAN_REGS *pstRegs,
+-                                   Uint32 u32Baudrate, Uint32 u32SysclkHz)
++
++/**
++ * @brief 校验波特率并算出总分频值
++ *
++ * @return 1 = 合法，0 = 非法（含溢出、超范围、误差过大）
++ */
++static Uint16 Hw_CanCheckBitTiming(Uint32 u32Baudrate, Uint32 u32SysclkHz, Uint32 *pu32Prescaler)
+ {
+-    Uint32 u32Divider;
+-    Uint16 u16Brp;
+-    Uint16 u16Brpe;
++    Uint32 u32Den;
++    Uint32 u32Div;
++    Uint32 u32Actual;
++    Uint32 u32Diff;
++
++    if (u32Baudrate == 0UL)
++    {
++        return 0U;
++    }
++
++    /* 乘法前先挡住溢出：baud * TQ_PER_BIT 不得超过 32 位 */
++    if (u32Baudrate > (0xFFFFFFFFUL / HW_CAN_TQ_PER_BIT))
++    {
++        return 0U;
++    }
+ 
+-    if ((u32Baudrate == 0UL) || (u32SysclkHz == 0UL))
++    u32Den = u32Baudrate * HW_CAN_TQ_PER_BIT;
++    if (u32Den == 0UL)
+     {
+         return 0U;
+     }
+ 
+-    /* 分频值 = SYSCLK / (波特率 * 每位Tq数)，BRP字段填分频值减1 */
+-    u32Divider = u32SysclkHz / (u32Baudrate * HW_CAN_TQ_PER_BIT);
+-    if (u32Divider == 0UL)
++    u32Div = u32SysclkHz / u32Den;
++
++    /* 总分频值必须落在 1~1024 */
++    if ((u32Div < HW_CAN_PRESCALER_MIN) || (u32Div > HW_CAN_PRESCALER_MAX))
++    {
++        return 0U;
++    }
++
++    /* 实际波特率误差检查：实际值 = SYSCLK / (总分频值 * 每bit的Tq数) */
++    if (u32Div > (0xFFFFFFFFUL / HW_CAN_TQ_PER_BIT))
++    {
++        return 0U;
++    }
++
++    u32Actual = u32SysclkHz / (u32Div * HW_CAN_TQ_PER_BIT);
++    if (u32Actual > u32Baudrate)
++    {
++        u32Diff = u32Actual - u32Baudrate;
++    }
++    else
++    {
++        u32Diff = u32Baudrate - u32Actual;
++    }
++
++    /* 误差判据：|实际-目标| <= 目标/200（0.5%）。整式无乘法：
++     * 目标/200 最大 21,474,836，差值本身也不超过目标+实际，两侧都留在 32 位内。
++     * 不用 diff*1000 <= target*5 的形式，那种写法在高目标波特率时会乘法回绕。 */
++    if (u32Diff > (u32Baudrate / HW_CAN_BAUD_ERR_DIVISOR))
+     {
+         return 0U;
+     }
+ 
+-    u32Divider = u32Divider - 1UL;
+-    u16Brp = (Uint16)(u32Divider & 0x003FUL);
+-    u16Brpe = (Uint16)((u32Divider >> 6U) & 0x000FUL);
++    *pu32Prescaler = u32Div;
++
++    return 1U;
++}
++
++/* 按总分频值写CAN_BTR，位时间固定20个Tq */
++static void Hw_CanWriteBitTiming(volatile struct CAN_REGS *pstRegs, Uint32 u32Prescaler)
++{
++    Uint32 u32PrescalerMinus1;
++
++    u32PrescalerMinus1 = u32Prescaler - 1UL;
+ 
+     pstRegs->CAN_BTR.all = 0UL;
+-    pstRegs->CAN_BTR.bit.BRP = u16Brp;
+-    pstRegs->CAN_BTR.bit.BRPE = u16Brpe;
+-    pstRegs->CAN_BTR.bit.SJW = HW_CAN_SJW;
++    pstRegs->CAN_BTR.bit.BRP  = (Uint16)(u32PrescalerMinus1 & 0x003FUL);
++    pstRegs->CAN_BTR.bit.BRPE = (Uint16)((u32PrescalerMinus1 >> 6U) & 0x000FUL);
++    pstRegs->CAN_BTR.bit.SJW  = HW_CAN_SJW;
+     pstRegs->CAN_BTR.bit.TSEG1 = HW_CAN_TSEG1;
+     pstRegs->CAN_BTR.bit.TSEG2 = HW_CAN_TSEG2;
+-
+-    return 1U;
+ }
+ 
+-/* 通过IF1配置一个报文对象
+- * bTx=1为发送对象，=0为接收对象；u32Mask为验收屏蔽 */
+-static void Hw_CanConfigObj(volatile struct CAN_REGS *pstRegs, Uint16 u16ObjNum,
+-                            Uint32 u32MsgId, Uint32 u32Mask,
+-                            Uint16 bTx, Uint16 bExtId, Uint16 u16Dlc,
+-                            Uint16 bUseMask)
++/**
++ * @brief 通过IF1写一个报文对象的过滤与初始状态
++ *
++ * @return HW_CAN_OK / HW_CAN_BUSY / HW_CAN_UNKNOWN / HW_CAN_ERR
++ */
++/* 配置一个报文对象：IF1 一次整对象写事务 */
++static Uint16 Hw_CanConfigObject(volatile struct CAN_REGS *pstRegs, Uint16 u16ObjNum,
++                                 Uint32 u32MsgId, Uint32 u32Mask, Uint16 bTx,
++                                 Uint16 bExtId, Uint16 u16Dlc, Uint16 bUseMask,
++                                 Uint16 bDirCmp, Uint32 u32ApiStart,
++                                 Uint32 u32ApiLimit, Uint32 u32StageLimit)
+ {
+-    Uint32 u32Cmd;
++    Uint32 u32Msk;
+     Uint32 u32Arb;
+     Uint32 u32Mctl;
+-    Uint32 u32Msk = 0UL;
++    Uint32 u32StageStart;
++
++    if (pstRegs == (volatile struct CAN_REGS *)0)
++    {
++        return HW_CAN_ERR;
++    }
+ 
+     if ((u16ObjNum < HW_CAN_OBJ_NUM_MIN) || (u16ObjNum > HW_CAN_OBJ_MAX))
+     {
+-        return;
++        return HW_CAN_ERR;
+     }
+ 
+-    if (Hw_CanWaitIf1Idle(pstRegs) == 0U)
++    if (u16Dlc > HW_CAN_DATA_LEN_MAX)
+     {
+-        return;
++        return HW_CAN_ERR;
+     }
+ 
+-    /* 验收屏蔽：Msk每一位为1表示该位参与比较 */
+-    if (bUseMask != 0U)
++    /* ID/掩码位宽按帧类型校验：超宽拒绝，不做静默截断 */
++    if (bExtId != 0U)
++    {
++        if (((u32MsgId & ~HW_CAN_ID_MASK) != 0UL) || ((u32Mask & ~HW_CAN_ID_MASK) != 0UL))
++        {
++            return HW_CAN_ERR;
++        }
++    }
++    else
+     {
+-        u32Msk = (bExtId != 0U) ? (u32Mask & HW_CAN_ID_MASK)
+-                                  : ((u32Mask & 0x7FFUL) << 18U);
+-        if (bExtId != 0U)
++        if (((u32MsgId & ~HW_CAN_MSK_STD_M) != 0UL) || ((u32Mask & ~HW_CAN_MSK_STD_M) != 0UL))
+         {
+-            u32Msk |= HW_CAN_ARB_XTD;   /* MXtd：扩展帧位也参与比较 */
++            return HW_CAN_ERR;
+         }
+     }
+ 
+-    /* 仲裁寄存器：标识符、方向、帧类型、对象有效 */
+-    u32Arb = (bExtId != 0U) ? (u32MsgId & HW_CAN_ID_MASK)
+-                                : ((u32MsgId & 0x7FFUL) << 18U);
++    u32StageStart = Hw_TimeBaseTicks();
++
++    if (Hw_CanWaitIf1Idle(pstRegs, u32ApiStart, u32ApiLimit, u32StageStart, u32StageLimit) == 0U)
++    {
++        return HW_CAN_BUSY;
++    }
++
++    /* 掩码：标准帧的验收位在 Msk[28:18]，必须左移；MXtd 始终参与比较，MDir 由调用方决定 */
+     if (bExtId != 0U)
+     {
++        u32Msk = u32Mask & HW_CAN_ID_MASK;
++    }
++    else
++    {
++        u32Msk = (u32Mask & HW_CAN_MSK_STD_M) << 18U;
++    }
++
++    u32Msk |= HW_CAN_MSK_MXTD;
++    if (bDirCmp != 0U)
++    {
++        u32Msk |= HW_CAN_MSK_MDIR;
++    }
++
++    /* 仲裁寄存器：ID + 方向 + 帧类型 + 有效位 */
++    if (bExtId != 0U)
++    {
++        u32Arb = u32MsgId & HW_CAN_ID_MASK;
+         u32Arb |= HW_CAN_ARB_XTD;
+     }
++    else
++    {
++        u32Arb = (u32MsgId & HW_CAN_MSK_STD_M) << 18U;
++    }
++
+     if (bTx != 0U)
+     {
+         u32Arb |= HW_CAN_ARB_DIR;
+     }
++
+     u32Arb |= HW_CAN_ARB_MSGVAL;
+ 
+-    /* 报文控制：DLC、单块结束；收发中断都先不开，全部轮询 */
+-    u32Mctl = (Uint32)(u16Dlc & HW_CAN_MCTL_DLC_M);
+-    u32Mctl |= HW_CAN_MCTL_EOB;
++    /* 控制寄存器：DLC + EoB，接收对象再开 UMask */
++    u32Mctl = (Uint32)(u16Dlc & HW_CAN_MCTL_DLC_M) | HW_CAN_MCTL_EOB;
+     if (bUseMask != 0U)
+     {
+         u32Mctl |= HW_CAN_MCTL_UMASK;
+     }
+ 
+-    pstRegs->CAN_IF1MSK.all = u32Msk;
+-    pstRegs->CAN_IF1ARB.all = u32Arb;
+-    pstRegs->CAN_IF1MCTL.all = u32Mctl;
++    /* 下发命令前再确认预算，避免超时后才写硬件 */
++    if (Hw_CanBudgetOk(u32ApiStart, u32ApiLimit) == 0U)
++    {
++        return HW_CAN_BUSY;
++    }
+ 
+-    /* DIR=1表示把IF1内容写入报文对象 */
+-    u32Cmd = HW_CAN_CMD_DIR | HW_CAN_CMD_ARB | HW_CAN_CMD_CONTROL | HW_CAN_CMD_MASK |
+-             (Uint32)(u16ObjNum & HW_CAN_CMD_MSGNUM_M);
++    pstRegs->CAN_IF1MSK.all    = u32Msk;
++    pstRegs->CAN_IF1ARB.all    = u32Arb;
++    pstRegs->CAN_IF1MCTL.all   = u32Mctl;
++    pstRegs->CAN_IF1CMD.all    = (HW_CAN_CMD_WRITE_RX | HW_CAN_CMD_MASK | (Uint32)u16ObjNum);
+ 
+-    pstRegs->CAN_IF1CMD.all = u32Cmd;
++    u32StageStart = Hw_TimeBaseTicks();
++
++    if (Hw_CanWaitIf1Idle(pstRegs, u32ApiStart, u32ApiLimit, u32StageStart, u32StageLimit) == 0U)
++    {
++        return HW_CAN_UNKNOWN;
++    }
+ 
+-    (void)Hw_CanWaitIf1Idle(pstRegs);
++    return HW_CAN_OK;
+ }
+ 
+-/* 进入初始化：置INIT、初始化报文RAM、软复位、打开配置写使能 */
+-static Uint16 Hw_CanEnterInit(volatile struct CAN_REGS *pstRegs)
++/* 进入初始化：置INIT/关闭奇偶校验/复位报文RAM；超时返回HW_CAN_BUSY */
++static Uint16 Hw_CanEnterInit(volatile struct CAN_REGS *pstRegs, Uint32 u32ApiStart,
++                              Uint32 u32ApiLimit, Uint32 u32StageLimit)
+ {
+-    Uint32 u32Wait = 0UL;
++    Uint32 u32StageStart;
++    Uint32 u32Spin;
+ 
+-    /* 先置INIT并关闭奇偶校验（PMD=5的KEY值） */
+     pstRegs->CAN_CTL.all |= (HW_CAN_CTL_INIT | HW_CAN_CTL_PARITY_DISABLE);
+ 
+-    /* 报文RAM初始化：写KEY=0xA并置bit4，等bit5完成 */
+-    pstRegs->CAN_RAM_INIT.all = HW_CAN_RAM_INIT_REQ | HW_CAN_RAM_INIT_KEY;
+-    while ((pstRegs->CAN_RAM_INIT.all & HW_CAN_RAM_INIT_MASK) !=
+-           (HW_CAN_RAM_INIT_DONE | HW_CAN_RAM_INIT_KEY_DONE))
++    pstRegs->CAN_RAM_INIT.all = (HW_CAN_RAM_INIT_REQ | HW_CAN_RAM_INIT_KEY);
++
++    u32StageStart = Hw_TimeBaseTicks();
++
++    for (u32Spin = 0UL; u32Spin < HW_CAN_WAIT_SPIN_MAX; u32Spin++)
+     {
+-        u32Wait++;
+-        if (u32Wait > HW_CAN_POLL_TIMEOUT)
++        /* 先确认时间源与两级预算，再接受硬件完成条件：不得凭"状态已满足"绕过检查 */
++        if (Hw_CanStageOk(u32ApiStart, u32ApiLimit, u32StageStart, u32StageLimit) == 0U)
+         {
+-            return 0U;
++            return HW_CAN_BUSY;
+         }
++
++        if ((pstRegs->CAN_RAM_INIT.all & HW_CAN_RAM_INIT_MASK) ==
++            (HW_CAN_RAM_INIT_DONE | HW_CAN_RAM_INIT_KEY_DONE))
++        {
++            break;
++        }
++    }
++
++    if (u32Spin >= HW_CAN_WAIT_SPIN_MAX)
++    {
++        /* 硬件状态长时间不变而预算未到期：按时间源/硬件异常处理，不回落到普通超时 */
++        return HW_CAN_UNKNOWN;
+     }
+ 
+-    /* 软复位把模块恢复到复位状态，之后才能改配置 */
+     pstRegs->CAN_CTL.all |= HW_CAN_CTL_SWR;
++
+     Hw_CanDelayLoop(HW_CAN_CLOCK_DELAY_CNT);
+ 
+-    /* 配置写使能 */
+     pstRegs->CAN_CTL.all |= HW_CAN_CTL_CCE;
+ 
+-    return 1U;
++    return HW_CAN_OK;
++}
++
++/* 只进入初始化，不碰报文RAM：供保留对象的 Bus-Off 恢复使用 */
++static Uint16 Hw_CanEnterInitPlain(volatile struct CAN_REGS *pstRegs, Uint32 u32ApiStart,
++                                   Uint32 u32ApiLimit, Uint32 u32StageLimit)
++{
++    Uint32 u32StageStart;
++    Uint32 u32Spin;
++
++    pstRegs->CAN_CTL.all |= (HW_CAN_CTL_INIT | HW_CAN_CTL_PARITY_DISABLE);
++
++    u32StageStart = Hw_TimeBaseTicks();
++
++    for (u32Spin = 0UL; u32Spin < HW_CAN_WAIT_SPIN_MAX; u32Spin++)
++    {
++        if (Hw_CanStageOk(u32ApiStart, u32ApiLimit, u32StageStart, u32StageLimit) == 0U)
++        {
++            return HW_CAN_BUSY;
++        }
++
++        if ((pstRegs->CAN_CTL.all & HW_CAN_CTL_INIT) != 0UL)
++        {
++            break;
++        }
++    }
++
++    if (u32Spin >= HW_CAN_WAIT_SPIN_MAX)
++    {
++        return HW_CAN_UNKNOWN;
++    }
++
++    return HW_CAN_OK;
+ }
+ 
+-/* 退出初始化，模块开始收发 */
+-static Uint16 Hw_CanExitInit(volatile struct CAN_REGS *pstRegs)
++/* 退出初始化：清CCE/INIT并等待INIT真正清零 */
++static Uint16 Hw_CanExitInit(volatile struct CAN_REGS *pstRegs, Uint32 u32ApiStart,
++                             Uint32 u32ApiLimit, Uint32 u32StageLimit)
+ {
+-    Uint32 u32Wait = 0UL;
++    Uint32 u32StageStart;
++    Uint32 u32Spin;
+ 
+     pstRegs->CAN_CTL.all &= ~(HW_CAN_CTL_CCE | HW_CAN_CTL_INIT);
+ 
+-    while ((pstRegs->CAN_CTL.all & HW_CAN_CTL_INIT) != 0UL)
++    u32StageStart = Hw_TimeBaseTicks();
++
++    for (u32Spin = 0UL; u32Spin < HW_CAN_WAIT_SPIN_MAX; u32Spin++)
++    {
++        if (Hw_CanStageOk(u32ApiStart, u32ApiLimit, u32StageStart, u32StageLimit) == 0U)
++        {
++            return HW_CAN_BUSY;
++        }
++
++        if ((pstRegs->CAN_CTL.all & HW_CAN_CTL_INIT) == 0UL)
++        {
++            break;
++        }
++    }
++
++    if (u32Spin >= HW_CAN_WAIT_SPIN_MAX)
++    {
++        return HW_CAN_UNKNOWN;
++    }
++
++    return HW_CAN_OK;
++}
++
++/* 校验一模块配置项的静态合法性，返回1合法；全部在触碰硬件之前完成 */
++static Uint16 Hw_CanCheckCfgItem(const ST_CAN_CFG *pstCanCfg, Uint16 u16Index)
++{
++    const ST_CAN_CFG_ITEM *pstItem;
++    const ST_CAN_RX_OBJ_CFG *pstRxCfg;
++    Uint32 u32Prescaler;
++    Uint32 u32TxEnd;
++    Uint32 u32RxEnd;
++    Uint16 u16Idx;
++
++    pstItem = &pstCanCfg->pstCanCfgItem[u16Index];
++
++    if (pstItem->u16CanId >= (Uint16)HW_CAN_ID_MAX)
++    {
++        return 0U;
++    }
++
++    /* 同一模块不得重复出现 */
++    for (u16Idx = 0U; u16Idx < u16Index; u16Idx++)
++    {
++        if (pstCanCfg->pstCanCfgItem[u16Idx].u16CanId == pstItem->u16CanId)
++        {
++            return 0U;
++        }
++    }
++
++    /* 起始号与数量分别限幅，再用 32 位算区间，杜绝 16 位回绕 */
++    if ((pstItem->u16TxObjNum < HW_CAN_OBJ_NUM_MIN) || (pstItem->u16TxObjNum > HW_CAN_OBJ_MAX) ||
++        (pstItem->u16TxObjCnt == 0U) || (pstItem->u16TxObjCnt > HW_CAN_OBJ_MAX) ||
++        (pstItem->u16RxObjNum < HW_CAN_OBJ_NUM_MIN) || (pstItem->u16RxObjNum > HW_CAN_OBJ_MAX) ||
++        (pstItem->u16RxObjCnt == 0U) || (pstItem->u16RxObjCnt > HW_CAN_OBJ_MAX))
++    {
++        return 0U;
++    }
++
++    u32TxEnd = (Uint32)pstItem->u16TxObjNum + (Uint32)pstItem->u16TxObjCnt - 1UL;
++    u32RxEnd = (Uint32)pstItem->u16RxObjNum + (Uint32)pstItem->u16RxObjCnt - 1UL;
++
++    if ((u32TxEnd > HW_CAN_OBJ_MAX) || (u32RxEnd > HW_CAN_OBJ_MAX))
++    {
++        return 0U;
++    }
++
++    /* 收发区间不得重叠 */
++    if (((Uint32)pstItem->u16RxObjNum <= u32TxEnd) &&
++        (u32RxEnd >= (Uint32)pstItem->u16TxObjNum))
++    {
++        return 0U;
++    }
++
++    pstRxCfg = pstItem->pstRxObjCfg;
++
++    if (pstRxCfg == (const ST_CAN_RX_OBJ_CFG *)0)
+     {
+-        u32Wait++;
+-        if (u32Wait > HW_CAN_POLL_TIMEOUT)
++        return 0U;
++    }
++
++    /* 逐接收对象：ID/掩码位宽、初始DLC、方向比较契约（本步固定数据帧） */
++    for (u16Idx = 0U; u16Idx < pstItem->u16RxObjCnt; u16Idx++)
++    {
++        if (pstRxCfg[u16Idx].bExtId != 0U)
++        {
++            if ((pstRxCfg[u16Idx].u32Id & ~HW_CAN_ID_MASK) != 0UL)
++            {
++                return 0U;
++            }
++            if ((pstRxCfg[u16Idx].u32Mask & ~HW_CAN_ID_MASK) != 0UL)
++            {
++                return 0U;
++            }
++        }
++        else
++        {
++            if ((pstRxCfg[u16Idx].u32Id & ~HW_CAN_MSK_STD_M) != 0UL)
++            {
++                return 0U;
++            }
++            if ((pstRxCfg[u16Idx].u32Mask & ~HW_CAN_MSK_STD_M) != 0UL)
++            {
++                return 0U;
++            }
++        }
++
++        if (pstRxCfg[u16Idx].u16InitDlc > HW_CAN_DATA_LEN_MAX)
++        {
++            return 0U;
++        }
++
++        if (pstRxCfg[u16Idx].bDirCmp == 0U)
+         {
+             return 0U;
+         }
+     }
+ 
++    if (Hw_CanCheckBitTiming(pstItem->u32Baudrate, pstCanCfg->u32SysclkHz, &u32Prescaler) == 0U)
++    {
++        return 0U;
++    }
++
+     return 1U;
+ }
+ 
+-static void Hw_CanSingleInit(const ST_CAN_CFG_ITEM *pstCanCfgItem,
+-                             Uint32 u32SysclkHz)
++/* 单个模块初始化，返回1成功 */
++static Uint16 Hw_CanSingleInit(const ST_CAN_CFG_ITEM *pstCanCfgItem, Uint32 u32SysclkHz)
+ {
+     volatile struct CAN_REGS *pstRegs;
+-    Uint16 u16Index;
++    const ST_CAN_RX_OBJ_CFG *pstRxCfg;
++    Uint32 u32Prescaler;
++    Uint32 u32ApiStart;
++    Uint32 u32ApiLimit;
++    Uint32 u32InitStageLimit;
++    Uint32 u32ObjStageLimit;
++    Uint16 u16Idx;
++    Uint16 u16ObjNum;
+ 
+-    if (pstCanCfgItem == (const ST_CAN_CFG_ITEM *)0)
++    if ((pstCanCfgItem == (const ST_CAN_CFG_ITEM *)0) || (u32SysclkHz == 0UL))
+     {
+-        return;
++        return 0U;
+     }
+ 
+     pstRegs = Hw_CanGetRegs(pstCanCfgItem->u16CanId);
+     if (pstRegs == (volatile struct CAN_REGS *)0)
+     {
+-        return;
++        return 0U;
++    }
++
++    /* 时间基准未就绪时不做任何按时间等待 */
++    if (Hw_TimeBaseIsReady() == 0U)
++    {
++        return 0U;
++    }
++
++    u32ApiStart       = Hw_TimeBaseTicks();
++    u32ApiLimit       = Hw_TimeBaseUsToTicks(HW_CAN_INIT_TOTAL_BUDGET_US);
++    u32InitStageLimit = Hw_TimeBaseUsToTicks(HW_CAN_INIT_STAGE_BUDGET_US);
++    u32ObjStageLimit  = Hw_TimeBaseUsToTicks(HW_CAN_INIT_OBJ_BUDGET_US);
++
++    if ((u32ApiLimit == 0UL) || (u32InitStageLimit == 0UL) || (u32ObjStageLimit == 0UL))
++    {
++        return 0U;
+     }
+ 
+     Hw_CanEnableClock(pstCanCfgItem);
+ 
+-    if (Hw_CanEnterInit(pstRegs) == 0U)
++    if (Hw_CanCheckBitTiming(pstCanCfgItem->u32Baudrate, u32SysclkHz, &u32Prescaler) == 0U)
+     {
+-        return;
++        return 0U;
++    }
++
++    if (Hw_CanEnterInit(pstRegs, u32ApiStart, u32ApiLimit, u32InitStageLimit) != HW_CAN_OK)
++    {
++        return 0U;
+     }
+ 
+-    if (Hw_CanConfigBitTiming(pstRegs, pstCanCfgItem->u32Baudrate,
+-                              u32SysclkHz) == 0U) { return; }
++    Hw_CanWriteBitTiming(pstRegs, u32Prescaler);
+ 
+-    /* 自动总线恢复：总线关闭后自动尝试重新接入 */
++    /* 自动总线关闭恢复 */
+     if (pstCanCfgItem->bAutoBusOn != 0U)
+     {
+         pstRegs->CAN_CTL.all |= HW_CAN_CTL_ABO;
+@@ -334,289 +725,478 @@ static void Hw_CanSingleInit(const ST_CAN_CFG_ITEM *pstCanCfgItem,
+         pstRegs->CAN_CTL.all &= ~HW_CAN_CTL_ABO;
+     }
+ 
+-    /* 回环自测模式 */
++    /* 测试模式：内部回环 */
+     if (pstCanCfgItem->bLoopback != 0U)
+     {
+         pstRegs->CAN_CTL.all |= HW_CAN_CTL_TEST;
+-        pstRegs->CAN_TEST.bit.LBACK = 1U;
++        pstRegs->CAN_TEST.all |= (1UL << 4U);
++    }
++    else
++    {
++        pstRegs->CAN_TEST.all &= ~(1UL << 4U);
++        pstRegs->CAN_CTL.all &= ~HW_CAN_CTL_TEST;
+     }
+ 
+-    /* 发送对象：DLC先填0，发送时按实际长度重写 */
+-    for (u16Index = 0U; u16Index < pstCanCfgItem->u16TxObjCnt; u16Index++)
++    /* 发送对象：ID 留 0，方向上为发送，Mask 关掉 */
++    for (u16Idx = 0U; u16Idx < pstCanCfgItem->u16TxObjCnt; u16Idx++)
+     {
+-        Hw_CanConfigObj(pstRegs,
+-                        (Uint16)(pstCanCfgItem->u16TxObjNum + u16Index),
+-                        0UL, 0UL, 1U, pstCanCfgItem->bExtId, 0U, 0U);
++        u16ObjNum = (Uint16)(pstCanCfgItem->u16TxObjNum + u16Idx);
++        if (Hw_CanConfigObject(pstRegs, u16ObjNum, 0UL, 0UL, 1U, pstCanCfgItem->bTxExtId,
++                               0U, 0U, 0U, u32ApiStart, u32ApiLimit,
++                               u32ObjStageLimit) != HW_CAN_OK)
++        {
++            return 0U;
++        }
+     }
+ 
+-    /* 接收对象：按配置的验收ID与屏蔽字过滤 */
+-    for (u16Index = 0U; u16Index < pstCanCfgItem->u16RxObjCnt; u16Index++)
++    /* 接收对象：逐对象独立过滤 */
++    pstRxCfg = pstCanCfgItem->pstRxObjCfg;
++    for (u16Idx = 0U; u16Idx < pstCanCfgItem->u16RxObjCnt; u16Idx++)
+     {
+-        Hw_CanConfigObj(pstRegs,
+-                        (Uint16)(pstCanCfgItem->u16RxObjNum + u16Index),
+-                        pstCanCfgItem->u32RxAcceptId,
+-                        pstCanCfgItem->u32RxAcceptMask,
+-                        0U, pstCanCfgItem->bExtId,
+-                        (Uint16)HW_CAN_DATA_LEN_MAX, 1U);
++        u16ObjNum = (Uint16)(pstCanCfgItem->u16RxObjNum + u16Idx);
++        if (Hw_CanConfigObject(pstRegs, u16ObjNum, pstRxCfg[u16Idx].u32Id,
++                               pstRxCfg[u16Idx].u32Mask, 0U, pstRxCfg[u16Idx].bExtId,
++                               pstRxCfg[u16Idx].u16InitDlc, 1U, pstRxCfg[u16Idx].bDirCmp,
++                               u32ApiStart, u32ApiLimit,
++                               u32ObjStageLimit) != HW_CAN_OK)
++        {
++            return 0U;
++        }
+     }
+ 
+-    if (Hw_CanExitInit(pstRegs) == 0U)
++    if (Hw_CanExitInit(pstRegs, u32ApiStart, u32ApiLimit, u32InitStageLimit) != HW_CAN_OK)
+     {
+-        return;
++        return 0U;
+     }
+ 
+-    /* 保存配置项，后面收发时要用它换算对象编号与帧类型 */
+-    gCanCfg[pstCanCfgItem->u16CanId] = *pstCanCfgItem;
+-    gCanInited[pstCanCfgItem->u16CanId] = 1U;
++    return 1U;
+ }
+ 
+-void Hw_CanInit(const ST_CAN_CFG *pstCanCfg)
++Uint16 Hw_CanInit(const ST_CAN_CFG *pstCanCfg)
+ {
+-    Uint16 u16Index;
++    Uint16 u16Idx;
++    Uint16 u16CanId;
++
++    if (pstCanCfg == (const ST_CAN_CFG *)0)
++    {
++        return 0U;
++    }
++
++    if ((pstCanCfg->pstCanCfgItem == (const ST_CAN_CFG_ITEM *)0) || (pstCanCfg->u16ItemNum == 0U))
++    {
++        return 0U;
++    }
++
++    if (pstCanCfg->u16ItemNum > (Uint16)HW_CAN_ID_MAX)
++    {
++        return 0U;
++    }
+ 
+-    if ((pstCanCfg == (const ST_CAN_CFG *)0) ||
+-        (pstCanCfg->pstCanCfgItem == (const ST_CAN_CFG_ITEM *)0))
++    /* 时间基准未就绪：直接失败，不进入任何按时间等待 */
++    if (Hw_TimeBaseIsReady() == 0U)
+     {
+-        return;
++        return 0U;
++    }
++
++    /* 全部静态校验先做完：校验失败不触碰硬件，也不改动既有状态 */
++    for (u16Idx = 0U; u16Idx < pstCanCfg->u16ItemNum; u16Idx++)
++    {
++        if (Hw_CanCheckCfgItem(pstCanCfg, u16Idx) == 0U)
++        {
++            return 0U;
++        }
+     }
+ 
+-    for (u16Index = 0U; u16Index < pstCanCfg->u16ItemNum; u16Index++)
++    gCanSysclkHz = pstCanCfg->u32SysclkHz;
++
++    for (u16Idx = 0U; u16Idx < pstCanCfg->u16ItemNum; u16Idx++)
+     {
+-        Hw_CanSingleInit(&pstCanCfg->pstCanCfgItem[u16Index],
+-                         pstCanCfg->u32SysclkHz);
++        u16CanId = pstCanCfg->pstCanCfgItem[u16Idx].u16CanId;
++
++        if (Hw_CanSingleInit(&pstCanCfg->pstCanCfgItem[u16Idx], pstCanCfg->u32SysclkHz) == 0U)
++        {
++            /* 失败模块保持未初始化，不清除未决标志 */
++            gCanInited[u16CanId] = 0U;
++            return 0U;
++        }
++
++        gCanCfg[u16CanId] = pstCanCfg->pstCanCfgItem[u16Idx];
++        gCanCfgValid[u16CanId] = 1U;
++        gCanInited[u16CanId] = 1U;
++        gCanRecovering[u16CanId] = 0U;
++
++        /* 只有完整重建成功后才清未决 */
++        gCanPending[u16CanId] = 0U;
+     }
++
++    return 1U;
+ }
+ 
+ Uint16 Hw_CanIsInitialized(Uint16 u16CanId)
+ {
+-    return (u16CanId < HW_CAN_ID_MAX) ? gCanInited[u16CanId] : 0U;
++    if (u16CanId >= (Uint16)HW_CAN_ID_MAX)
++    {
++        return 0U;
++    }
++
++    return gCanInited[u16CanId];
++}
++
++Uint16 Hw_CanIsPending(Uint16 u16CanId)
++{
++    if (u16CanId >= (Uint16)HW_CAN_ID_MAX)
++    {
++        return 0U;
++    }
++
++    return ((gCanPending[u16CanId] != 0U) ? 1U : 0U);
+ }
+ 
+ Uint16 Hw_CanSend(Uint16 u16CanId, Uint16 u16ObjIdx, Uint32 u32MsgId,
+                   const Uint16 *pu16Data, Uint16 u16Len)
+ {
+     volatile struct CAN_REGS *pstRegs;
+-    Uint32 u32Cmd;
++    const ST_CAN_CFG_ITEM *pstItem;
++    Uint32 u32ApiStart;
++    Uint32 u32ApiLimit;
++    Uint32 u32StageLimit;
++    Uint32 u32StageStart;
+     Uint32 u32Arb;
+-    Uint32 u32DataA = 0UL;
+-    Uint32 u32DataB = 0UL;
++    Uint32 u32Cmd;
++    Uint32 u32DatA;
++    Uint32 u32DatB;
++    Uint32 u32Bit;
+     Uint16 u16ObjNum;
+-    Uint16 u16Index;
++    Uint16 u16Idx;
+ 
+     pstRegs = Hw_CanGetRegs(u16CanId);
++
+     if (pstRegs == (volatile struct CAN_REGS *)0)
+     {
+-        return 0U;
++        return HW_CAN_ERR;
+     }
+ 
+-    if ((gCanInited[u16CanId] == 0U) || (u16ObjIdx >= gCanCfg[u16CanId].u16TxObjCnt))
++    if ((gCanInited[u16CanId] == 0U) || (gCanRecovering[u16CanId] != 0U))
+     {
+-        return 0U;
++        return HW_CAN_ERR;
+     }
+ 
+-    if (u16Len > HW_CAN_DATA_LEN_MAX)
++    pstItem = &gCanCfg[u16CanId];
++
++    if (u16ObjIdx >= pstItem->u16TxObjCnt)
+     {
+-        u16Len = HW_CAN_DATA_LEN_MAX;
++        return HW_CAN_ERR;
+     }
+ 
+-    if (Hw_CanWaitIf1Idle(pstRegs) == 0U)
++    if ((u16Len > HW_CAN_DATA_LEN_MAX) || ((u16Len != 0U) && (pu16Data == (const Uint16 *)0)))
+     {
+-        return 0U;
++        return HW_CAN_ERR;
++    }
++
++    /* ID 位宽按帧类型校验：扩展帧超 29 位必须报错，不能静默截断 */
++    if (pstItem->bTxExtId != 0U)
++    {
++        if ((u32MsgId & ~HW_CAN_ID_MASK) != 0UL)
++        {
++            return HW_CAN_ERR;
++        }
++    }
++    else
++    {
++        if ((u32MsgId & ~HW_CAN_MSK_STD_M) != 0UL)
++        {
++            return HW_CAN_ERR;
++        }
++    }
++
++    /* 未决期间不再下发任何IF命令 */
++    if ((gCanPending[u16CanId] & HW_CAN_PENDING_TX) != 0U)
++    {
++        return HW_CAN_UNKNOWN;
++    }
++
++    if (Hw_TimeBaseIsReady() == 0U)
++    {
++        return HW_CAN_ERR;
+     }
+ 
+-    u16ObjNum = (Uint16)(gCanCfg[u16CanId].u16TxObjNum + u16ObjIdx);
++    /* 硬件对象号 = 发送区起始号 + 序号；忙检查与提交必须指向同一对象 */
++    u16ObjNum = (Uint16)(pstItem->u16TxObjNum + u16ObjIdx);
+ 
+-    if (pu16Data != (const Uint16 *)0)
++    u32Bit = (Uint32)1UL << (Uint32)(u16ObjNum - 1U);
++    if ((pstRegs->CAN_TXRQ_21 & u32Bit) != 0UL)
+     {
+-        for (u16Index = 0U; u16Index < u16Len; u16Index++)
++        return HW_CAN_BUSY;
++    }
++
++    u32ApiStart    = Hw_TimeBaseTicks();
++    u32ApiLimit    = Hw_TimeBaseUsToTicks(HW_CAN_API_BUDGET_US);
++    u32StageLimit  = Hw_TimeBaseUsToTicks(HW_CAN_STAGE_BUDGET_US);
++
++    if ((u32ApiLimit == 0UL) || (u32StageLimit == 0UL))
++    {
++        return HW_CAN_ERR;
++    }
++
++    u32StageStart = Hw_TimeBaseTicks();
++
++    if (Hw_CanWaitIf1Idle(pstRegs, u32ApiStart, u32ApiLimit, u32StageStart, u32StageLimit) == 0U)
++    {
++        return HW_CAN_BUSY;
++    }
++
++    /* 数据按单元一字节装进 DATA/DATB */
++    u32DatA = 0UL;
++    u32DatB = 0UL;
++
++    for (u16Idx = 0U; u16Idx < 4U; u16Idx++)
++    {
++        if (u16Idx < u16Len)
+         {
+-            if (u16Index < 4U)
+-            {
+-                u32DataA |= ((Uint32)(pu16Data[u16Index] & 0x00FFU) << (8U * u16Index));
+-            }
+-            else
+-            {
+-                u32DataB |= ((Uint32)(pu16Data[u16Index] & 0x00FFU) << (8U * (u16Index - 4U)));
+-            }
++            u32DatA |= ((Uint32)(pu16Data[u16Idx] & 0x00FFU) << (8U * u16Idx));
++        }
++
++        if ((Uint16)(u16Idx + 4U) < u16Len)
++        {
++            u32DatB |= ((Uint32)(pu16Data[u16Idx + 4U] & 0x00FFU) << (8U * u16Idx));
+         }
+     }
+ 
+-    pstRegs->CAN_IF1DATA.all = u32DataA;
+-    pstRegs->CAN_IF1DATB.all = u32DataB;
++    pstRegs->CAN_IF1DATA.all  = u32DatA;
++    pstRegs->CAN_IF1DATB.all  = u32DatB;
+ 
+-    /* 重写仲裁与控制寄存器：标识符、帧类型按本次实参，方向仍为发送 */
+-    u32Arb = ((gCanCfg[u16CanId].bExtId != 0U) ?
+-              (u32MsgId & HW_CAN_ID_MASK) : ((u32MsgId & 0x7FFUL) << 18U)) |
+-             HW_CAN_ARB_DIR | HW_CAN_ARB_MSGVAL;
+-    if (gCanCfg[u16CanId].bExtId != 0U)
++    /* 仲裁寄存器：发送方向 + 有效位 + 帧类型 */
++    if (pstItem->bTxExtId != 0U)
+     {
++        u32Arb = u32MsgId & HW_CAN_ID_MASK;
+         u32Arb |= HW_CAN_ARB_XTD;
+     }
+-    pstRegs->CAN_IF1ARB.all = u32Arb;
+-    pstRegs->CAN_IF1MCTL.all = (Uint32)(u16Len & HW_CAN_MCTL_DLC_M) | HW_CAN_MCTL_EOB;
++    else
++    {
++        u32Arb = (u32MsgId & HW_CAN_MSK_STD_M) << 18U;
++    }
+ 
+-    u32Cmd = HW_CAN_CMD_DIR | HW_CAN_CMD_ARB | HW_CAN_CMD_CONTROL |
+-             HW_CAN_CMD_TXRQST | (Uint32)(u16ObjNum & HW_CAN_CMD_MSGNUM_M);
++    u32Arb |= (HW_CAN_ARB_DIR | HW_CAN_ARB_MSGVAL);
+ 
+-    if (u16Len > 0U)
++    pstRegs->CAN_IF1ARB.all  = u32Arb;
++    pstRegs->CAN_IF1MCTL.all = (Uint32)(u16Len & HW_CAN_MCTL_DLC_M) | HW_CAN_MCTL_EOB;
++
++    u32Cmd = HW_CAN_CMD_WRITE_TX | (Uint32)u16ObjNum;
++    if (u16Len != 0U)
+     {
+         u32Cmd |= (HW_CAN_CMD_DATA_A | HW_CAN_CMD_DATA_B);
+     }
+ 
++    /* 命令下发前最后一次预算确认：此前失败都还没触碰硬件，可安全返回 */
++    if (Hw_CanBudgetOk(u32ApiStart, u32ApiLimit) == 0U)
++    {
++        return HW_CAN_BUSY;
++    }
++
++    u32StageStart = Hw_TimeBaseTicks();
++
++    /* 取时标本身失败时同样不得下发命令：此时还没有触碰硬件 */
++    if (Hw_TimeBaseIsReady() == 0U)
++    {
++        return HW_CAN_ERR;
++    }
++
+     pstRegs->CAN_IF1CMD.all = u32Cmd;
+ 
+-    if (Hw_CanWaitIf1Idle(pstRegs) == 0U)
++    if (Hw_CanWaitIf1Idle(pstRegs, u32ApiStart, u32ApiLimit, u32StageStart, u32StageLimit) == 0U)
+     {
+-        return 0U;
++        /* 提交已发生但结果不可知：标记未决，交由上层与恢复流程处理 */
++        gCanPending[u16CanId] |= HW_CAN_PENDING_TX;
++        return HW_CAN_UNKNOWN;
+     }
+ 
+-    return 1U;
++    return HW_CAN_OK;
+ }
+ 
+ Uint16 Hw_CanIsTxDone(Uint16 u16CanId, Uint16 u16ObjIdx)
+ {
+     volatile struct CAN_REGS *pstRegs;
+-    Uint16 u16ObjNum;
++    const ST_CAN_CFG_ITEM *pstItem;
++    Uint32 u32Bit;
+ 
+     pstRegs = Hw_CanGetRegs(u16CanId);
+-    if (pstRegs == (volatile struct CAN_REGS *)0)
++
++    if ((pstRegs == (volatile struct CAN_REGS *)0) || (gCanInited[u16CanId] == 0U))
+     {
+         return 0U;
+     }
+ 
+-    if ((gCanInited[u16CanId] == 0U) || (u16ObjIdx >= gCanCfg[u16CanId].u16TxObjCnt))
++    pstItem = &gCanCfg[u16CanId];
++
++    if (u16ObjIdx >= pstItem->u16TxObjCnt)
+     {
+         return 0U;
+     }
+ 
+-    u16ObjNum = (Uint16)(gCanCfg[u16CanId].u16TxObjNum + u16ObjIdx);
++    u32Bit = (Uint32)1UL << (Uint32)((pstItem->u16TxObjNum + u16ObjIdx) - 1U);
++
++    return (((pstRegs->CAN_TXRQ_21 & u32Bit) == 0UL) ? 1U : 0U);
++}
++
++Uint16 Hw_CanIsRxReady(Uint16 u16CanId, Uint16 u16ObjIdx)
++{
++    volatile struct CAN_REGS *pstRegs;
++    const ST_CAN_CFG_ITEM *pstItem;
++    Uint32 u32Bit;
+ 
+-    if (Hw_CanWaitIf2Idle(pstRegs) == 0U)
++    pstRegs = Hw_CanGetRegs(u16CanId);
++
++    if ((pstRegs == (volatile struct CAN_REGS *)0) || (gCanInited[u16CanId] == 0U))
+     {
+         return 0U;
+     }
+ 
+-    /* 只读控制寄存器即可判断TxRqst是否已由硬件清零 */
+-    pstRegs->CAN_IF2CMD.all = HW_CAN_CMD_CONTROL |
+-                              (Uint32)(u16ObjNum & HW_CAN_CMD_MSGNUM_M);
++    pstItem = &gCanCfg[u16CanId];
+ 
+-    if (Hw_CanWaitIf2Idle(pstRegs) == 0U)
++    if (u16ObjIdx >= pstItem->u16RxObjCnt)
+     {
+         return 0U;
+     }
+ 
+-    return (((pstRegs->CAN_IF2MCTL.all & HW_CAN_MCTL_TXRQST) == 0UL) ? 1U : 0U);
++    u32Bit = (Uint32)1UL << (Uint32)((pstItem->u16RxObjNum + u16ObjIdx) - 1U);
++
++    return (((pstRegs->CAN_NDAT_21 & u32Bit) != 0UL) ? 1U : 0U);
+ }
+ 
+-Uint16 Hw_CanIsRxReady(Uint16 u16CanId, Uint16 u16ObjIdx)
++Uint16 Hw_CanReadRx(Uint16 u16CanId, Uint16 u16ObjIdx, Uint32 *pu32MsgId,
++                    Uint16 *pu16Data, Uint16 *pu16Len,
++                    Uint16 *pu16FrameType, Uint16 *pu16MsgLst)
+ {
+     volatile struct CAN_REGS *pstRegs;
++    const ST_CAN_CFG_ITEM *pstItem;
++    Uint32 u32ApiStart;
++    Uint32 u32ApiLimit;
++    Uint32 u32StageLimit;
++    Uint32 u32StageStart;
++    Uint32 u32Arb;
++    Uint32 u32Mctl;
++    Uint32 u32DatA;
++    Uint32 u32DatB;
+     Uint16 u16ObjNum;
++    Uint16 u16Idx;
++    Uint16 u16Len;
++    Uint16 u16FrameType;
+ 
+     pstRegs = Hw_CanGetRegs(u16CanId);
++
+     if (pstRegs == (volatile struct CAN_REGS *)0)
+     {
+-        return 0U;
++        return HW_CAN_ERR;
+     }
+ 
+-    if ((gCanInited[u16CanId] == 0U) || (u16ObjIdx >= gCanCfg[u16CanId].u16RxObjCnt))
++    if ((gCanInited[u16CanId] == 0U) || (gCanRecovering[u16CanId] != 0U))
+     {
+-        return 0U;
++        return HW_CAN_ERR;
+     }
+ 
+-    u16ObjNum = (Uint16)(gCanCfg[u16CanId].u16RxObjNum + u16ObjIdx);
++    pstItem = &gCanCfg[u16CanId];
+ 
+-    if (Hw_CanWaitIf2Idle(pstRegs) == 0U)
++    if (u16ObjIdx >= pstItem->u16RxObjCnt)
+     {
+-        return 0U;
++        return HW_CAN_ERR;
+     }
+ 
+-    pstRegs->CAN_IF2CMD.all = HW_CAN_CMD_CONTROL |
+-                              (Uint32)(u16ObjNum & HW_CAN_CMD_MSGNUM_M);
++    /* 未决期间不再下发任何IF命令 */
++    if ((gCanPending[u16CanId] & HW_CAN_PENDING_RX) != 0U)
++    {
++        return HW_CAN_UNKNOWN;
++    }
+ 
+-    if (Hw_CanWaitIf2Idle(pstRegs) == 0U)
++    if (Hw_TimeBaseIsReady() == 0U)
+     {
+-        return 0U;
++        return HW_CAN_ERR;
+     }
+ 
+-    return (((pstRegs->CAN_IF2MCTL.all & HW_CAN_MCTL_NEWDAT) != 0UL) ? 1U : 0U);
+-}
++    u32ApiStart   = Hw_TimeBaseTicks();
++    u32ApiLimit   = Hw_TimeBaseUsToTicks(HW_CAN_API_BUDGET_US);
++    u32StageLimit = Hw_TimeBaseUsToTicks(HW_CAN_STAGE_BUDGET_US);
+ 
+-Uint16 Hw_CanReadRx(Uint16 u16CanId, Uint16 u16ObjIdx, Uint32 *pu32MsgId,
+-                    Uint16 *pu16Data, Uint16 *pu16Len)
+-{
+-    volatile struct CAN_REGS *pstRegs;
+-    Uint16 u16ObjNum;
+-    Uint32 u32Mctl;
+-    Uint32 u32Arb;
+-    Uint32 u32DataA;
+-    Uint32 u32DataB;
+-    Uint16 u16Len;
+-    Uint16 u16Index;
++    if ((u32ApiLimit == 0UL) || (u32StageLimit == 0UL))
++    {
++        return HW_CAN_ERR;
++    }
+ 
+-    pstRegs = Hw_CanGetRegs(u16CanId);
+-    if (pstRegs == (volatile struct CAN_REGS *)0)
++    u32StageStart = Hw_TimeBaseTicks();
++
++    if (Hw_CanWaitIf2Idle(pstRegs, u32ApiStart, u32ApiLimit, u32StageStart, u32StageLimit) == 0U)
+     {
+-        return 0U;
++        return HW_CAN_BUSY;
+     }
+ 
+-    if ((gCanInited[u16CanId] == 0U) || (u16ObjIdx >= gCanCfg[u16CanId].u16RxObjCnt))
++    u16ObjNum = (Uint16)(pstItem->u16RxObjNum + u16ObjIdx);
++
++    if (Hw_CanBudgetOk(u32ApiStart, u32ApiLimit) == 0U)
+     {
+-        return 0U;
++        return HW_CAN_BUSY;
+     }
+ 
+-    u16ObjNum = (Uint16)(gCanCfg[u16CanId].u16RxObjNum + u16ObjIdx);
++    /* 一次事务同时读回 ARB/CONTROL/DATA，NewDat 由硬件在搬运时清除 */
++    u32StageStart = Hw_TimeBaseTicks();
+ 
+-    if (Hw_CanWaitIf2Idle(pstRegs) == 0U)
++    if (Hw_TimeBaseIsReady() == 0U)
+     {
+-        return 0U;
++        return HW_CAN_ERR;
+     }
+ 
+-    /* 一次把仲裁、控制、数据全部搬到IF2 */
+-    pstRegs->CAN_IF2CMD.all = HW_CAN_CMD_ARB | HW_CAN_CMD_CONTROL |
+-                              HW_CAN_CMD_DATA_A | HW_CAN_CMD_DATA_B |
+-                              (Uint32)(u16ObjNum & HW_CAN_CMD_MSGNUM_M);
++    pstRegs->CAN_IF2CMD.all = (HW_CAN_CMD_READ_ALL | (Uint32)u16ObjNum);
+ 
+-    if (Hw_CanWaitIf2Idle(pstRegs) == 0U)
++    if (Hw_CanWaitIf2Idle(pstRegs, u32ApiStart, u32ApiLimit, u32StageStart, u32StageLimit) == 0U)
+     {
+-        return 0U;
++        gCanPending[u16CanId] |= HW_CAN_PENDING_RX;
++        return HW_CAN_UNKNOWN;
+     }
+ 
++    /* IF 侧 MCTL 反映的是清除 NewDat 之前的状态 */
+     u32Mctl = pstRegs->CAN_IF2MCTL.all;
+ 
+-    /* NewDat为0说明没有新帧 */
+     if ((u32Mctl & HW_CAN_MCTL_NEWDAT) == 0UL)
+     {
+-        return 0U;
++        return HW_CAN_EMPTY;
+     }
+ 
+-    u32Arb = pstRegs->CAN_IF2ARB.all;
+-    u32DataA = pstRegs->CAN_IF2DATA.all;
+-    u32DataB = pstRegs->CAN_IF2DATB.all;
++    u32Arb  = pstRegs->CAN_IF2ARB.all;
++    u32DatA = pstRegs->CAN_IF2DATA.all;
++    u32DatB = pstRegs->CAN_IF2DATB.all;
+ 
+-    u16Len = (Uint16)(u32Mctl & HW_CAN_MCTL_DLC_M);
+-    if (u16Len > HW_CAN_DATA_LEN_MAX)
++    if ((u32Arb & HW_CAN_ARB_XTD) != 0UL)
+     {
+-        u16Len = HW_CAN_DATA_LEN_MAX;
++        u16FrameType = HW_CAN_FRAME_EXT;
++        if (pu32MsgId != (Uint32 *)0)
++        {
++            *pu32MsgId = u32Arb & HW_CAN_ID_MASK;
++        }
++    }
++    else
++    {
++        u16FrameType = HW_CAN_FRAME_STD;
++        if (pu32MsgId != (Uint32 *)0)
++        {
++            *pu32MsgId = (u32Arb >> 18U) & HW_CAN_MSK_STD_M;
++        }
+     }
+ 
+-    if (pu32MsgId != (Uint32 *)0)
++    u16Len = (Uint16)(u32Mctl & HW_CAN_MCTL_DLC_M);
++    if (u16Len > HW_CAN_DATA_LEN_MAX)
+     {
+-        *pu32MsgId = ((u32Arb & HW_CAN_ARB_XTD) != 0UL) ?
+-                       (u32Arb & HW_CAN_ID_MASK) : ((u32Arb >> 18U) & 0x7FFUL);
++        u16Len = HW_CAN_DATA_LEN_MAX;
+     }
+ 
+     if (pu16Data != (Uint16 *)0)
+     {
+-        for (u16Index = 0U; u16Index < u16Len; u16Index++)
++        for (u16Idx = 0U; u16Idx < HW_CAN_DATA_LEN_MAX; u16Idx++)
+         {
+-            if (u16Index < 4U)
++            if (u16Idx < 4U)
+             {
+-                pu16Data[u16Index] = (Uint16)((u32DataA >> (8U * u16Index)) & 0x00FFUL);
++                pu16Data[u16Idx] = (Uint16)((u32DatA >> (8U * u16Idx)) & 0x00FFUL);
+             }
+             else
+             {
+-                pu16Data[u16Index] = (Uint16)((u32DataB >> (8U * (u16Index - 4U))) & 0x00FFUL);
++                pu16Data[u16Idx] = (Uint16)((u32DatB >> (8U * (u16Idx - 4U))) & 0x00FFUL);
+             }
+         }
+     }
+@@ -626,13 +1206,17 @@ Uint16 Hw_CanReadRx(Uint16 u16CanId, Uint16 u16ObjIdx, Uint32 *pu32MsgId,
+         *pu16Len = u16Len;
+     }
+ 
+-    /* 清NewDat：向该对象写TXRQST=1即可同时清掉TxRqst与NewDat */
+-    pstRegs->CAN_IF2CMD.all = HW_CAN_CMD_TXRQST |
+-                              (Uint32)(u16ObjNum & HW_CAN_CMD_MSGNUM_M);
++    if (pu16FrameType != (Uint16 *)0)
++    {
++        *pu16FrameType = u16FrameType;
++    }
+ 
+-    (void)Hw_CanWaitIf2Idle(pstRegs);
++    if (pu16MsgLst != (Uint16 *)0)
++    {
++        *pu16MsgLst = (((u32Mctl & HW_CAN_MCTL_MSGLST) != 0UL) ? 1U : 0U);
++    }
+ 
+-    return 1U;
++    return HW_CAN_OK;
+ }
+ 
+ Uint16 Hw_CanGetStatus(Uint16 u16CanId)
+@@ -640,6 +1224,7 @@ Uint16 Hw_CanGetStatus(Uint16 u16CanId)
+     volatile struct CAN_REGS *pstRegs;
+ 
+     pstRegs = Hw_CanGetRegs(u16CanId);
++
+     if (pstRegs == (volatile struct CAN_REGS *)0)
+     {
+         return 0U;
+@@ -653,6 +1238,7 @@ Uint16 Hw_CanIsBusOff(Uint16 u16CanId)
+     volatile struct CAN_REGS *pstRegs;
+ 
+     pstRegs = Hw_CanGetRegs(u16CanId);
++
+     if (pstRegs == (volatile struct CAN_REGS *)0)
+     {
+         return 0U;
+@@ -664,26 +1250,99 @@ Uint16 Hw_CanIsBusOff(Uint16 u16CanId)
+ Uint16 Hw_CanRecoverBusOff(Uint16 u16CanId)
+ {
+     volatile struct CAN_REGS *pstRegs;
+-    Uint32 u32Wait = 0UL;
++    Uint32 u32ApiStart;
++    Uint32 u32ApiLimit;
++    Uint32 u32StageLimit;
++    Uint16 u16Result;
++
++    pstRegs = Hw_CanGetRegs(u16CanId);
++
++    if ((pstRegs == (volatile struct CAN_REGS *)0) || (gCanInited[u16CanId] == 0U) ||
++        (gCanRecovering[u16CanId] != 0U))
++    {
++        return HW_CAN_ERR;
++    }
++
++    /* 存在未决事务时不得走 Bus-Off 恢复：必须按 Hw_CanRecoverModule() 的契约处理 */
++    if (gCanPending[u16CanId] != 0U)
++    {
++        return HW_CAN_BUSY;
++    }
++
++    if (Hw_TimeBaseIsReady() == 0U)
++    {
++        return HW_CAN_ERR;
++    }
++
++    u32ApiStart   = Hw_TimeBaseTicks();
++    u32ApiLimit   = Hw_TimeBaseUsToTicks(HW_CAN_INIT_TOTAL_BUDGET_US);
++    u32StageLimit = Hw_TimeBaseUsToTicks(HW_CAN_INIT_STAGE_BUDGET_US);
++
++    if ((u32ApiLimit == 0UL) || (u32StageLimit == 0UL))
++    {
++        return HW_CAN_ERR;
++    }
++
++    /* 只进出初始化：不调用复位报文RAM/SWR 的助手，收发对象与位时序保持原状 */
++    /* 已经写过 CTL.INIT：此后任何"无法确认状态"的结果都按未决处理，锁住该模块收发 */
++    u16Result = Hw_CanEnterInitPlain(pstRegs, u32ApiStart, u32ApiLimit, u32StageLimit);
++    if (u16Result != HW_CAN_OK)
++    {
++        gCanPending[u16CanId] |= (HW_CAN_PENDING_TX | HW_CAN_PENDING_RX);
++        return HW_CAN_UNKNOWN;
++    }
++
++    u16Result = Hw_CanExitInit(pstRegs, u32ApiStart, u32ApiLimit, u32StageLimit);
++    if (u16Result != HW_CAN_OK)
++    {
++        gCanPending[u16CanId] |= (HW_CAN_PENDING_TX | HW_CAN_PENDING_RX);
++        return HW_CAN_UNKNOWN;
++    }
++
++    return HW_CAN_OK;
++}
++
++Uint16 Hw_CanRecoverModule(Uint16 u16CanId)
++{
++    volatile struct CAN_REGS *pstRegs;
+ 
+     pstRegs = Hw_CanGetRegs(u16CanId);
++
+     if (pstRegs == (volatile struct CAN_REGS *)0)
+     {
+-        return 0U;
++        return HW_CAN_ERR;
+     }
+ 
+-    /* 总线关闭后置INIT再清INIT即可重新接入总线
+-     * 注意：这里不能重做报文RAM初始化，否则报文对象配置会被全部清掉 */
+-    pstRegs->CAN_CTL.all |= HW_CAN_CTL_INIT;
++    /* 能否恢复取决于配置是否有效，而不是当前是否已初始化：恢复失败后必须还能重试 */
++    if (gCanCfgValid[u16CanId] == 0U)
++    {
++        return HW_CAN_ERR;
++    }
+ 
+-    while ((pstRegs->CAN_CTL.all & HW_CAN_CTL_INIT) == 0UL)
++    if (gCanRecovering[u16CanId] != 0U)
+     {
+-        u32Wait++;
+-        if (u32Wait > HW_CAN_POLL_TIMEOUT)
+-        {
+-            return 0U;
+-        }
++        return HW_CAN_BUSY;
++    }
++
++    if (Hw_TimeBaseIsReady() == 0U)
++    {
++        return HW_CAN_ERR;
+     }
+ 
+-    return Hw_CanExitInit(pstRegs);
++    /* 恢复期间禁止其它访问；未决标志保持到重建成功为止 */
++    gCanRecovering[u16CanId] = 1U;
++    gCanInited[u16CanId] = 0U;
++
++    if (Hw_CanSingleInit(&gCanCfg[u16CanId], gCanSysclkHz) == 0U)
++    {
++        /* 失败：未决与故障状态保留，配置仍有效，允许再次受控恢复 */
++        gCanRecovering[u16CanId] = 0U;
++        return HW_CAN_UNKNOWN;
++    }
++
++    gCanPending[u16CanId] = 0U;
++    gCanInited[u16CanId] = 1U;
++    gCanRecovering[u16CanId] = 0U;
++
++    return HW_CAN_OK;
+ }
+
+# ============ Broad/src/DrvCfg_EP15K.c (修改) ============
+diff --git a/Broad/src/DrvCfg_EP15K.c b/Broad/src/DrvCfg_EP15K.c
+index ab45a33..e08c9b7 100644
+--- a/Broad/src/DrvCfg_EP15K.c
++++ b/Broad/src/DrvCfg_EP15K.c
+@@ -1,6 +1,16 @@
+-/* Minimal F28374S board configuration. All peripheral requirements live here.
++/**
++ * @file DrvCfg_EP15K.c
++ * @author yetingheng (004182)
++ * @brief 全局底层配置表
++ * @version 0.1
++ * @date 2026-10-22
++ *
++ * @copyright Copyright (c) 2026
++ *
++ * Minimal F28374S board configuration. All peripheral requirements live here.
+  * Pin source: 15KW软件管脚整理文档.xlsx, Sheet1 (provided 2026-10-30).
+- * Power PWM outputs remain OST latched during this bring-up build. */
++ * Power PWM outputs remain OST latched during this bring-up build.
++ */
+ #include "DrvCfg_EP15K.h"
+ #include "F2837xS_Examples.h"
+ #include "Hw_ClaTask.h"
+@@ -14,7 +24,6 @@ const ST_CLOCK_CFG stClockCfg =
+ 
+ /* MUX addresses 0..4 and 6..7 are wired; address 5 is skipped. */
+ const Uint16 stClaMuxNext[8] = {1U, 2U, 3U, 4U, 6U, 6U, 7U, 0U};
+-const float fClaMuxAlpha = 0.20f;
+ 
+ /* stGpioCfgItem */
+ ST_GPIO_CFG_ITEM stGpioCfgItem[] =
+@@ -72,7 +81,7 @@ ST_GPIO_CFG_ITEM stGpioCfgItem[] =
+      *   GPIO16~GPIO23 : 列5(GMUX=01,MUX=01) = EPWM9A..EPWM12B -> HW_GPIO_FUNC_PERIPH5
+      * 原因：GPIO16~23 的列1 被 SPI-A(16/17/18/19)、EQEP1(20/21/22/23) 占满，
+      *       选列1 时引脚只是静态电平，表现为「这一路 PWM 完全没有驱动」。
+-     * 新增任何 ePWM 脚之前，先查表确认它落在哪一列，不要照抄邻居的宏。 */
++     * 新增任何 ePWM 脚之前，先查表确认它落在哪一列。 */
+     {0,  HW_GPIO_MUX_PWM, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_SYNC},  // EPWM1A — R竖管S1，INV主同步源。
+     {1,  HW_GPIO_MUX_PWM, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_SYNC},  // EPWM1B — R横管S3，互补于EPWM1A。
+     {2,  HW_GPIO_MUX_PWM, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_SYNC},  // EPWM2A — S竖管S1，同步于EPWM1A。
+@@ -125,114 +134,114 @@ ST_PWM_CFG_ITEM stPwmCfgItem[] =
+ 
+     /* EPWM1: A通道产生逆变R相竖管S1主波形  */
+     {
+-        HW_PWM_ID0, HW_PWM_TYPE_INV, 2500U, 2500U, 0U, 0U, TB_COUNT_UPDOWN,
++        HW_PWM_ID0, HW_PWM_TYPE_INV, 2500U, 1250U, 0U, 0U, TB_COUNT_UPDOWN,
+         HW_PWM_MASTER, 1U, HW_EPWM_SYNC_IN_FROM_DISABLE, HW_EPWM_SYNC_OUT_FROM_CNTR_ZERO,
+         80U,
+         HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_FORCE_LOW, HW_PWM_FORCE_LOW, HW_PWM_FORCE_LOW,
+         {AQ_NO_ACTION, AQ_NO_ACTION, AQ_SET, AQ_CLEAR, AQ_NO_ACTION, AQ_NO_ACTION}, // CAU=SET, CAD=CLEAR
+         {AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION},
+-        {1U, ET_CTR_ZERO, 1U, 0U, 1U} // SOCA 在 CTR=ZERO 触发 ADC
++        {1U, ET_CTR_ZERO, 0U, 1U, 0U} // SOCA 在 CTR=ZERO 触发 ADC
+     },
+ 
+     /* EPWM2: S相竖管S1主波形 */
+     {
+-        HW_PWM_ID1, HW_PWM_TYPE_INV, 2500U, 2500U, 0U, 0U, TB_COUNT_UPDOWN,
++        HW_PWM_ID1, HW_PWM_TYPE_INV, 2500U, 1250U, 0U, 0U, TB_COUNT_UPDOWN,
+         HW_PWM_SLAVE, 1U, HW_EPWM_SYNC_IN_FROM_SYNCOUT_EPWM1, HW_EPWM_SYNC_OUT_FROM_SYNCIN,
+         80U,
+         HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_FORCE_LOW, HW_PWM_FORCE_LOW, HW_PWM_FORCE_LOW,
+         {AQ_NO_ACTION, AQ_NO_ACTION, AQ_SET, AQ_CLEAR, AQ_NO_ACTION, AQ_NO_ACTION},
+         {AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION},
+-        {0U, ET_CTR_ZERO, 1U, 0U, 1U}
++        {0U, ET_CTR_ZERO, 0U, 0U, 0U}
+     },
+ 
+     /* EPWM3: T相竖管S1主波形 */
+     {
+-        HW_PWM_ID2, HW_PWM_TYPE_INV, 2500U, 2500U, 0U, 0U, TB_COUNT_UPDOWN,
++        HW_PWM_ID2, HW_PWM_TYPE_INV, 2500U, 1250U, 0U, 0U, TB_COUNT_UPDOWN,
+         HW_PWM_SLAVE, 1U, HW_EPWM_SYNC_IN_FROM_SYNCOUT_EPWM1, HW_EPWM_SYNC_OUT_FROM_DISABLE,
+         80U,
+         HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_FORCE_LOW, HW_PWM_FORCE_LOW, HW_PWM_FORCE_LOW,
+         {AQ_NO_ACTION, AQ_NO_ACTION, AQ_SET, AQ_CLEAR, AQ_NO_ACTION, AQ_NO_ACTION},
+         {AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION},
+-        {0U, ET_CTR_ZERO, 1U, 0U, 1U}
++        {0U, ET_CTR_ZERO, 0U, 0U, 0U}
+     },
+ 
+     /* EPWM4: R相竖管S4主波形 */
+     {
+-        HW_PWM_ID3, HW_PWM_TYPE_INV, 2500U, 2500U, 0U, 0U, TB_COUNT_UPDOWN,
++        HW_PWM_ID3, HW_PWM_TYPE_INV, 2500U, 1250U, 0U, 0U, TB_COUNT_UPDOWN,
+         HW_PWM_SLAVE, 1U, HW_EPWM_SYNC_IN_FROM_SYNCOUT_EPWM1, HW_EPWM_SYNC_OUT_FROM_SYNCIN,
+         80U,
+         HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_FORCE_LOW, HW_PWM_FORCE_LOW, HW_PWM_FORCE_LOW,
+         {AQ_NO_ACTION, AQ_NO_ACTION, AQ_SET, AQ_CLEAR, AQ_NO_ACTION, AQ_NO_ACTION},
+         {AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION},
+-        {0U, ET_CTR_ZERO, 1U, 0U, 1U}
++        {0U, ET_CTR_ZERO, 0U, 0U, 0U}
+     },
+ 
+     /* EPWM10: S相竖管S4主波形 */
+     {
+-        HW_PWM_ID9, HW_PWM_TYPE_INV, 2500U, 2500U, 0U, 0U, TB_COUNT_UPDOWN,
++        HW_PWM_ID9, HW_PWM_TYPE_INV, 2500U, 1250U, 0U, 0U, TB_COUNT_UPDOWN,
+         HW_PWM_SLAVE, 1U, HW_EPWM_SYNC_IN_FROM_SYNCOUT_EPWM1, HW_EPWM_SYNC_OUT_FROM_SYNCIN,
+         80U,
+         HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_FORCE_LOW, HW_PWM_FORCE_LOW, HW_PWM_FORCE_LOW,
+         {AQ_NO_ACTION, AQ_NO_ACTION, AQ_SET, AQ_CLEAR, AQ_NO_ACTION, AQ_NO_ACTION},
+         {AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION},
+-        {0U, ET_CTR_ZERO, 1U, 0U, 1U}
++        {0U, ET_CTR_ZERO, 0U, 0U, 0U}
+     },
+ 
+     /* EPWM11: T相竖管S4主波形 */
+     {
+-        HW_PWM_ID10, HW_PWM_TYPE_INV, 2500U, 2500U, 0U, 0U, TB_COUNT_UPDOWN,
++        HW_PWM_ID10, HW_PWM_TYPE_INV, 2500U, 1250U, 0U, 0U, TB_COUNT_UPDOWN,
+         HW_PWM_SLAVE, 1U, HW_EPWM_SYNC_IN_FROM_SYNCOUT_EPWM1, HW_EPWM_SYNC_OUT_FROM_DISABLE,
+         80U,
+         HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_FORCE_LOW, HW_PWM_FORCE_LOW, HW_PWM_FORCE_LOW,
+         {AQ_NO_ACTION, AQ_NO_ACTION, AQ_SET, AQ_CLEAR, AQ_NO_ACTION, AQ_NO_ACTION},
+         {AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION},
+-        {0U, ET_CTR_ZERO, 1U, 0U, 1U}
++        {0U, ET_CTR_ZERO, 0U, 0U, 0U}
+     },
+ 
+     /* ==================== PV Boost组 (20kHz UP，共同启动后独立运行) ==================== */
+ 
+-    /* EPWM7: PV1 Boost，启动计数 0，ZRO置高，CAU置低 */
++    /* EPWM7: PV1 Boost，相位基数 0，CAU置高，CAD置低 */
+     {
+-        HW_PWM_ID6, HW_PWM_TYPE_PV, 4999U, 0U, 0U, 0U, TB_COUNT_UP,
+-        HW_PWM_FREE, 1U, HW_EPWM_SYNC_IN_FROM_DISABLE, HW_EPWM_SYNC_OUT_FROM_DISABLE,
++        HW_PWM_ID6, HW_PWM_TYPE_PV, 2500U, 1250U, 0U, 0U, TB_COUNT_UPDOWN,
++        HW_PWM_SLAVE, 1U, HW_EPWM_SYNC_IN_FROM_SYNCOUT_EPWM1, HW_EPWM_SYNC_OUT_FROM_SYNCIN,
+         0U,
+         HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_FORCE_LOW, HW_PWM_FORCE_LOW, HW_PWM_FORCE_LOW,
+-        {AQ_SET, AQ_NO_ACTION, AQ_CLEAR, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION}, // ZRO=SET, CAU=CLEAR
++        {AQ_NO_ACTION, AQ_NO_ACTION, AQ_SET, AQ_CLEAR, AQ_NO_ACTION, AQ_NO_ACTION}, // CAU=SET, CAD=CLEAR
+         {AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION},
+-        {0U, ET_CTR_ZERO, 1U, 0U, 1U}
++        {1U, ET_CTR_PRD, 0U, 1U, 0U} // SOCA 在 CTR=PRD 触发 ADC
+     },
+ 
+-    /* EPWM9: PV2 Boost，启动计数 1250，对应相位 90° */
++    /* EPWM9: PV2 Boost，相位基数 2500，对应相位 180° */
+     {
+-        HW_PWM_ID8, HW_PWM_TYPE_PV, 4999U, 0U, 0U, 1250U, TB_COUNT_UP,
+-        HW_PWM_FREE, 1U, HW_EPWM_SYNC_IN_FROM_DISABLE, HW_EPWM_SYNC_OUT_FROM_DISABLE,
++        HW_PWM_ID8, HW_PWM_TYPE_PV, 2500U, 1250U, 0U, 2500U, TB_COUNT_UPDOWN,
++        HW_PWM_SLAVE, 0U, HW_EPWM_SYNC_IN_FROM_DISABLE, HW_EPWM_SYNC_OUT_FROM_DISABLE,
+         0U,
+         HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_FORCE_LOW, HW_PWM_FORCE_LOW, HW_PWM_FORCE_LOW,
+-        {AQ_SET, AQ_NO_ACTION, AQ_CLEAR, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION},
++        {AQ_NO_ACTION, AQ_NO_ACTION, AQ_SET, AQ_CLEAR, AQ_NO_ACTION, AQ_NO_ACTION}, // CAU=SET, CAD=CLEAR
+         {AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION},
+-        {0U, ET_CTR_ZERO, 1U, 0U, 1U}
++        {1U, ET_CTR_PRD, 0U, 1U, 0U} // SOCA 在 CTR=PRD 触发 ADC
+     },
+ 
+-    /* EPWM5: PV3 Boost，启动计数 2500，对应相位 180° */
++    /* EPWM5: PV3 Boost，相位基数 1250，对应相位 90° */
+     {
+-        HW_PWM_ID4, HW_PWM_TYPE_PV, 4999U, 0U, 0U, 2500U, TB_COUNT_UP,
+-        HW_PWM_FREE, 1U, HW_EPWM_SYNC_IN_FROM_DISABLE, HW_EPWM_SYNC_OUT_FROM_DISABLE,
++        HW_PWM_ID4, HW_PWM_TYPE_PV, 2500U, 1250U, 0U, 1250U, TB_COUNT_UPDOWN,
++        HW_PWM_SLAVE, 0U, HW_EPWM_SYNC_IN_FROM_DISABLE, HW_EPWM_SYNC_OUT_FROM_SYNCIN,
+         0U,
+         HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_FORCE_LOW, HW_PWM_FORCE_LOW, HW_PWM_FORCE_LOW,
+-        {AQ_SET, AQ_NO_ACTION, AQ_CLEAR, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION},
++        {AQ_NO_ACTION, AQ_NO_ACTION, AQ_SET, AQ_CLEAR, AQ_NO_ACTION, AQ_NO_ACTION}, // CAU=SET, CAD=CLEAR
+         {AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION},
+-        {0U, ET_CTR_ZERO, 1U, 0U, 1U}
++        {1U, ET_CTR_PRD, 0U, 1U, 0U} // SOCA 在 CTR=PRD 触发 ADC
+     },
+ 
+-    /* EPWM6: PV4 Boost，启动计数 3750，对应相位 270° */
++    /* EPWM6: PV4 Boost，相位基数 1250，对应相位 270° */
+     {
+-        HW_PWM_ID5, HW_PWM_TYPE_PV, 4999U, 0U, 0U, 3750U, TB_COUNT_UP,
+-        HW_PWM_FREE, 1U, HW_EPWM_SYNC_IN_FROM_DISABLE, HW_EPWM_SYNC_OUT_FROM_DISABLE,
++        HW_PWM_ID5, HW_PWM_TYPE_PV, 2500U, 1250U, 0U, 1250U, TB_COUNT_UPDOWN,
++        HW_PWM_SLAVE, 1U, HW_EPWM_SYNC_IN_FROM_DISABLE, HW_EPWM_SYNC_OUT_FROM_DISABLE,
+         0U,
+         HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_FORCE_LOW, HW_PWM_FORCE_LOW, HW_PWM_FORCE_LOW,
+-        {AQ_SET, AQ_NO_ACTION, AQ_CLEAR, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION},
++        {AQ_NO_ACTION, AQ_NO_ACTION, AQ_SET, AQ_CLEAR, AQ_NO_ACTION, AQ_NO_ACTION}, // CAU=SET, CAD=CLEAR
+         {AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION},
+-        {0U, ET_CTR_ZERO, 1U, 0U, 1U}
++        {1U, ET_CTR_PRD, 0U, 1U, 0U} // SOCA 在 CTR=PRD 触发 ADC
+     },
+ 
+     /* ==================== BUS 与 FAN ==================== */
+@@ -245,7 +254,7 @@ ST_PWM_CFG_ITEM stPwmCfgItem[] =
+         HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_FORCE_LOW, HW_PWM_FORCE_LOW, HW_PWM_FORCE_LOW,
+         {AQ_NO_ACTION, AQ_NO_ACTION, AQ_CLEAR, AQ_SET, AQ_NO_ACTION, AQ_NO_ACTION}, // 参考旧代码 CAU=CLEAR, CAD=SET
+         {AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION},
+-        {0U, ET_CTR_ZERO, 1U, 0U, 1U}
++        {0U, ET_CTR_ZERO, 0U, 0U, 0U}
+     },
+ 
+     /* EPWM12: FAN 风扇，10kHz 上下计数，无死区 */
+@@ -256,7 +265,7 @@ ST_PWM_CFG_ITEM stPwmCfgItem[] =
+         HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_FORCE_LOW, HW_PWM_FORCE_LOW, HW_PWM_FORCE_LOW,
+         {AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION},
+         {AQ_NO_ACTION, AQ_NO_ACTION, AQ_SET, AQ_CLEAR, AQ_NO_ACTION, AQ_NO_ACTION},
+-        {0U, ET_CTR_ZERO, 1U, 0U, 1U}
++        {0U, ET_CTR_ZERO, 0U, 0U, 0U}
+     }
+ };
+ 
+@@ -267,39 +276,41 @@ ST_PWM_CFG stPwmCfg =
+     sizeof(stPwmCfgItem) / sizeof(stPwmCfgItem[0])
+ };
+ 
+-/* stSysCpuTimer1 */
++/* stSysCpuTimer1: hardware interrupt every 100 us ((19999 + 1) / 200 MHz).
++   u16TickDivCoef = 10 divides it down to the 1 ms software heartbeat,
++   so the scheduler and the millisecond status stay unchanged. */
+ volatile ST_SYS_TIMER stSysCpuTimer1 =
+ {
+     (Uint16)HW_CPUTIMER_ID1,        /* u16TimerId     */
+     0U,                             /* u16Prescaler   */
+     1U,                             /* bEnableInt     */
+     1U,                             /* bEmuStop       */
+-    199999UL,      /* u32Period      */
++    19999UL,                        /* u32Period      */
+     0UL,                            /* u32Tick        */
+     0U,                             /* u16TickDivCnt  */
+-    1U                              /* u16TickDivCoef */
++    10U                             /* u16TickDivCoef */
+ };
+ 
+ /* stAdcChCfgItem */
+ const ST_ADC_CH_CFG_ITEM stAdcChCfgItem[] =
+ {
+- /* ADC-A              ADC-B              ADC-C              ADC-D  */
+-    {5, 30,  2}, {5, 60,  2}, {0, 0,  0}, {5, 30,  2},   /* SOC0  : A2 T相逆变电流   B2 T相直流分量   D2 S相逆变电流 */
+-    {0, 0,  0}, {5, 60,  0}, {0, 0,  0}, {5, 30, 14},   /* SOC1  :                        B0 R相直流分量   D14 R相逆变电流 */
+-    {0, 0,  0}, {5, 60,  1}, {5, 30,  2}, {5, 60,  1},   /* SOC2  :                        B1 S相直流分量   C2 PV2电流   D1 GFCI电流 */
+-    {5, 60,  3}, {5, 120, 3}, {5, 60,  3}, {5, 120, 3},   /* SOC3  : A3 T相电网电压   B3 MUX2   C3 S相逆变电压   D3 MUX1 */
+-    {5, 30,  4}, {0, 0,  0}, {5, 60,  4}, {5, 30,  0},   /* SOC4  : A4 PV1电流                    C4 R相逆变电压   D0 PV3电流 */
+-    {5, 60,  5}, {0, 0,  0}, {0, 0,  0}, {5, 30,  4},   /* SOC5  : A5 R相电网电压                                  D4 平衡电路电流 */
+-    {5, 60,  0}, {0, 0,  0}, {0, 0,  0}, {5, 30, 15},   /* SOC6  : A0 T相逆变电压                                  D15 PV4电流 */
+-    {5, 60,  1}, {0, 0,  0}, {0, 0,  0}, {0, 0,  0},   /* SOC7  : A1 S相电网电压 */
+-    {0, 0, 0}, {0, 0,  0}, {0, 0,  0}, {0, 0, 0},   /* SOC8  : unused */
+-    {0, 0, 0}, {0, 0,  0}, {0, 0,  0}, {0, 0, 0},   /* SOC9  : unused */
+-    {0, 0,  0}, {0, 0,  0}, {0, 0,  0}, {0, 0,  0},   /* SOC10 */
+-    {0, 0,  0}, {0, 0,  0}, {0, 0,  0}, {0, 0,  0},   /* SOC11 */
+-    {0, 0,  0}, {0, 0,  0}, {0, 0,  0}, {0, 0,  0},   /* SOC12 */
+-    {0, 0,  0}, {0, 0,  0}, {0, 0,  0}, {0, 0,  0},   /* SOC13 */
+-    {0, 0,  0}, {0, 0,  0}, {0, 0,  0}, {0, 0,  0},   /* SOC14 */
+-    {5, 120, 0}, {0, 0,  0}, {0, 0,  0}, {0, 0,  0},   /* SOC15 : ADC-A序列末位锚点，转换完成产生ADCINT1触发CLA Task1 */
++ /*    ADC-A        ADC-B        ADC-C       ADC-D  */
++    {5, 30,  2}, {5, 60,  2}, {0,  0,  0}, {5, 30,  2},   /* SOC0  : A2 T相逆变电流    B2  T相直流分量                                        D2   S相逆变电流                        */
++    {0,  0,  0}, {5, 60,  0}, {0,  0,  0}, {5, 30, 14},   /* SOC1  :              B0 R相直流分量                                           D14  R相逆变电流                        */
++    {0,  0,  0}, {5, 60,  1}, {21,30,  2}, {5, 60,  1},   /* SOC2  :              B1 S相直流分量       C2  PV2电流          D1   GFCI电流                           */
++    {5, 60,  3}, {5, 120, 3}, {5, 60,  3}, {5, 120, 3},   /* SOC3  : A3 T相电网电压    B3  MUX2      C3  S相逆变电压    D3   MUX1              */
++    {17,30,  4}, {0,  0,  0}, {5, 60,  4}, {13,30,  0},   /* SOC4  : A4 PV1电流                                               C4  R相逆变电压    D0   PV3电流                               */
++    {5, 60,  5}, {0,  0,  0}, {0,  0,  0}, {5, 30,  4},   /* SOC5  : A5 R相电网电压                                                                             D4  平衡电路电流                           */
++    {5, 60,  0}, {0,  0,  0}, {0,  0,  0}, {15,30, 15},   /* SOC6  : A0 T相逆变电压                                                                             D15 PV4电流                                  */
++    {5, 60,  1}, {0,  0,  0}, {0,  0,  0}, {0,  0,  0},   /* SOC7  : A1 S相电网电压 */
++    {0,  0,  0}, {0,  0,  0}, {0,  0,  0}, {0,  0,  0},   /* SOC8 */
++    {0,  0,  0}, {0,  0,  0}, {0,  0,  0}, {0,  0,  0},   /* SOC9 */
++    {0,  0,  0}, {0,  0,  0}, {0,  0,  0}, {0,  0,  0},   /* SOC10 */
++    {0,  0,  0}, {0,  0,  0}, {0,  0,  0}, {0,  0,  0},   /* SOC11 */
++    {0,  0,  0}, {0,  0,  0}, {0,  0,  0}, {0,  0,  0},   /* SOC12 */
++    {0,  0,  0}, {0,  0,  0}, {0,  0,  0}, {0,  0,  0},   /* SOC13 */
++    {0,  0,  0}, {0,  0,  0}, {0,  0,  0}, {0,  0,  0},   /* SOC14 */
++    {5, 120, 0}, {0,  0,  0}, {0,  0,  0}, {0,  0,  0},   /* SOC15 : ADC-A序列末位锚点，转换完成产生ADCINT1触发CLA Task1 */
+ };
+ 
+ /* stAdcCfgItem */
+@@ -354,11 +365,25 @@ ST_SCI_CFG stSciCfg =
+     50000000UL
+ };
+ 
+-/* stCanCfgItem */
++/* stCanRxObjCfgA: CAN-A receive objects, standard data frames only.
++ * Transitional zero filter: ID and mask are both 0 until the owner defines real IDs. */
++const ST_CAN_RX_OBJ_CFG stCanRxObjCfgA[] =
++{
++    {0x00000000UL, 0x00000000UL, 0U, 1U, 8U, 0U}
++};
++
++/* stCanRxObjCfgB: CAN-B receive objects, extended data frames only. */
++const ST_CAN_RX_OBJ_CFG stCanRxObjCfgB[] =
++{
++    {0x00000000UL, 0x00000000UL, 1U, 1U, 8U, 0U}
++};
++
++/* stCanCfgItem: pstRxObjCfg points at the per-object filter table above;
++ * bTxExtId is fixed per module (A = standard, B = extended). */
+ const ST_CAN_CFG_ITEM stCanCfgItem[] =
+ {
+-    {HW_CAN_ID_A, 500000UL, 1U, 4U, 5U, 1U, 0x00000000UL, 0x00000000UL, 0U, 0U, 1U},
+-    {HW_CAN_ID_B, 1000000UL, 1U, 4U, 5U, 1U, 0x00000000UL, 0x00000000UL, 1U, 0U, 1U},
++    {HW_CAN_ID_A, 500000UL, 1U, 4U, 5U, 1U, &stCanRxObjCfgA[0], 0U, 0U, 1U},
++    {HW_CAN_ID_B, 1000000UL, 1U, 4U, 5U, 1U, &stCanRxObjCfgB[0], 1U, 0U, 1U},
+ };
+ 
+ /* stCanCfg */
+
+# ============ main.c (修改) ============
+diff --git a/main.c b/main.c
+index 78538f5..f265d43 100644
+--- a/main.c
++++ b/main.c
+@@ -7,10 +7,13 @@
+ #include "F2837xS_Examples.h"
+ #include "F2837xS_Pie_defines.h"
+ #include "DrvCfg_EP15K.h"
++#include "Hw_TimeBase.h"
+ #include "Hw_ClaTask.h"
+ #include "Hw_WatchDog.h"
+ #include "Schedule.h"
+ #include "BringupStatus.h"
++#include "SampleData.h"
++#include "AdcSample.h"
+ 
+ static __interrupt void Isr_Control(void);
+ static __interrupt void Isr_Heartbeat(void);
+@@ -49,6 +52,14 @@ void PeripheralsInit(void)
+     {
+         stBringupStatus.unError.Bits.bClockInitError = 1U;
+     }
++
++    /* Free-running time base (CPU Timer0). Every time-bounded wait depends on it,
++     * so it must run before CAN or any other module starts waiting on time. */
++    if ((stBringupStatus.unError.Bits.bClockInitError == 0U) &&
++        (Hw_TimeBaseInit(stClockCfg.u32SysclkHz) == 0U))
++    {
++        stBringupStatus.unError.Bits.bCanInitError = 1U;
++    }
+     InterruptVectTableInit();
+ 
+     /* The Broad table drives GPIO88 and all relay controls low at boot. */
+@@ -65,8 +76,9 @@ void PeripheralsInit(void)
+         stBringupStatus.unError.Bits.bClaInitError = 1U;
+     }
+ 
++    AdcSampleInit();
++
+     CpuToCla1Msg.u16MuxAddress = 0U;
+-    CpuToCla1Msg.fAlpha = fClaMuxAlpha;
+     for (i = 0U; i < 8U; i++)
+     {
+         CpuToCla1Msg.u16NextMux[i] = stClaMuxNext[i];
+@@ -79,9 +91,18 @@ void PeripheralsInit(void)
+     {
+         stBringupStatus.unError.Bits.bSciInitError = 1U;
+     }
+-    Hw_CanInit(&stCanCfg);
+-    if ((Hw_CanIsInitialized(HW_CAN_ID_A) == 0U) ||
+-        (Hw_CanIsInitialized(HW_CAN_ID_B) == 0U))
++    /* CAN waits are time-bounded: only start it when the clock is good and the
++     * time base really runs. A failed time base blocks CAN instead of hanging. */
++    if ((stBringupStatus.unError.Bits.bClockInitError == 0U) &&
++        (stBringupStatus.unError.Bits.bCanInitError == 0U) &&
++        (Hw_TimeBaseIsReady() != 0U))
++    {
++        if (Hw_CanInit(&stCanCfg) == 0U)
++        {
++            stBringupStatus.unError.Bits.bCanInitError = 1U;
++        }
++    }
++    else
+     {
+         stBringupStatus.unError.Bits.bCanInitError = 1U;
+     }
+@@ -109,7 +130,8 @@ void ApplicationInit(void)
+  */
+ void TaskCreate(void)
+ {
+-    /* The 1 ms heartbeat is available, but no application task is registered. */
++    /* 1 kHz display filter over the L3 / L4 sampling results. */
++    (void)Task_Start(AdcSampleTask, 1U, 0U);
+ }
+ 
+ /**
+@@ -121,6 +143,7 @@ void StartSystem(void)
+     if (stBringupStatus.unError.all == 0U)
+     {
+         Hw_EnableAllPwmCLKSync();
++        Hw_OpenAllPWM();
+         stBringupStatus.bReady = 1U;
+     }
+ 
+@@ -133,7 +156,13 @@ void StartSystem(void)
+ static __interrupt void Isr_Control(void)
+ {
+     Uint16 next = Cla1ToCpuMsg.u16NextMuxAddress & 7U;
++
++    /* Sample the 20 result registers of this tick before advancing the MUX. */
++    AdcSampleFast();
++
+     stBringupStatus.u32ControlIsrCount++;
++    stBringupStatus.u16CalState = stSampleZero.u16State;
++    stBringupStatus.bCalReady = (stSampleZero.u16Valid != 0U) ? 1U : 0U;
+ 
+     /* CLA selects the next MUX address; CPU owns the GPIO writes. */
+     Hw_GpioWritePin(46U, next & 1U);
+@@ -149,22 +178,31 @@ static __interrupt void Isr_Heartbeat(void)
+ {
+     static Uint32 lastControlCount = 0UL;
+ 
++    /* TIF is cleared here only; Hw_CpuTimerIsrTick() does not touch it. */
+     Hw_CpuTimerClearIntFlag((ST_SYS_TIMER *)&stSysCpuTimer1);
+-    stBringupStatus.u32HeartbeatMs++;
+-    Task_OnTick();
+ 
+-    if (lastControlCount == stBringupStatus.u32ControlIsrCount)
++    stBringupStatus.u32Tick100us++;
++
++    /* u16TickDivCoef = 10: one return of 1 every 10 hardware interrupts, i.e. 1 ms. */
++    if (Hw_CpuTimerIsrTick((ST_SYS_TIMER *)&stSysCpuTimer1) != 0U)
+     {
+-        if (stBringupStatus.u16ControlStallMs != 0xFFFFU)
++        stBringupStatus.u32HeartbeatMs++;
++        Task_OnTick();
++
++        if (lastControlCount == stBringupStatus.u32ControlIsrCount)
+         {
+-            stBringupStatus.u16ControlStallMs++;
++            if (stBringupStatus.u16ControlStallMs != 0xFFFFU)
++            {
++                stBringupStatus.u16ControlStallMs++;
++            }
++        }
++        else
++        {
++            stBringupStatus.u16ControlStallMs = 0U;
++            lastControlCount = stBringupStatus.u32ControlIsrCount;
+         }
+     }
+-    else
+-    {
+-        stBringupStatus.u16ControlStallMs = 0U;
+-        lastControlCount = stBringupStatus.u32ControlIsrCount;
+-    }
++    Hw_GpioTogglePin(33);
+ }
+ 
+ void main(void)

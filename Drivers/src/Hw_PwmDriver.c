@@ -239,6 +239,7 @@ void Hw_PwmInit(ST_PWM_CFG *pstPwmCfg)
     for (i = 0U; i < pstPwmCfg->u16ItemNum; i++)
     {
         /* EPWM4/7/10 start the three hardware synchronization groups.
+         * 需要注意的是对于4/7/10三路是无法被写成DISABLE的，这BUG可能会发生在未来更改SYNCIN的时候
          * SYNCSELECT source codes: EPWM1=0, EPWM4=1, EPWM7=2, EPWM10=3. */
         Uint16 src = pstPwmCfg->pstPwmCfgItem[i].u16SyncInSel;
         Uint16 sel = 0U;
@@ -292,6 +293,18 @@ void Hw_StopAllPWM(void)
     for (i = 0U; i < HW_PWM_ID_MAX; i++)
     {
         gPwmRegs[i]->TZFRC.bit.OST = 1U;
+    }
+    EDIS;
+}
+/* Latch every ePWM output High. There is deliberately no release API in this image. */
+void Hw_OpenAllPWM(void)
+{
+    Uint16 i;
+    EALLOW;
+    for (i = 0U; i < HW_PWM_ID_MAX; i++)
+    {
+        gPwmRegs[i]->AQCSFRC.all = 0U;
+        gPwmRegs[i]->TZCLR.bit.OST = 1U;
     }
     EDIS;
 }

@@ -1,6 +1,16 @@
-/* Minimal F28374S board configuration. All peripheral requirements live here.
+/**
+ * @file DrvCfg_EP15K.c
+ * @author yetingheng (004182)
+ * @brief 全局底层配置表
+ * @version 0.1
+ * @date 2026-10-22
+ *
+ * @copyright Copyright (c) 2026
+ *
+ * Minimal F28374S board configuration. All peripheral requirements live here.
  * Pin source: 15KW软件管脚整理文档.xlsx, Sheet1 (provided 2026-10-30).
- * Power PWM outputs remain OST latched during this bring-up build. */
+ * Power PWM outputs remain OST latched during this bring-up build.
+ */
 #include "DrvCfg_EP15K.h"
 #include "F2837xS_Examples.h"
 #include "Hw_ClaTask.h"
@@ -14,7 +24,6 @@ const ST_CLOCK_CFG stClockCfg =
 
 /* MUX addresses 0..4 and 6..7 are wired; address 5 is skipped. */
 const Uint16 stClaMuxNext[8] = {1U, 2U, 3U, 4U, 6U, 6U, 7U, 0U};
-const float fClaMuxAlpha = 0.20f;
 
 /* stGpioCfgItem */
 ST_GPIO_CFG_ITEM stGpioCfgItem[] =
@@ -72,7 +81,7 @@ ST_GPIO_CFG_ITEM stGpioCfgItem[] =
      *   GPIO16~GPIO23 : 列5(GMUX=01,MUX=01) = EPWM9A..EPWM12B -> HW_GPIO_FUNC_PERIPH5
      * 原因：GPIO16~23 的列1 被 SPI-A(16/17/18/19)、EQEP1(20/21/22/23) 占满，
      *       选列1 时引脚只是静态电平，表现为「这一路 PWM 完全没有驱动」。
-     * 新增任何 ePWM 脚之前，先查表确认它落在哪一列，不要照抄邻居的宏。 */
+     * 新增任何 ePWM 脚之前，先查表确认它落在哪一列。 */
     {0,  HW_GPIO_MUX_PWM, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_SYNC},  // EPWM1A — R竖管S1，INV主同步源。
     {1,  HW_GPIO_MUX_PWM, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_SYNC},  // EPWM1B — R横管S3，互补于EPWM1A。
     {2,  HW_GPIO_MUX_PWM, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_SYNC},  // EPWM2A — S竖管S1，同步于EPWM1A。
@@ -125,114 +134,114 @@ ST_PWM_CFG_ITEM stPwmCfgItem[] =
 
     /* EPWM1: A通道产生逆变R相竖管S1主波形  */
     {
-        HW_PWM_ID0, HW_PWM_TYPE_INV, 2500U, 2500U, 0U, 0U, TB_COUNT_UPDOWN,
+        HW_PWM_ID0, HW_PWM_TYPE_INV, 2500U, 1250U, 0U, 0U, TB_COUNT_UPDOWN,
         HW_PWM_MASTER, 1U, HW_EPWM_SYNC_IN_FROM_DISABLE, HW_EPWM_SYNC_OUT_FROM_CNTR_ZERO,
         80U,
         HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_FORCE_LOW, HW_PWM_FORCE_LOW, HW_PWM_FORCE_LOW,
         {AQ_NO_ACTION, AQ_NO_ACTION, AQ_SET, AQ_CLEAR, AQ_NO_ACTION, AQ_NO_ACTION}, // CAU=SET, CAD=CLEAR
         {AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION},
-        {1U, ET_CTR_ZERO, 1U, 0U, 1U} // SOCA 在 CTR=ZERO 触发 ADC
+        {1U, ET_CTR_ZERO, 0U, 1U, 0U} // SOCA 在 CTR=ZERO 触发 ADC
     },
 
     /* EPWM2: S相竖管S1主波形 */
     {
-        HW_PWM_ID1, HW_PWM_TYPE_INV, 2500U, 2500U, 0U, 0U, TB_COUNT_UPDOWN,
+        HW_PWM_ID1, HW_PWM_TYPE_INV, 2500U, 1250U, 0U, 0U, TB_COUNT_UPDOWN,
         HW_PWM_SLAVE, 1U, HW_EPWM_SYNC_IN_FROM_SYNCOUT_EPWM1, HW_EPWM_SYNC_OUT_FROM_SYNCIN,
         80U,
         HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_FORCE_LOW, HW_PWM_FORCE_LOW, HW_PWM_FORCE_LOW,
         {AQ_NO_ACTION, AQ_NO_ACTION, AQ_SET, AQ_CLEAR, AQ_NO_ACTION, AQ_NO_ACTION},
         {AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION},
-        {0U, ET_CTR_ZERO, 1U, 0U, 1U}
+        {0U, ET_CTR_ZERO, 0U, 0U, 0U}
     },
 
     /* EPWM3: T相竖管S1主波形 */
     {
-        HW_PWM_ID2, HW_PWM_TYPE_INV, 2500U, 2500U, 0U, 0U, TB_COUNT_UPDOWN,
+        HW_PWM_ID2, HW_PWM_TYPE_INV, 2500U, 1250U, 0U, 0U, TB_COUNT_UPDOWN,
         HW_PWM_SLAVE, 1U, HW_EPWM_SYNC_IN_FROM_SYNCOUT_EPWM1, HW_EPWM_SYNC_OUT_FROM_DISABLE,
         80U,
         HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_FORCE_LOW, HW_PWM_FORCE_LOW, HW_PWM_FORCE_LOW,
         {AQ_NO_ACTION, AQ_NO_ACTION, AQ_SET, AQ_CLEAR, AQ_NO_ACTION, AQ_NO_ACTION},
         {AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION},
-        {0U, ET_CTR_ZERO, 1U, 0U, 1U}
+        {0U, ET_CTR_ZERO, 0U, 0U, 0U}
     },
 
     /* EPWM4: R相竖管S4主波形 */
     {
-        HW_PWM_ID3, HW_PWM_TYPE_INV, 2500U, 2500U, 0U, 0U, TB_COUNT_UPDOWN,
+        HW_PWM_ID3, HW_PWM_TYPE_INV, 2500U, 1250U, 0U, 0U, TB_COUNT_UPDOWN,
         HW_PWM_SLAVE, 1U, HW_EPWM_SYNC_IN_FROM_SYNCOUT_EPWM1, HW_EPWM_SYNC_OUT_FROM_SYNCIN,
         80U,
         HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_FORCE_LOW, HW_PWM_FORCE_LOW, HW_PWM_FORCE_LOW,
         {AQ_NO_ACTION, AQ_NO_ACTION, AQ_SET, AQ_CLEAR, AQ_NO_ACTION, AQ_NO_ACTION},
         {AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION},
-        {0U, ET_CTR_ZERO, 1U, 0U, 1U}
+        {0U, ET_CTR_ZERO, 0U, 0U, 0U}
     },
 
     /* EPWM10: S相竖管S4主波形 */
     {
-        HW_PWM_ID9, HW_PWM_TYPE_INV, 2500U, 2500U, 0U, 0U, TB_COUNT_UPDOWN,
+        HW_PWM_ID9, HW_PWM_TYPE_INV, 2500U, 1250U, 0U, 0U, TB_COUNT_UPDOWN,
         HW_PWM_SLAVE, 1U, HW_EPWM_SYNC_IN_FROM_SYNCOUT_EPWM1, HW_EPWM_SYNC_OUT_FROM_SYNCIN,
         80U,
         HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_FORCE_LOW, HW_PWM_FORCE_LOW, HW_PWM_FORCE_LOW,
         {AQ_NO_ACTION, AQ_NO_ACTION, AQ_SET, AQ_CLEAR, AQ_NO_ACTION, AQ_NO_ACTION},
         {AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION},
-        {0U, ET_CTR_ZERO, 1U, 0U, 1U}
+        {0U, ET_CTR_ZERO, 0U, 0U, 0U}
     },
 
     /* EPWM11: T相竖管S4主波形 */
     {
-        HW_PWM_ID10, HW_PWM_TYPE_INV, 2500U, 2500U, 0U, 0U, TB_COUNT_UPDOWN,
+        HW_PWM_ID10, HW_PWM_TYPE_INV, 2500U, 1250U, 0U, 0U, TB_COUNT_UPDOWN,
         HW_PWM_SLAVE, 1U, HW_EPWM_SYNC_IN_FROM_SYNCOUT_EPWM1, HW_EPWM_SYNC_OUT_FROM_DISABLE,
         80U,
         HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_FORCE_LOW, HW_PWM_FORCE_LOW, HW_PWM_FORCE_LOW,
         {AQ_NO_ACTION, AQ_NO_ACTION, AQ_SET, AQ_CLEAR, AQ_NO_ACTION, AQ_NO_ACTION},
         {AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION},
-        {0U, ET_CTR_ZERO, 1U, 0U, 1U}
+        {0U, ET_CTR_ZERO, 0U, 0U, 0U}
     },
 
     /* ==================== PV Boost组 (20kHz UP，共同启动后独立运行) ==================== */
 
-    /* EPWM7: PV1 Boost，启动计数 0，ZRO置高，CAU置低 */
+    /* EPWM7: PV1 Boost，相位基数 0，CAU置高，CAD置低 */
     {
-        HW_PWM_ID6, HW_PWM_TYPE_PV, 4999U, 0U, 0U, 0U, TB_COUNT_UP,
-        HW_PWM_FREE, 1U, HW_EPWM_SYNC_IN_FROM_DISABLE, HW_EPWM_SYNC_OUT_FROM_DISABLE,
+        HW_PWM_ID6, HW_PWM_TYPE_PV, 2500U, 1250U, 0U, 0U, TB_COUNT_UPDOWN,
+        HW_PWM_SLAVE, 1U, HW_EPWM_SYNC_IN_FROM_SYNCOUT_EPWM1, HW_EPWM_SYNC_OUT_FROM_SYNCIN,
         0U,
         HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_FORCE_LOW, HW_PWM_FORCE_LOW, HW_PWM_FORCE_LOW,
-        {AQ_SET, AQ_NO_ACTION, AQ_CLEAR, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION}, // ZRO=SET, CAU=CLEAR
+        {AQ_NO_ACTION, AQ_NO_ACTION, AQ_SET, AQ_CLEAR, AQ_NO_ACTION, AQ_NO_ACTION}, // CAU=SET, CAD=CLEAR
         {AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION},
-        {0U, ET_CTR_ZERO, 1U, 0U, 1U}
+        {1U, ET_CTR_PRD, 0U, 1U, 0U} // SOCA 在 CTR=PRD 触发 ADC
     },
 
-    /* EPWM9: PV2 Boost，启动计数 1250，对应相位 90° */
+    /* EPWM9: PV2 Boost，相位基数 2500，对应相位 180° */
     {
-        HW_PWM_ID8, HW_PWM_TYPE_PV, 4999U, 0U, 0U, 1250U, TB_COUNT_UP,
-        HW_PWM_FREE, 1U, HW_EPWM_SYNC_IN_FROM_DISABLE, HW_EPWM_SYNC_OUT_FROM_DISABLE,
+        HW_PWM_ID8, HW_PWM_TYPE_PV, 2500U, 1250U, 0U, 2500U, TB_COUNT_UPDOWN,
+        HW_PWM_SLAVE, 0U, HW_EPWM_SYNC_IN_FROM_DISABLE, HW_EPWM_SYNC_OUT_FROM_DISABLE,
         0U,
         HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_FORCE_LOW, HW_PWM_FORCE_LOW, HW_PWM_FORCE_LOW,
-        {AQ_SET, AQ_NO_ACTION, AQ_CLEAR, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION},
+        {AQ_NO_ACTION, AQ_NO_ACTION, AQ_SET, AQ_CLEAR, AQ_NO_ACTION, AQ_NO_ACTION}, // CAU=SET, CAD=CLEAR
         {AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION},
-        {0U, ET_CTR_ZERO, 1U, 0U, 1U}
+        {1U, ET_CTR_PRD, 0U, 1U, 0U} // SOCA 在 CTR=PRD 触发 ADC
     },
 
-    /* EPWM5: PV3 Boost，启动计数 2500，对应相位 180° */
+    /* EPWM5: PV3 Boost，相位基数 1250，对应相位 90° */
     {
-        HW_PWM_ID4, HW_PWM_TYPE_PV, 4999U, 0U, 0U, 2500U, TB_COUNT_UP,
-        HW_PWM_FREE, 1U, HW_EPWM_SYNC_IN_FROM_DISABLE, HW_EPWM_SYNC_OUT_FROM_DISABLE,
+        HW_PWM_ID4, HW_PWM_TYPE_PV, 2500U, 1250U, 0U, 1250U, TB_COUNT_UPDOWN,
+        HW_PWM_SLAVE, 0U, HW_EPWM_SYNC_IN_FROM_DISABLE, HW_EPWM_SYNC_OUT_FROM_SYNCIN,
         0U,
         HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_FORCE_LOW, HW_PWM_FORCE_LOW, HW_PWM_FORCE_LOW,
-        {AQ_SET, AQ_NO_ACTION, AQ_CLEAR, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION},
+        {AQ_NO_ACTION, AQ_NO_ACTION, AQ_SET, AQ_CLEAR, AQ_NO_ACTION, AQ_NO_ACTION}, // CAU=SET, CAD=CLEAR
         {AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION},
-        {0U, ET_CTR_ZERO, 1U, 0U, 1U}
+        {1U, ET_CTR_PRD, 0U, 1U, 0U} // SOCA 在 CTR=PRD 触发 ADC
     },
 
-    /* EPWM6: PV4 Boost，启动计数 3750，对应相位 270° */
+    /* EPWM6: PV4 Boost，相位基数 1250，对应相位 270° */
     {
-        HW_PWM_ID5, HW_PWM_TYPE_PV, 4999U, 0U, 0U, 3750U, TB_COUNT_UP,
-        HW_PWM_FREE, 1U, HW_EPWM_SYNC_IN_FROM_DISABLE, HW_EPWM_SYNC_OUT_FROM_DISABLE,
+        HW_PWM_ID5, HW_PWM_TYPE_PV, 2500U, 1250U, 0U, 1250U, TB_COUNT_UPDOWN,
+        HW_PWM_SLAVE, 1U, HW_EPWM_SYNC_IN_FROM_DISABLE, HW_EPWM_SYNC_OUT_FROM_DISABLE,
         0U,
         HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_FORCE_LOW, HW_PWM_FORCE_LOW, HW_PWM_FORCE_LOW,
-        {AQ_SET, AQ_NO_ACTION, AQ_CLEAR, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION},
+        {AQ_NO_ACTION, AQ_NO_ACTION, AQ_SET, AQ_CLEAR, AQ_NO_ACTION, AQ_NO_ACTION}, // CAU=SET, CAD=CLEAR
         {AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION},
-        {0U, ET_CTR_ZERO, 1U, 0U, 1U}
+        {1U, ET_CTR_PRD, 0U, 1U, 0U} // SOCA 在 CTR=PRD 触发 ADC
     },
 
     /* ==================== BUS 与 FAN ==================== */
@@ -245,7 +254,7 @@ ST_PWM_CFG_ITEM stPwmCfgItem[] =
         HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_FORCE_LOW, HW_PWM_FORCE_LOW, HW_PWM_FORCE_LOW,
         {AQ_NO_ACTION, AQ_NO_ACTION, AQ_CLEAR, AQ_SET, AQ_NO_ACTION, AQ_NO_ACTION}, // 参考旧代码 CAU=CLEAR, CAD=SET
         {AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION},
-        {0U, ET_CTR_ZERO, 1U, 0U, 1U}
+        {0U, ET_CTR_ZERO, 0U, 0U, 0U}
     },
 
     /* EPWM12: FAN 风扇，10kHz 上下计数，无死区 */
@@ -256,7 +265,7 @@ ST_PWM_CFG_ITEM stPwmCfgItem[] =
         HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_FORCE_LOW, HW_PWM_FORCE_LOW, HW_PWM_FORCE_LOW,
         {AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION},
         {AQ_NO_ACTION, AQ_NO_ACTION, AQ_SET, AQ_CLEAR, AQ_NO_ACTION, AQ_NO_ACTION},
-        {0U, ET_CTR_ZERO, 1U, 0U, 1U}
+        {0U, ET_CTR_ZERO, 0U, 0U, 0U}
     }
 };
 
@@ -267,39 +276,41 @@ ST_PWM_CFG stPwmCfg =
     sizeof(stPwmCfgItem) / sizeof(stPwmCfgItem[0])
 };
 
-/* stSysCpuTimer1 */
+/* stSysCpuTimer1: hardware interrupt every 100 us ((19999 + 1) / 200 MHz).
+   u16TickDivCoef = 10 divides it down to the 1 ms software heartbeat,
+   so the scheduler and the millisecond status stay unchanged. */
 volatile ST_SYS_TIMER stSysCpuTimer1 =
 {
     (Uint16)HW_CPUTIMER_ID1,        /* u16TimerId     */
     0U,                             /* u16Prescaler   */
     1U,                             /* bEnableInt     */
     1U,                             /* bEmuStop       */
-    199999UL,      /* u32Period      */
+    19999UL,                        /* u32Period      */
     0UL,                            /* u32Tick        */
     0U,                             /* u16TickDivCnt  */
-    1U                              /* u16TickDivCoef */
+    10U                             /* u16TickDivCoef */
 };
 
 /* stAdcChCfgItem */
 const ST_ADC_CH_CFG_ITEM stAdcChCfgItem[] =
 {
- /* ADC-A              ADC-B              ADC-C              ADC-D  */
-    {5, 30,  2}, {5, 60,  2}, {0, 0,  0}, {5, 30,  2},   /* SOC0  : A2 T相逆变电流   B2 T相直流分量   D2 S相逆变电流 */
-    {0, 0,  0}, {5, 60,  0}, {0, 0,  0}, {5, 30, 14},   /* SOC1  :                        B0 R相直流分量   D14 R相逆变电流 */
-    {0, 0,  0}, {5, 60,  1}, {5, 30,  2}, {5, 60,  1},   /* SOC2  :                        B1 S相直流分量   C2 PV2电流   D1 GFCI电流 */
-    {5, 60,  3}, {5, 120, 3}, {5, 60,  3}, {5, 120, 3},   /* SOC3  : A3 T相电网电压   B3 MUX2   C3 S相逆变电压   D3 MUX1 */
-    {5, 30,  4}, {0, 0,  0}, {5, 60,  4}, {5, 30,  0},   /* SOC4  : A4 PV1电流                    C4 R相逆变电压   D0 PV3电流 */
-    {5, 60,  5}, {0, 0,  0}, {0, 0,  0}, {5, 30,  4},   /* SOC5  : A5 R相电网电压                                  D4 平衡电路电流 */
-    {5, 60,  0}, {0, 0,  0}, {0, 0,  0}, {5, 30, 15},   /* SOC6  : A0 T相逆变电压                                  D15 PV4电流 */
-    {5, 60,  1}, {0, 0,  0}, {0, 0,  0}, {0, 0,  0},   /* SOC7  : A1 S相电网电压 */
-    {0, 0, 0}, {0, 0,  0}, {0, 0,  0}, {0, 0, 0},   /* SOC8  : unused */
-    {0, 0, 0}, {0, 0,  0}, {0, 0,  0}, {0, 0, 0},   /* SOC9  : unused */
-    {0, 0,  0}, {0, 0,  0}, {0, 0,  0}, {0, 0,  0},   /* SOC10 */
-    {0, 0,  0}, {0, 0,  0}, {0, 0,  0}, {0, 0,  0},   /* SOC11 */
-    {0, 0,  0}, {0, 0,  0}, {0, 0,  0}, {0, 0,  0},   /* SOC12 */
-    {0, 0,  0}, {0, 0,  0}, {0, 0,  0}, {0, 0,  0},   /* SOC13 */
-    {0, 0,  0}, {0, 0,  0}, {0, 0,  0}, {0, 0,  0},   /* SOC14 */
-    {5, 120, 0}, {0, 0,  0}, {0, 0,  0}, {0, 0,  0},   /* SOC15 : ADC-A序列末位锚点，转换完成产生ADCINT1触发CLA Task1 */
+ /*    ADC-A        ADC-B        ADC-C       ADC-D  */
+    {5, 30,  2}, {5, 60,  2}, {0,  0,  0}, {5, 30,  2},   /* SOC0  : A2 T相逆变电流    B2  T相直流分量                                        D2   S相逆变电流                        */
+    {0,  0,  0}, {5, 60,  0}, {0,  0,  0}, {5, 30, 14},   /* SOC1  :              B0 R相直流分量                                           D14  R相逆变电流                        */
+    {0,  0,  0}, {5, 60,  1}, {21,30,  2}, {5, 60,  1},   /* SOC2  :              B1 S相直流分量       C2  PV2电流          D1   GFCI电流                           */
+    {5, 60,  3}, {5, 120, 3}, {5, 60,  3}, {5, 120, 3},   /* SOC3  : A3 T相电网电压    B3  MUX2      C3  S相逆变电压    D3   MUX1              */
+    {17,30,  4}, {0,  0,  0}, {5, 60,  4}, {13,30,  0},   /* SOC4  : A4 PV1电流                                               C4  R相逆变电压    D0   PV3电流                               */
+    {5, 60,  5}, {0,  0,  0}, {0,  0,  0}, {5, 30,  4},   /* SOC5  : A5 R相电网电压                                                                             D4  平衡电路电流                           */
+    {5, 60,  0}, {0,  0,  0}, {0,  0,  0}, {15,30, 15},   /* SOC6  : A0 T相逆变电压                                                                             D15 PV4电流                                  */
+    {5, 60,  1}, {0,  0,  0}, {0,  0,  0}, {0,  0,  0},   /* SOC7  : A1 S相电网电压 */
+    {0,  0,  0}, {0,  0,  0}, {0,  0,  0}, {0,  0,  0},   /* SOC8 */
+    {0,  0,  0}, {0,  0,  0}, {0,  0,  0}, {0,  0,  0},   /* SOC9 */
+    {0,  0,  0}, {0,  0,  0}, {0,  0,  0}, {0,  0,  0},   /* SOC10 */
+    {0,  0,  0}, {0,  0,  0}, {0,  0,  0}, {0,  0,  0},   /* SOC11 */
+    {0,  0,  0}, {0,  0,  0}, {0,  0,  0}, {0,  0,  0},   /* SOC12 */
+    {0,  0,  0}, {0,  0,  0}, {0,  0,  0}, {0,  0,  0},   /* SOC13 */
+    {0,  0,  0}, {0,  0,  0}, {0,  0,  0}, {0,  0,  0},   /* SOC14 */
+    {5, 120, 0}, {0,  0,  0}, {0,  0,  0}, {0,  0,  0},   /* SOC15 : ADC-A序列末位锚点，转换完成产生ADCINT1触发CLA Task1 */
 };
 
 /* stAdcCfgItem */
@@ -341,9 +352,9 @@ ST_CLA_CFG stClaCfg =
 /* stSciCfgItem */
 const ST_SCI_CFG_ITEM stSciCfgItem[] =
 {
-    {HW_SCI_ID_A,  19200UL, 0U},
-    {HW_SCI_ID_C, 115200UL, 0U},
-    {HW_SCI_ID_D,  38400UL, 0U},
+    {HW_SCI_ID_A,  19200UL, 0U, 0U,  8U},   /* 8N1，RX 阈值 8（本步不使能中断） */
+    {HW_SCI_ID_C, 115200UL, 0U, 0U,  8U},
+    {HW_SCI_ID_D,  38400UL, 0U, 0U,  8U},
 };
 
 /* stSciCfg */
@@ -354,11 +365,25 @@ ST_SCI_CFG stSciCfg =
     50000000UL
 };
 
-/* stCanCfgItem */
+/* stCanRxObjCfgA: CAN-A receive objects, standard data frames only.
+ * Transitional zero filter: ID and mask are both 0 until the owner defines real IDs. */
+const ST_CAN_RX_OBJ_CFG stCanRxObjCfgA[] =
+{
+    {0x00000000UL, 0x00000000UL, 0U, 1U, 8U, 0U}
+};
+
+/* stCanRxObjCfgB: CAN-B receive objects, extended data frames only. */
+const ST_CAN_RX_OBJ_CFG stCanRxObjCfgB[] =
+{
+    {0x00000000UL, 0x00000000UL, 1U, 1U, 8U, 0U}
+};
+
+/* stCanCfgItem: pstRxObjCfg points at the per-object filter table above;
+ * bTxExtId is fixed per module (A = standard, B = extended). */
 const ST_CAN_CFG_ITEM stCanCfgItem[] =
 {
-    {HW_CAN_ID_A, 500000UL, 1U, 4U, 5U, 1U, 0x00000000UL, 0x00000000UL, 0U, 0U, 1U},
-    {HW_CAN_ID_B, 1000000UL, 1U, 4U, 5U, 1U, 0x00000000UL, 0x00000000UL, 1U, 0U, 1U},
+    {HW_CAN_ID_A, 500000UL, 1U, 4U, 5U, 1U, &stCanRxObjCfgA[0], 0U, 0U, 1U},
+    {HW_CAN_ID_B, 1000000UL, 1U, 4U, 5U, 1U, &stCanRxObjCfgB[0], 1U, 0U, 1U},
 };
 
 /* stCanCfg */

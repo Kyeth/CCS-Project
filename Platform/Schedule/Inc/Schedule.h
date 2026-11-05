@@ -1,6 +1,11 @@
 /**
  * @file Schedule.h
+ * @author yetingheng (004182)
  * @brief Cooperative background task scheduler driven by the 1 ms heartbeat.
+ * @version 0.2
+ * @date 2026-11-04
+ *
+ * @copyright Copyright (c) 2026
  */
 
 #ifndef SCHEDULE_H

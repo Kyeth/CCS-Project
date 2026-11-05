@@ -23,6 +23,5 @@ extern ST_SCI_CFG stSciCfg;
 extern ST_CAN_CFG stCanCfg;
 extern volatile ST_SYS_TIMER stSysCpuTimer1;
 extern const Uint16 stClaMuxNext[8];
-extern const float fClaMuxAlpha;
 
 #endif
