@@ -27,6 +27,7 @@
 #define HW_SCI_CLEAR_WAIT_TX    (1U)
 #define HW_SCI_CLEAR_STILL_ERR  (2U)
 #define HW_SCI_CLEAR_UNREADABLE (3U)
+#define HW_SCI_CLEAR_TX_DIRTY   (4U) /* 复位已执行，但回读 TXFFST 仍非零 */
 
 typedef struct
 {
@@ -38,7 +39,7 @@ typedef struct
 Uint16 Hw_SciTryReadByte(Uint16 id, Uint16 *data);
 Uint16 Hw_SciTryWriteByte(Uint16 id, Uint16 data);
 Uint16 Hw_SciGetRxStatus(Uint16 id, ST_SCI_RX_STATUS *pstStatus, Uint16 bClear);
-Uint16 Hw_SciClearRxError(Uint16 id, Uint16 *pu16Remain);
+Uint16 Hw_SciClearRxError(Uint16 id, Uint16 bForce, Uint16 *pu16Remain);
 Uint16 Hw_SciGetTxIdle(Uint16 id, Uint16 *pu16Idle);
 Uint16 Hw_SciIsTxIdle(Uint16 id);
 Uint16 Hw_SciGetRxError(Uint16 id);

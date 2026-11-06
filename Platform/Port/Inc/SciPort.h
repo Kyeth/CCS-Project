@@ -50,7 +50,8 @@
 #define SCI_REC_PHASE_CLASSIFY   (1U) /* 读状态分类，判断是否需要复位 */
 #define SCI_REC_PHASE_WAIT_TX    (2U) /* 等发送空闲（最多 8 ms） */
 #define SCI_REC_PHASE_RESET      (3U) /* 执行一次受限硬件清除 */
-#define SCI_REC_PHASE_RESET_DONE (4U) /* 评估清除结果 */
+#define SCI_REC_PHASE_RESET_DONE (4U)  /* 评估清除结果 */
+#define SCI_REC_PHASE_VERIFY_TX  (5U)  /* 显式重试前的 TX FIFO 残留复核 */
 
 /* SciPortRecover() 返回值。 */
 #define SCI_RECOVER_IDLE_OK (0U) /* 本来就不在恢复中 */
@@ -60,11 +61,13 @@
 #define SCI_RECOVER_UNKNOWN (4U) /* 结果不确定，端口进入 PAUSED */
 #define SCI_RECOVER_PARAM   (5U) /* 参数错误或驱动不可用 */
 
-/* SciPortRecover() 的出参含义：见 docs 05b-sci-wiring.md §3.4.3。 */
-#define SCI_RECOVER_OUT_VALID      (0x0001U) /* 出参有效 */
-#define SCI_RECOVER_OUT_WAIT_TX    (0x0002U) /* 表示“仍在等待发送空闲” */
-#define SCI_RECOVER_OUT_STILL_ERR  (0x0004U) /* 表示“复位后仍有错误位” */
-#define SCI_RECOVER_OUT_UNREADABLE (0x0008U) /* 表示“状态不可读/参数错” */
+/* SciPortRecover() 的出参 pu16Remain 只报“剩余错误位”（HW_SCI_RXSTS_*），
+ * 不再掺入标志位：FE/PE/OE/BI 与任何标志宏都不会撞位。
+ * 恢复过程中的状态性信息改用 SciPortRecoveryFlags() 单独查询。 */
+#define SCI_RECOVER_FLAG_VALID      (0x0001U) /* 端口正处于恢复流程 */
+#define SCI_RECOVER_FLAG_WAIT_TX    (0x0002U) /* 正在等发送空闲 */
+#define SCI_RECOVER_FLAG_STILL_ERR  (0x0004U) /* 上次复位后仍有错误位 */
+#define SCI_RECOVER_FLAG_UNREADABLE (0x0008U) /* 上次复位结果不可读 */
 
 /* 批次记录单元长度取目标编译器的 sizeof，不硬编码字数。 */
 typedef struct {
@@ -91,7 +94,7 @@ typedef struct {
     Uint16 (*pfTryWrite)(Uint16 u16PortId, Uint16 u16Data);
     Uint16 (*pfTryGetTick)(Uint32 *pu32Tick);
     Uint16 (*pfGetStatus)(Uint16 u16PortId, ST_SCI_RX_STATUS *pstStatus, Uint16 bClear);
-    Uint16 (*pfClearRxError)(Uint16 u16PortId, Uint16 *pu16Remain);
+    Uint16 (*pfClearRxError)(Uint16 u16PortId, Uint16 bForce, Uint16 *pu16Remain);
     Uint16 (*pfIsTxIdle)(Uint16 u16PortId, Uint16 *pu16Idle);
 } ST_SCI_PORT_DRV;
 
@@ -113,7 +116,9 @@ typedef struct {
     Uint16 u16RxState;             /* SCI_RX_* */
     Uint16 u16RecPhase;            /* SCI_REC_PHASE_* */
     Uint16 u16ClearResult;         /* 最近一次 HW_SCI_CLEAR_* 结果 */
-    Uint16 u16RecRemain;           /* 复位/等待时的未读字节数（出参缓存） */
+    Uint16 u16RecRemain;           /* 剩余错误位（HW_SCI_RXSTS_*），出参缓存 */
+    Uint16 u16RecFifoLevel;        /* CLASSIFY 时读到的 RX FIFO 层数（仅观测） */
+    Uint16 bForceReset;            /* 已判定“超阈值强制复位”，尚未执行 */
     Uint16 u16RxErrSeen;           /* 恢复期间看到的错误位并集 */
     Uint16 bTimeBaseValid;         /* 已建立时间基准 */
     Uint16 bRxSuspend;             /* 接收侧挂起：不发布批次 */
@@ -132,6 +137,7 @@ typedef struct {
     Uint32 u32RxErrEvents;         /* 硬件错误事件数（不含纯软件重同步） */
     Uint32 u32RecoverDrop;         /* 恢复期间丢弃的字节数 */
     Uint32 u32TxResetDrop;         /* 强制复位实际清掉的 TX 字节数 */
+    Uint32 u32ForceResets;         /* 实际执行的强制复位次数（预算不足不记） */
     Uint32 u32TimeSrcFail;         /* 恢复过程中时间源读取失败次数 */
 } ST_SCI_PORT;
 
@@ -151,8 +157,10 @@ void SciPortInit(void);
 Uint16 SciPortBindDriver(Uint16 u16PortId, const ST_SCI_PORT_DRV *pstDrv);
 void SciPortSetSysclkHz(Uint32 u32SysclkHz);
 
-/* 100 us 心跳：搬运 RX（或丢弃 FIFO 残留）。返回本轮有动作的端口数。 */
+/* 100 us 心跳：搬运 RX（或丢弃 FIFO 残留）。返回本轮有动作的端口数。
+ * 调用次数单独计数，便于主机桩验证“初始化失败后心跳不再服务端口”。 */
 Uint16 SciPortService100us(void);
+Uint32 SciPortServiceCallCount(void);
 /* 1 ms 前台：推进 TX。 */
 void SciPortTask(void);
 
@@ -167,15 +175,23 @@ Uint16 SciPortWriteTx(Uint16 u16PortId, const Uint16 *pu16Data, Uint16 u16Count)
 Uint16 SciPortTxFree(Uint16 u16PortId);
 
 /* 恢复状态机（05B）：只在前台调用，每轮最多执行一个受限动作，可跨轮继续。
- * 返回值 SCI_RECOVER_*；pu16Remain 在 WAIT_TX 时给出未读字节数。 */
+ * 返回值 SCI_RECOVER_*。pu16Remain 报“剩余错误位”；参数或驱动不可用时
+ * 保持调用方原值不写（可用 0xFFFF 哨兵验证）。状态性信息见 SciPortRecoveryFlags()。 */
 Uint16 SciPortRecover(Uint16 u16PortId, Uint16 *pu16Remain);
 /* 从 PAUSED 重新开始恢复（显式重试，不重复计入硬件错误事件数）。 */
 Uint16 SciPortRecoverRetry(Uint16 u16PortId);
+
+/* 时间源失败后作废所有端口的 WAIT_TX 等待基准（100 us 心跳/1 ms 前台失败路径调用）。
+ * 语义：下一次成功读取只建立基准，必须重新累计满判定阈值才允许强制复位。 */
+void SciPortInvalidateWaitBases(void);
 Uint16 SciPortRxState(Uint16 u16PortId);
 Uint16 SciPortRecPhase(Uint16 u16PortId);
 Uint16 SciPortClearResult(Uint16 u16PortId);
 Uint16 SciPortRxErrorCount(Uint16 u16PortId);
 Uint16 SciPortRxErrSeen(Uint16 u16PortId);
+Uint16 SciPortRecoveryFlags(Uint16 u16PortId);
+Uint16 SciPortRecFifoLevel(Uint16 u16PortId);
+Uint32 SciPortForceResets(Uint16 u16PortId);
 Uint32 SciPortRxErrEvents(Uint16 u16PortId);
 Uint32 SciPortRecoverDrop(Uint16 u16PortId);
 Uint32 SciPortTimeSrcFail(Uint16 u16PortId);

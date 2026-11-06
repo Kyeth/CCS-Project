@@ -22,7 +22,11 @@ Uint16 Hw_SciInit(const ST_SCI_CFG *cfg)
     Uint32 divider;
     volatile struct SCI_REGS *regs;
     const ST_SCI_CFG_ITEM *item;
+
     if (cfg == 0 || cfg->pstSciCfgItem == 0 || cfg->u32LspclkHz == 0UL) return 0U;
+
+    /* 第一遍：只校验整张表，不碰任何寄存器。
+     * 若逐项"校验完就写"，配置 C 或 D 非法时 A 已经被启用，整表失败语义就破了。 */
     for (i = 0U; i < cfg->u16ItemNum; ++i)
     {
         item = &cfg->pstSciCfgItem[i];
@@ -34,6 +38,14 @@ Uint16 Hw_SciInit(const ST_SCI_CFG *cfg)
         divider = (cfg->u32LspclkHz + 4UL * item->u32Baudrate) /
                   (8UL * item->u32Baudrate);
         if (divider == 0UL || divider > 65536UL) return 0U;
+    }
+
+    /* 第二遍：整表已确认合法，才开始写寄存器。 */
+    for (i = 0U; i < cfg->u16ItemNum; ++i)
+    {
+        item = &cfg->pstSciCfgItem[i];
+        divider = (cfg->u32LspclkHz + 4UL * item->u32Baudrate) /
+                  (8UL * item->u32Baudrate);
         divider--;
         EALLOW;
         CpuSysRegs.PCLKCR7.all |= (Uint16)(1U << item->u16SciId);
@@ -125,7 +137,7 @@ Uint16 Hw_SciGetRxStatus(Uint16 id, ST_SCI_RX_STATUS *pstStatus, Uint16 bClear)
     return 1U;
 }
 
-Uint16 Hw_SciClearRxError(Uint16 id, Uint16 *pu16Remain)
+Uint16 Hw_SciClearRxError(Uint16 id, Uint16 bForce, Uint16 *pu16Remain)
 {
     volatile struct SCI_REGS *regs;
     ST_SCI_RX_STATUS stStatus;
@@ -134,12 +146,25 @@ Uint16 Hw_SciClearRxError(Uint16 id, Uint16 *pu16Remain)
         pu16Remain == (Uint16 *)0) return HW_SCI_CLEAR_UNREADABLE;
 
     regs = gSci[id];
-    *pu16Remain = (Uint16)(regs->SCIFFRX.bit.RXFFST & 0x1FU);
 
-    /* 发送未空闲时不动硬件：同步复位会打断移位寄存器。 */
-    if ((regs->SCIFFTX.bit.TXFFST != 0U) || (regs->SCICTL2.bit.TXEMPTY == 0U))
+    /* 普通清除：发送未空闲就不动硬件，同步复位会打断移位寄存器。
+     * 强制复位（bForce != 0）由端口层在"等满判定阈值仍忙"后请求：
+     * 允许打断正在发送的内容，损失由端口层锁存并单独计数。 */
+    if ((bForce == 0U) &&
+        ((regs->SCIFFTX.bit.TXFFST != 0U) || (regs->SCICTL2.bit.TXEMPTY == 0U)))
     {
-        return HW_SCI_CLEAR_WAIT_TX;
+        return HW_SCI_CLEAR_WAIT_TX;   /* 未动硬件：出参保持调用方原值 */
+    }
+
+    /* 0) 强制复位必须单独清 TX FIFO。TRM 明确 SCICTL1.SWRESET 不会清 FIFO
+     *    指针与内容：端口层已经清空软件发送环，硬件里残留的旧字节若不清，
+     *    复位后仍会继续移出，与"作废"的意图相反。 */
+    if (bForce != 0U)
+    {
+        regs->SCIFFTX.bit.TXFIFORESET = 0U;
+        regs->SCIFFTX.bit.TXFIFORESET = 1U;
+        regs->SCIFFTX.bit.TXFFINTCLR = 1U;
+        regs->SCIFFTX.bit.TXFFINTCLR = 0U;
     }
 
     /* 1) 接收 FIFO 复位并清 FIFO 侧标志。 */
@@ -150,7 +175,8 @@ Uint16 Hw_SciClearRxError(Uint16 id, Uint16 *pu16Remain)
     regs->SCIFFRX.bit.RXFFOVRCLR = 0U;
     regs->SCIFFRX.bit.RXFFINTCLR = 0U;
 
-    /* 2) 接收逻辑同步复位：FE/PE/OE/BI 只认 SWRESET 的低脉冲，不是读清。 */
+    /* 2) 接收逻辑同步复位：FE/PE/OE/BI 只认 SWRESET 的低脉冲，不是读清。
+     *    强制分支下这次复位同时作废尚未发出的字节。 */
     regs->SCICTL1.bit.RXENA = 0U;
     regs->SCICTL1.bit.SWRESET = 0U;
     regs->SCICTL1.bit.SWRESET = 1U;
@@ -163,7 +189,18 @@ Uint16 Hw_SciClearRxError(Uint16 id, Uint16 *pu16Remain)
         return HW_SCI_CLEAR_UNREADABLE;
     }
 
-    *pu16Remain = stStatus.u16RxFifoLevel;
+    /* 4) 强制复位后复核 TX FIFO：TXFFST 不为 0 说明这次复位没被硬件接受，
+     *    残留字节仍可能上线。这不是"稍后再试"（硬件已经动过了），
+     *    必须让端口层进 PAUSED，由显式重试决定何时再来，否则会每 8 ms
+     *    自动重复一次强制复位。*/
+    if ((bForce != 0U) && (regs->SCIFFTX.bit.TXFFST != 0U))
+    {
+        return HW_SCI_CLEAR_TX_DIRTY;
+    }
+
+    /* 出参只报"剩余错误位"；FIFO 层数由 Hw_SciGetRxStatus() 的字段给出，
+     * 两者不再混用同一个返回值。 */
+    *pu16Remain = stStatus.u16Status;
 
     return (stStatus.u16Status == 0U) ? HW_SCI_CLEAR_OK : HW_SCI_CLEAR_STILL_ERR;
 }

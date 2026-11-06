@@ -10,7 +10,10 @@
  * 05B 变更：
  *   1. 新增 ST_SCI_RX_STATUS，把 FE/PE/OE/BI/RXFFOVF 分类后交端口层，
  *      不再把 SCIRXST.RXERROR 与 RXFFOVF 直接或在一起（旧包装无法分类）。
- *   2. 新增 Hw_SciClearRxError()，按"发送空闲 -> FIFO 复位 -> 同步复位 -> 复查"
+ *   2. Hw_SciClearRxError() 分普通清除与强制复位：bForce == 0 时发送未空闲
+ *      就返回 WAIT_TX、不碰硬件；bForce != 0 时允许打断发送，损失由端口层锁存。
+ *      出参只报剩余错误位，FIFO 层数走 ST_SCI_RX_STATUS。
+ *   3. 原始条目：，按"发送空闲 -> FIFO 复位 -> 同步复位 -> 复查"
  *      执行一次受限的硬件清除，并把结果分类返回。
  *   3. 新增 Hw_SciIsTxIdle()，供端口层在复位前确认移位寄存器已空。
  */
@@ -39,6 +42,7 @@ typedef struct {
 #define HW_SCI_CLEAR_WAIT_TX    (1U) /* 发送未空闲，未执行复位 */
 #define HW_SCI_CLEAR_STILL_ERR  (2U) /* 复位已执行但复查仍有错误位 */
 #define HW_SCI_CLEAR_UNREADABLE (3U) /* 参数错或模块未初始化，状态不可读 */
+#define HW_SCI_CLEAR_TX_DIRTY   (4U) /* 复位已执行，但回读 TXFFST 仍非零：硬件未接受 */
 
 typedef struct {
     Uint16 u16SciId;
@@ -64,8 +68,12 @@ Uint16 Hw_SciGetRxFifoLevel(Uint16 id);
 Uint16 Hw_SciGetRxStatus(Uint16 id, ST_SCI_RX_STATUS *pstStatus, Uint16 bClear);
 
 /* 一次受限的接收错误清除。返回 HW_SCI_CLEAR_*。
- * pu16Remain 在 WAIT_TX 时给出未读字节数，其余结果给出复位后的 FIFO 占用。 */
-Uint16 Hw_SciClearRxError(Uint16 id, Uint16 *pu16Remain);
+ * bForce = 0：发送未空闲（TXFFST != 0 或 TXEMPTY == 0）直接返回 WAIT_TX，不动硬件。
+ * bForce != 0：允许打断正在发送的内容，并按 TRM 一并清空 TX FIFO
+ *   （SCICTL1.SWRESET 不会清 FIFO 指针与内容，必须单独给 TXFIFORESET 脉冲）。
+ * pu16Remain 只报"剩余错误位"（HW_SCI_RXSTS_* 的组合）：OK 时为 0，STILL_ERR 时非 0。
+ * WAIT_TX / UNREADABLE 时不写出参。FIFO 占用请读 Hw_SciGetRxStatus() 的字段。 */
+Uint16 Hw_SciClearRxError(Uint16 id, Uint16 bForce, Uint16 *pu16Remain);
 
 /* 查询发送是否完全空闲：TX FIFO 空且移位寄存器空（SCICTL2.TXEMPTY）。
  * 返回 1 = 查询有效（*pu16Idle 给出结果），0 = 模块不可用（查询失败，不能当作忙）。

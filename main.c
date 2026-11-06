@@ -159,10 +159,15 @@ void TaskCreate(void)
         stBringupStatus.unError.Bits.bTaskCreateError = 1U;
     }
 
-    /* 1 ms port service: recovery first, then TX, inside one 20 us budget. */
-    if (Task_Start(PortTask, 1U, 0U) == 0U)
+    /* 1 ms port service: recovery first, then TX, inside one 20 us budget.
+       A port layer that failed to initialize is not registered at all, so the
+       heartbeat and this task cannot disagree about whether it is usable. */
+    if (stBringupStatus.unError.Bits.bPortInitError == 0U)
     {
-        stBringupStatus.unError.Bits.bTaskCreateError = 1U;
+        if (PortTaskRegister() == 0U)
+        {
+            stBringupStatus.unError.Bits.bTaskCreateError = 1U;
+        }
     }
 }
 
@@ -216,8 +221,10 @@ static __interrupt void Isr_Heartbeat(void)
     stBringupStatus.u32Tick100us++;
 
     /* 100 us SCI RX service runs before the 1 ms divider so it keeps its own
-       cadence; its budget is bounded by SCI_PORT_RX_QUOTA x 8 reads. */
-    (void)SciPortService100us();
+       cadence; its budget is bounded by SCI_PORT_RX_QUOTA x 8 reads.
+       PortTaskServiceFromHeartbeat() honours bPortInitError: a port layer that
+       failed to initialize is never serviced from here either. */
+    PortTaskServiceFromHeartbeat(stBringupStatus.unError.Bits.bPortInitError);
 
     /* u16TickDivCoef = 10: one return of 1 every 10 hardware interrupts, i.e. 1 ms. */
     if (Hw_CpuTimerIsrTick((ST_SYS_TIMER *)&stSysCpuTimer1) != 0U)

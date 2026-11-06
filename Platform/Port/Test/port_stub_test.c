@@ -108,8 +108,10 @@ static Uint16 s_au16ErrFlag[4];
 static Uint16 s_au16TxAccept[4];
 static Uint16 s_au16TxLog[4][STUB_TX_LOG_MAX];
 static Uint16 s_au16TxLogLen[4];
-static Uint16 s_u16StatusOk[4];        /* Hw_SciGetRxStatus() 是否可读 */
-static Uint16 s_u16ClearKind[4];       /* 0=正常 1=WAIT_TX 2=STILL_ERR 3=UNREADABLE */
+static Uint16 s_u16StatusOk[4];
+static Uint16 s_u16TxBusy[4];      /* 普通清除时发送是否仍忙（真实驱动的门禁） */
+static Uint16 s_au16ClearForce[4]; /* 记录驱动收到的 bForce 参数 */        /* Hw_SciGetRxStatus() 是否可读 */
+static Uint16 s_u16ClearKind[4];       /* 0=正常 1=WAIT_TX 2=STILL_ERR 3=UNREADABLE 4=TX_DIRTY */
 static Uint16 s_u16TxIdle[4];          /* Hw_SciGetTxIdle() 报告的空闲值 */
 static Uint16 s_u16TxIdleQueryOk[4];   /* Hw_SciGetTxIdle() 查询是否成功 */
 static Uint32 s_u32ClearCalls;         /* Hw_SciClearRxError() 调用次数 */
@@ -181,8 +183,9 @@ Uint16 Hw_SciGetRxStatus(Uint16 id, ST_SCI_RX_STATUS *pstStatus, Uint16 bClear)
     return 1U;
 }
 
-/* 接收错误清除：可编程返回四种结果，模拟真实的"等发送 / 仍报错 / 读不到"。 */
-Uint16 Hw_SciClearRxError(Uint16 id, Uint16 *pu16Remain)
+/* 接收错误清除：与真实驱动同语义——普通清除在发送未空闲时直接返回 WAIT_TX，
+ * 只有 bForce 才跳过该门禁。出参报"剩余错误位"，不是 FIFO 层数。 */
+Uint16 Hw_SciClearRxError(Uint16 id, Uint16 bForce, Uint16 *pu16Remain)
 {
     if ((id > 3U) || (pu16Remain == (Uint16 *)0))
     {
@@ -190,27 +193,39 @@ Uint16 Hw_SciClearRxError(Uint16 id, Uint16 *pu16Remain)
     }
 
     s_u32ClearCalls++;
-    *pu16Remain = (Uint16)(s_au16FeedLen[id] - s_au16FeedPos[id]);
-
-    if (s_u16ClearKind[id] == 1U)
-    {
-        return HW_SCI_CLEAR_WAIT_TX;
-    }
-
-    if (s_u16ClearKind[id] == 2U)
-    {
-        return HW_SCI_CLEAR_STILL_ERR;
-    }
+    s_au16ClearForce[id] = bForce;
 
     if (s_u16ClearKind[id] == 3U)
     {
         return HW_SCI_CLEAR_UNREADABLE;
     }
 
-    /* 正常路径：软复位后硬件错误消失、残留字节被丢弃。 */
+    /* 普通清除：发送未空闲时真实驱动不碰硬件，且不写出参。桩必须
+     * 复现这条，否则"持续忙时强制复位"的路径永远测不出来。 */
+    if ((bForce == 0U) && ((s_u16TxBusy[id] != 0U) || (s_u16ClearKind[id] == 1U)))
+    {
+        return HW_SCI_CLEAR_WAIT_TX;
+    }
+
+    /* 复位后回读 TXFFST 仍非零：真实驱动同样不写出参。 */
+    if (s_u16ClearKind[id] == 4U)
+    {
+        return HW_SCI_CLEAR_TX_DIRTY;
+    }
+
+    *pu16Remain = 0U;
+
+    if (s_u16ClearKind[id] == 2U)
+    {
+        *pu16Remain = HW_SCI_RXSTS_RXFFOVF;
+        return HW_SCI_CLEAR_STILL_ERR;
+    }
+
+    /* 正常/强制路径：软复位后硬件错误消失、残留字节被丢弃。 */
     s_au16ErrFlag[id] = 0U;
     s_au16FeedLen[id] = 0U;
     s_au16FeedPos[id] = 0U;
+    s_u16TxBusy[id] = 0U;
 
     return HW_SCI_CLEAR_OK;
 }
@@ -239,6 +254,21 @@ Uint16 Hw_SciIsTxIdle(Uint16 id)
     return (Hw_SciGetTxIdle(id, &u16Idle) != 0U) ? u16Idle : 0U;
 }
 
+/* PortTask.c 会调用 Task_Start()；主机桩只需记录调用次数与返回值。 */
+static Uint16 s_u16TaskStartRet = 1U;
+static Uint32 s_u32TaskStartCalls = 0UL;
+
+Uint16 Task_Start(void (*pfnCallback)(void), Uint16 u16PeriodMs, Uint16 u16OffsetMs)
+{
+    (void)pfnCallback;
+    (void)u16PeriodMs;
+    (void)u16OffsetMs;
+
+    s_u32TaskStartCalls++;
+
+    return s_u16TaskStartRet;
+}
+
 static void SciStubReset(void)
 {
     Uint16 i;
@@ -253,6 +283,8 @@ static void SciStubReset(void)
         s_au16TxLogLen[i] = 0U;
         s_u16StatusOk[i] = 1U;
         s_u16ClearKind[i] = 0U;
+        s_u16TxBusy[i] = 0U;
+        s_au16ClearForce[i] = 0U;
         s_u16TxIdle[i] = 1U;
         s_u16TxIdleQueryOk[i] = 1U;
     }
@@ -881,6 +913,7 @@ static void TestFaultGenerationRace(void)
 static void TestResyncCrossRoundDrain(void)
 {
     Uint16 au16Buf[16];
+    Uint16 i;
     ST_SCI_RX_SEG stSeg;
 
     Fixture();
@@ -894,15 +927,23 @@ static void TestResyncCrossRoundDrain(void)
     SciPortResync(HW_SCI_ID_A);
 
     Check(SciPortRxUsed(HW_SCI_ID_A) == 0U, "S-05A-23 software rings cleared");
-    Check(SciPortIsResyncDraining(HW_SCI_ID_A) != 0U, "S-05A-23 still draining after one quota");
+    Check(SciPortIsResyncDraining(HW_SCI_ID_A) != 0U, "S-05A-23 draining armed by resync");
     Check(SciPortIsStreamBreak(HW_SCI_ID_A) != 0U, "S-05A-23 stream break held during drain");
-    Check(s_au16FeedPos[HW_SCI_ID_A] == 48U, "S-05A-23 first quota discarded");
+    Check(s_au16FeedPos[HW_SCI_ID_A] == 16U, "S-05A-23 resync itself reads no byte");
 
-    RxRound();      /* 再丢一轮配额，仍打满 -> 继续丢弃 */
+    RxRound();      /* 每轮只丢一个接收配额（8 字节） */
     Check(SciPortIsResyncDraining(HW_SCI_ID_A) != 0U, "S-05A-23 keeps draining across rounds");
-    Check(s_au16FeedPos[HW_SCI_ID_A] == 80U, "S-05A-23 second quota discarded");
+    Check(s_au16FeedPos[HW_SCI_ID_A] == 24U, "S-05A-23 one quota per round");
 
-    RxRound();      /* 读到空 -> 排空完成 */
+    for (i = 0U; i < 7U; i++)
+    {
+        RxRound();
+    }
+
+    Check(s_au16FeedPos[HW_SCI_ID_A] == 80U, "S-05A-23 eight quotas drain the fifo");
+    Check(SciPortIsResyncDraining(HW_SCI_ID_A) != 0U, "S-05A-23 still draining until empty read");
+
+    RxRound();      /* 第 9 轮读到空 -> 排空完成 */
     Check(SciPortIsResyncDraining(HW_SCI_ID_A) == 0U, "S-05A-23 drain completes on empty");
     Check(SciPortPopBatch(HW_SCI_ID_A, au16Buf, 16U, &stSeg) == 0U, "S-05A-23 no batch while draining");
     Check(SciPortIsStreamBreak(HW_SCI_ID_A) != 0U, "S-05A-23 stream break still held for confirmation");
@@ -912,6 +953,7 @@ static void TestResyncCrossRoundDrain(void)
 static void TestClearDuringDrain(void)
 {
     Uint16 u16Gen;
+    Uint16 i;
 
     Fixture();
     SciFeedRun(HW_SCI_ID_A, 1U, 80U);
@@ -926,10 +968,15 @@ static void TestClearDuringDrain(void)
     Check(SciPortClearStreamBreak(HW_SCI_ID_A, u16Gen) == 0U, "S-05A-27 confirm rejected while draining");
     Check(SciPortIsStreamBreak(HW_SCI_ID_A) != 0U, "S-05A-27 stream break kept while draining");
 
-    RxRound();      /* 再丢一轮配额，仍打满 */
+    /* 重同步后剩 64 字节：每轮 8 次读取，8 轮刚好读完，第 9 轮才观察到空。 */
+    for (i = 0U; i < 8U; i++)
+    {
+        RxRound();
+    }
+    Check(SciPortIsResyncDraining(HW_SCI_ID_A) != 0U, "S-05A-27 still draining after eight quotas");
     Check(SciPortClearStreamBreak(HW_SCI_ID_A, u16Gen) == 0U, "S-05A-27 confirm still rejected");
 
-    RxRound();      /* 读到空，排空完成 */
+    RxRound();      /* 第 9 轮读到空，排空完成 */
     Check(SciPortIsResyncDraining(HW_SCI_ID_A) == 0U, "S-05A-27 drain finished");
     Check(SciPortClearStreamBreak(HW_SCI_ID_A, (Uint16)(u16Gen - 1U)) == 0U,
           "S-05A-27 stale generation cannot clear");
@@ -1287,13 +1334,16 @@ static void TestSciTxBusyForcedReset(void)
     Check(SciPortTxResetDrop(HW_SCI_ID_A) == 0UL, "S-05B-03 no loss before threshold");
 
     TicksAdvanceUs(7000UL);
-    Check(SciPortRecover(HW_SCI_ID_A, &u16Remain) == SCI_RECOVER_BUSY, "S-05B-03 forced reset busy");
+    Check(SciPortRecover(HW_SCI_ID_A, &u16Remain) == SCI_RECOVER_BUSY, "S-05B-03 forced intent stored");
+    Check(SciPortRxState(HW_SCI_ID_A) == SCI_RX_HW_RESET, "S-05B-03 forced path hw_reset");
+    Check(SciPortTxFree(HW_SCI_ID_A) == 123U, "S-05B-03 tx ring kept until reset executes");
+    Check(SciPortTxResetDrop(HW_SCI_ID_A) == 0UL, "S-05B-03 no loss before reset executes");
+
+    /* 这一轮才真正执行 RESET：清环、锁存损失、计数都在这里发生 */
+    Check(SciPortRecover(HW_SCI_ID_A, &u16Remain) == SCI_RECOVER_OK, "S-05B-03 clear ok");
     Check(SciPortTxFree(HW_SCI_ID_A) == 127U, "S-05B-03 tx ring cleared");
     Check(SciPortTxResetDrop(HW_SCI_ID_A) == 4UL, "S-05B-03 loss counted once");
     Check(SciPortIsTxSuspended(HW_SCI_ID_A) != 0U, "S-05B-03 tx suspended after forced reset");
-    Check(SciPortRxState(HW_SCI_ID_A) == SCI_RX_HW_RESET, "S-05B-03 forced path hw_reset");
-
-    Check(SciPortRecover(HW_SCI_ID_A, &u16Remain) == SCI_RECOVER_OK, "S-05B-03 clear ok");
     Check(SciPortTxResume(HW_SCI_ID_A) == 0U, "S-05B-03 resume rejected while draining");
     RxRound();
     Check(SciPortRxState(HW_SCI_ID_A) == SCI_RX_IDLE, "S-05B-03 idle after drain");
@@ -1372,7 +1422,7 @@ static void TestSciRecoverDropsOldBatch(void)
     RxRound();
     RxRound();
     Check(SciPortRxUsed(HW_SCI_ID_A) == 2U, "S-05B-07 only new batch published");
-    Check(SciPortPopBatch(HW_SCI_ID_A, au16Buf, 16U, &stSeg) == 1U, "S-05B-07 new batch pops");
+    Check(SciPortPopBatch(HW_SCI_ID_A, au16Buf, 16U, &stSeg) == 2U, "S-05B-07 new batch pops");
     Check((au16Buf[0] == 0x71U) && (stSeg.u16Count == 2U), "S-05B-07 new batch content");
 }
 
@@ -1423,6 +1473,611 @@ static void TestSciResetBudgetCarryOver(void)
     Check(s_u32ClearCalls == 1UL, "S-05B-09 clear executed once");
 }
 
+
+/* ================= 05B 返工第二轮用例 ================= */
+
+/* 把端口从恢复态推到 IDLE：每轮先推进恢复，再跑一次心跳排空 */
+static void DriveRecoverToIdle(Uint16 u16PortId)
+{
+    Uint16 u16Remain = 0U;
+    Uint16 i;
+
+    for (i = 0U; i < 40U; i++)
+    {
+        if (SciPortRxState(u16PortId) == SCI_RX_IDLE)
+        {
+            return;
+        }
+
+        (void)SciPortRecover(u16PortId, &u16Remain);
+        (void)SciPortService100us();
+    }
+}
+
+/* 把恢复流程从 CLASSIFY 推到"强制复位已提交"：
+ * 阶段推进一次只走一格，等待基准由第二格建立，所以按实际节拍模拟。 */
+static void SciDriveWaitTxTimeout(Uint16 u16PortId)
+{
+    Uint16 u16Remain = 0U;
+
+    (void)SciPortRecover(u16PortId, &u16Remain);   /* CLASSIFY -> WAIT_TX */
+    (void)SciPortRecover(u16PortId, &u16Remain);   /* 建立等待基准 */
+    TicksAdvanceUs(4000UL);
+    (void)SciPortRecover(u16PortId, &u16Remain);   /* 未超阈值：继续等 */
+    TicksAdvanceUs(5000UL);
+    (void)SciPortRecover(u16PortId, &u16Remain);   /* 累计 9 ms：提交强制复位 */
+}
+
+/* S-05B-15：发送持续忙时，8 ms 只保存强制意图；下一轮才清队列并记一次损失 */
+static void TestForceIntentThenExecute(void)
+{
+    Uint16 u16Remain = 0U;
+    Uint16 au16Data[3];
+    Uint32 u32Calls;
+
+    Fixture();
+
+    au16Data[0] = 0xA1U;
+    au16Data[1] = 0xA2U;
+    au16Data[2] = 0xA3U;
+    Check(SciPortWriteTx(HW_SCI_ID_A, au16Data, 3U) == 3U, "S-05B-15 tx queued");
+
+    s_u16TxIdle[HW_SCI_ID_A] = 0U;      /* 发送永不空闲 */
+    s_u16TxBusy[HW_SCI_ID_A] = 1U;
+    s_au16ErrFlag[HW_SCI_ID_A] = 1U;    /* 硬件报错 */
+
+    RxRound();
+    Check(SciPortRxState(HW_SCI_ID_A) == SCI_RX_RECOVER_REQ, "S-05B-15 recover requested");
+
+    SciDriveWaitTxTimeout(HW_SCI_ID_A);
+
+    Check(SciPortRxState(HW_SCI_ID_A) == SCI_RX_HW_RESET, "S-05B-15 forced path committed");
+    Check(SciPortForceResets(HW_SCI_ID_A) == 0UL, "S-05B-15 no force executed yet");
+    Check(SciPortTxResetDrop(HW_SCI_ID_A) == 0UL, "S-05B-15 no loss counted yet");
+    Check(SciPortTxFree(HW_SCI_ID_A) == 124U, "S-05B-15 tx queue untouched");
+
+    u32Calls = s_u32ClearCalls;
+    (void)SciPortRecover(HW_SCI_ID_A, &u16Remain);
+
+    Check(SciPortForceResets(HW_SCI_ID_A) == 1UL, "S-05B-15 force executed once");
+    Check(SciPortTxResetDrop(HW_SCI_ID_A) == 3UL, "S-05B-15 loss counted once");
+    Check(SciPortTxFree(HW_SCI_ID_A) == 127U, "S-05B-15 tx queue cleared");
+    Check(s_u32ClearCalls == (u32Calls + 1UL), "S-05B-15 clear called once");
+    Check(s_au16ClearForce[HW_SCI_ID_A] == 1U, "S-05B-15 driver saw force flag");
+
+    /* 结果处理与排空各占一次推进：复位成功 -> DRAIN_ISR -> 读到空 -> IDLE */
+    (void)SciPortRecover(HW_SCI_ID_A, &u16Remain);
+    RxRound();
+    Check(SciPortRxState(HW_SCI_ID_A) == SCI_RX_IDLE, "S-05B-15 drained to idle");
+    Check(SciPortIsTxSuspended(HW_SCI_ID_A) != 0U, "S-05B-15 tx stays frozen after loss");
+    Check(SciPortTxResume(HW_SCI_ID_A) == 1U, "S-05B-15 resume accepted when idle");
+    Check(SciPortIsTxSuspended(HW_SCI_ID_A) == 0U, "S-05B-15 tx resumed");
+}
+
+/* S-05B-16：执行前预算耗尽——停在 RESET，不记损失、不动队列 */
+static void TestForceBudgetDeferred(void)
+{
+    Uint16 u16Remain = 0U;
+    Uint16 au16Data[2];
+
+    Fixture();
+
+    au16Data[0] = 0x51U;
+    au16Data[1] = 0x52U;
+    Check(SciPortWriteTx(HW_SCI_ID_A, au16Data, 2U) == 2U, "S-05B-16 tx queued");
+
+    s_u16TxIdle[HW_SCI_ID_A] = 0U;
+    s_u16TxBusy[HW_SCI_ID_A] = 1U;
+    s_au16ErrFlag[HW_SCI_ID_A] = 1U;
+
+    RxRound();
+    SciDriveWaitTxTimeout(HW_SCI_ID_A);
+    Check(SciPortRxState(HW_SCI_ID_A) == SCI_RX_HW_RESET, "S-05B-16 forced path committed");
+
+    PortBudgetBegin(s_u32Tick + 5000UL);
+    Check(PortBudgetHasLeft() == 0U, "S-05B-16 budget exhausted");
+    (void)SciPortRecover(HW_SCI_ID_A, &u16Remain);
+    Check(SciPortForceResets(HW_SCI_ID_A) == 0UL, "S-05B-16 no force while starved");
+    Check(SciPortTxResetDrop(HW_SCI_ID_A) == 0UL, "S-05B-16 no loss while starved");
+    Check(SciPortTxFree(HW_SCI_ID_A) == 125U, "S-05B-16 queue kept while starved");
+    PortBudgetEnd();
+
+    (void)SciPortRecover(HW_SCI_ID_A, &u16Remain);
+    Check(SciPortForceResets(HW_SCI_ID_A) == 1UL, "S-05B-16 force after budget returns");
+    Check(SciPortTxResetDrop(HW_SCI_ID_A) == 2UL, "S-05B-16 loss counted once");
+}
+
+/* S-05B-17：强制复位后回读仍不可读 -> PAUSED，且损失只记一次 */
+static void TestForceReadBackFails(void)
+{
+    Uint16 u16Remain = 0U;
+    Uint16 au16Data[1];
+    Uint16 u16Gen;
+
+    Fixture();
+
+    au16Data[0] = 0x61U;
+    (void)SciPortWriteTx(HW_SCI_ID_A, au16Data, 1U);
+
+    s_u16TxIdle[HW_SCI_ID_A] = 0U;
+    s_u16TxBusy[HW_SCI_ID_A] = 1U;
+    s_au16ErrFlag[HW_SCI_ID_A] = 1U;
+
+    RxRound();
+    SciDriveWaitTxTimeout(HW_SCI_ID_A);
+
+    s_u16ClearKind[HW_SCI_ID_A] = 3U;   /* 清除后回读不可读 */
+    (void)SciPortRecover(HW_SCI_ID_A, &u16Remain);   /* 执行强制复位 + 清除 */
+    (void)SciPortRecover(HW_SCI_ID_A, &u16Remain);   /* 处理结果 -> PAUSED */
+
+    Check(SciPortRxState(HW_SCI_ID_A) == SCI_RX_PAUSED, "S-05B-17 paused after unreadable");
+    Check(SciPortTxResetDrop(HW_SCI_ID_A) == 1UL, "S-05B-17 loss counted once");
+
+    (void)SciPortRecover(HW_SCI_ID_A, &u16Remain);
+    Check(SciPortTxResetDrop(HW_SCI_ID_A) == 1UL, "S-05B-17 loss not counted again");
+
+    /* PAUSED 下重同步不得改写状态与代次 */
+    u16Gen = SciPortFaultGeneration(HW_SCI_ID_A);
+    SciPortResync(HW_SCI_ID_A);
+    Check(SciPortRxState(HW_SCI_ID_A) == SCI_RX_PAUSED, "S-05B-17 paused kept by resync");
+    Check(SciPortFaultGeneration(HW_SCI_ID_A) == u16Gen, "S-05B-17 resync keeps generation in paused");
+
+    /* 时间源不可用时显式重试仍驻留 PAUSED */
+    s_bTickOk = 0U;
+    Check(SciPortRecoverRetry(HW_SCI_ID_A) == SCI_RECOVER_UNKNOWN, "S-05B-17 retry blocked without time");
+    Check(SciPortRxState(HW_SCI_ID_A) == SCI_RX_PAUSED, "S-05B-17 retry keeps paused");
+    s_bTickOk = 1U;
+
+    s_u16ClearKind[HW_SCI_ID_A] = 0U;
+    Check(SciPortRecoverRetry(HW_SCI_ID_A) != SCI_RECOVER_UNKNOWN, "S-05B-17 retry resumes");
+}
+
+/* S-05B-18：连续两次独立硬件故障都要让故障前的旧批次失效 */
+static void TestTwoFaultsInvalidate(void)
+{
+    Uint16 u16Remain = 0U;
+
+    Fixture();
+
+    /* 第一次故障 */
+    s_au16ErrFlag[HW_SCI_ID_A] = 1U;
+    RxRound();
+    Check(SciPortRxState(HW_SCI_ID_A) == SCI_RX_RECOVER_REQ, "S-05B-18 first fault");
+    DriveRecoverToIdle(HW_SCI_ID_A);
+    Check(SciPortRxState(HW_SCI_ID_A) == SCI_RX_IDLE, "S-05B-18 back to idle");
+
+    /* 恢复后发布一条新批次 */
+    SciFeedRun(HW_SCI_ID_A, 0x31U, 2U);
+    RxRound();      /* 恢复后排空时清过时间基准：首轮只建基准 */
+    RxRound();
+    Check(SciPortRxUsed(HW_SCI_ID_A) == 2U, "S-05B-18 fresh batch published");
+
+    /* 第二次独立故障：故障前的批次必须一起失效 */
+    s_au16ErrFlag[HW_SCI_ID_A] = 1U;
+    RxRound();
+    Check(SciPortRxState(HW_SCI_ID_A) == SCI_RX_RECOVER_REQ, "S-05B-18 second fault");
+    Check(SciPortRxUsed(HW_SCI_ID_A) == 0U, "S-05B-18 old batch invalidated again");
+
+    DriveRecoverToIdle(HW_SCI_ID_A);
+    (void)u16Remain;
+}
+
+/* S-05B-19：软件重同步之后再来硬件故障，也要让旧批次失效 */
+static void TestSwResyncThenFault(void)
+{
+    Fixture();
+
+    SciFeedRun(HW_SCI_ID_A, 0x41U, 3U);
+    RxRound();      /* Fixture() 后首轮只建时间基准 */
+    RxRound();
+    Check(SciPortRxUsed(HW_SCI_ID_A) == 3U, "S-05B-19 batch published");
+
+    SciPortResync(HW_SCI_ID_A);
+    Check(SciPortRxUsed(HW_SCI_ID_A) == 0U, "S-05B-19 resync drops batch");
+    DriveRecoverToIdle(HW_SCI_ID_A);
+
+    SciFeedRun(HW_SCI_ID_A, 0x51U, 2U);
+    RxRound();      /* 同上：重同步后排空清过基准 */
+    RxRound();
+    Check(SciPortRxUsed(HW_SCI_ID_A) == 2U, "S-05B-19 new batch after resync");
+
+    s_au16ErrFlag[HW_SCI_ID_A] = 1U;
+    RxRound();
+    Check(SciPortRxUsed(HW_SCI_ID_A) == 0U, "S-05B-19 hardware fault drops new batch");
+}
+
+/* S-05B-20：TX 门禁与提交相对心跳不可分割——挂起后一次都不写 */
+static void TestTxGateAtomic(void)
+{
+    Uint16 au16Data[4];
+
+    Fixture();
+
+    au16Data[0] = 0x71U;
+    au16Data[1] = 0x72U;
+    au16Data[2] = 0x73U;
+    au16Data[3] = 0x74U;
+    Check(SciPortWriteTx(HW_SCI_ID_A, au16Data, 4U) == 4U, "S-05B-20 tx queued");
+
+    s_au16TxAccept[HW_SCI_ID_A] = 4U;   /* 驱动愿意接收，全部取决于门禁 */
+    s_au16ErrFlag[HW_SCI_ID_A] = 1U;    /* 硬件故障 -> 挂起 */
+
+    RxRound();
+    Check(SciPortRxState(HW_SCI_ID_A) == SCI_RX_RECOVER_REQ, "S-05B-20 suspended");
+    Check(SciPortIsTxSuspended(HW_SCI_ID_A) != 0U, "S-05B-20 tx gate closed");
+
+    SciPortTaskOne(HW_SCI_ID_A);
+    Check(s_au16TxLogLen[HW_SCI_ID_A] == 0U, "S-05B-20 suspended path writes nothing");
+
+    /* 排空完成解除临时挂起（无强制复位损失时） */
+    DriveRecoverToIdle(HW_SCI_ID_A);
+    Check(SciPortIsTxSuspended(HW_SCI_ID_A) == 0U, "S-05B-20 normal drain clears gate");
+
+    SciPortTaskOne(HW_SCI_ID_A);
+    Check(s_au16TxLogLen[HW_SCI_ID_A] == 4U, "S-05B-20 tx resumes after drain");
+}
+
+/* S-05B-21：初始化失败时心跳不再调用端口服务，任务也不注册 */
+static void TestInitGating(void)
+{
+    Uint32 u32Calls;
+
+    Fixture();
+
+    u32Calls = SciPortServiceCallCount();
+    PortTaskServiceFromHeartbeat(1U);
+    Check(SciPortServiceCallCount() == u32Calls, "S-05B-21 heartbeat skipped on init error");
+
+    PortTaskServiceFromHeartbeat(0U);
+    Check(SciPortServiceCallCount() == (u32Calls + 1UL), "S-05B-21 heartbeat runs when ok");
+
+    s_u32TaskStartCalls = 0UL;
+    s_u16TaskStartRet = 1U;
+    Check(PortTaskRegister() == 1U, "S-05B-21 register ok");
+    Check(s_u32TaskStartCalls == 1UL, "S-05B-21 register called once");
+
+    s_u16TaskStartRet = 0U;
+    Check(PortTaskRegister() == 0U, "S-05B-21 register failure propagates");
+}
+
+/* S-05B-22：出参哨兵——参数/驱动不可用时保持调用方原值 */
+static void TestRecoverOutParam(void)
+{
+    Uint16 u16Remain = 0xFFFFU;
+
+    Fixture();
+
+    Check(SciPortRecover(0x00FEU, &u16Remain) == SCI_RECOVER_PARAM, "S-05B-22 bad id rejected");
+    Check(u16Remain == 0xFFFFU, "S-05B-22 out param untouched on bad id");
+
+    Check(SciPortRecover(HW_SCI_ID_A, (Uint16 *)0) == SCI_RECOVER_PARAM, "S-05B-22 null out rejected");
+
+    u16Remain = 0xFFFFU;
+    Check(SciPortRecover(HW_SCI_ID_A, &u16Remain) == SCI_RECOVER_IDLE_OK, "S-05B-22 idle port");
+    Check(u16Remain == 0U, "S-05B-22 idle port writes zero remaining");
+}
+
+/* S-05B-23：BUSY / 预算截断 / UNKNOWN 不得改写出参（哨兵证明） */
+static void TestStageOutParamSentinel(void)
+{
+    Uint16 u16Remain;
+    Uint16 au16Data[1];
+
+    Fixture();
+
+    au16Data[0] = 0x91U;
+    Check(SciPortWriteTx(HW_SCI_ID_A, au16Data, 1U) == 1U, "S-05B-23 queued");
+
+    s_au16ErrFlag[HW_SCI_ID_A] = 1U;
+    s_u16TxIdle[HW_SCI_ID_A] = 0U;
+    s_u16TxBusy[HW_SCI_ID_A] = 1U;
+    RxRound();
+
+    u16Remain = 0xCAFEU;
+    Check(SciPortRecover(HW_SCI_ID_A, &u16Remain) == SCI_RECOVER_BUSY, "S-05B-23 classify busy");
+    Check(u16Remain == 0xCAFEU, "S-05B-23 busy keeps sentinel");
+
+    /* 预算截断：阶段门禁挡住时同样不写调用方出参 */
+    PortBudgetBegin(s_u32Tick + 5000UL);
+    Check(PortBudgetHasLeft() == 0U, "S-05B-23 budget exhausted");
+    u16Remain = 0xCAFEU;
+    Check(SciPortRecover(HW_SCI_ID_A, &u16Remain) == SCI_RECOVER_BUSY, "S-05B-23 truncation busy");
+    Check(u16Remain == 0xCAFEU, "S-05B-23 truncation keeps sentinel");
+    PortBudgetEnd();
+
+    /* 先让 WAIT_TX 建立等待基准，再注入查询失败 */
+    u16Remain = 0xCAFEU;
+    Check(SciPortRecover(HW_SCI_ID_A, &u16Remain) == SCI_RECOVER_BUSY, "S-05B-23 wait base built");
+    Check(u16Remain == 0xCAFEU, "S-05B-23 wait base keeps sentinel");
+
+    /* 查询失败 -> UNKNOWN：同样不写 */
+    s_u16TxIdleQueryOk[HW_SCI_ID_A] = 0U;
+    u16Remain = 0xCAFEU;
+    Check(SciPortRecover(HW_SCI_ID_A, &u16Remain) == SCI_RECOVER_UNKNOWN, "S-05B-23 query failure unknown");
+    Check(u16Remain == 0xCAFEU, "S-05B-23 unknown keeps sentinel");
+    s_u16TxIdleQueryOk[HW_SCI_ID_A] = 1U;
+}
+
+/* S-05B-24：上一次损失锁存不能当作下一次强制复位的指令 */
+static void TestSecondFaultNoForce(void)
+{
+    Uint16 u16Remain = 0U;
+    Uint16 au16Data[1];
+    Uint16 i;
+    Uint16 u16Ret = SCI_RECOVER_BUSY;
+
+    Fixture();
+
+    au16Data[0] = 0xA1U;
+    Check(SciPortWriteTx(HW_SCI_ID_A, au16Data, 1U) == 1U, "S-05B-24 queued");
+
+    /* 第一次：发送持续忙 -> 强制复位 */
+    s_u16TxIdle[HW_SCI_ID_A] = 0U;
+    s_u16TxBusy[HW_SCI_ID_A] = 1U;
+    s_au16ErrFlag[HW_SCI_ID_A] = 1U;
+    RxRound();
+    SciDriveWaitTxTimeout(HW_SCI_ID_A);
+
+    Check(SciPortRecover(HW_SCI_ID_A, &u16Remain) == SCI_RECOVER_OK, "S-05B-24 first reset ok");
+    Check(s_au16ClearForce[HW_SCI_ID_A] == 1U, "S-05B-24 first clear saw force");
+    Check(SciPortForceResets(HW_SCI_ID_A) == 1UL, "S-05B-24 force counted once");
+
+    DriveRecoverToIdle(HW_SCI_ID_A);
+    Check(SciPortRxState(HW_SCI_ID_A) == SCI_RX_IDLE, "S-05B-24 drained to idle");
+    Check(SciPortIsTxSuspended(HW_SCI_ID_A) != 0U, "S-05B-24 loss keeps frozen");
+
+    /* 第二次独立故障：发送已空闲，普通复位即可，绝不能再带强制标志 */
+    s_u16TxIdle[HW_SCI_ID_A] = 1U;
+    s_u16TxBusy[HW_SCI_ID_A] = 0U;
+    s_au16ErrFlag[HW_SCI_ID_A] = 1U;
+    RxRound();
+    Check(SciPortRxState(HW_SCI_ID_A) == SCI_RX_RECOVER_REQ, "S-05B-24 second fault");
+
+    for (i = 0U; i < 8U; i++)
+    {
+        u16Ret = SciPortRecover(HW_SCI_ID_A, &u16Remain);
+        if (u16Ret == SCI_RECOVER_OK)
+        {
+            break;
+        }
+    }
+
+    Check(u16Ret == SCI_RECOVER_OK, "S-05B-24 second reset ok");
+    Check(s_au16ClearForce[HW_SCI_ID_A] == 0U, "S-05B-24 second clear without force");
+    Check(SciPortForceResets(HW_SCI_ID_A) == 1UL, "S-05B-24 force count unchanged");
+}
+
+/* S-05B-25：复位成功但尚未排空时，TX 一次都不许提交 */
+static void TestTxBlockedUntilDrain(void)
+{
+    Uint16 u16Remain = 0U;
+    Uint16 au16Data[2];
+    Uint16 i;
+    Uint16 u16Ret = SCI_RECOVER_BUSY;
+
+    Fixture();
+
+    au16Data[0] = 0xB1U;
+    au16Data[1] = 0xB2U;
+    Check(SciPortWriteTx(HW_SCI_ID_A, au16Data, 2U) == 2U, "S-05B-25 queued");
+
+    /* 发送本来就空闲：走普通复位，没有损失，临时挂起只能由排空完成解除 */
+    s_au16ErrFlag[HW_SCI_ID_A] = 1U;
+    RxRound();
+
+    for (i = 0U; i < 8U; i++)
+    {
+        u16Ret = SciPortRecover(HW_SCI_ID_A, &u16Remain);
+        if (u16Ret == SCI_RECOVER_OK)
+        {
+            break;
+        }
+    }
+
+    Check(u16Ret == SCI_RECOVER_OK, "S-05B-25 reset ok");
+    Check(SciPortRxState(HW_SCI_ID_A) == SCI_RX_DRAIN_ISR, "S-05B-25 draining");
+    Check(SciPortTxResetDrop(HW_SCI_ID_A) == 0UL, "S-05B-25 no loss on clean reset");
+
+    s_au16TxAccept[HW_SCI_ID_A] = 2U;
+    SciPortTaskOne(HW_SCI_ID_A);
+    Check(s_au16TxLogLen[HW_SCI_ID_A] == 0U, "S-05B-25 no tx before drain");
+    Check(SciPortIsTxSuspended(HW_SCI_ID_A) != 0U, "S-05B-25 gate held until drain");
+
+    RxRound();
+    Check(SciPortRxState(HW_SCI_ID_A) == SCI_RX_IDLE, "S-05B-25 idle after drain");
+    Check(SciPortIsTxSuspended(HW_SCI_ID_A) == 0U, "S-05B-25 gate released by isr");
+
+    SciPortTaskOne(HW_SCI_ID_A);
+    Check(s_au16TxLogLen[HW_SCI_ID_A] == 2U, "S-05B-25 tx resumes after drain");
+}
+
+/* S-05B-26：PortTask() 入口取时失败必须作废等待基准，恢复后先重建再计阈值 */
+static void TestPortTaskTickFaultRebuild(void)
+{
+    Uint16 u16Remain = 0U;
+    Uint16 au16Data[1];
+
+    Fixture();
+
+    au16Data[0] = 0xC1U;
+    Check(SciPortWriteTx(HW_SCI_ID_A, au16Data, 1U) == 1U, "S-05B-26 queued");
+
+    s_u16TxIdle[HW_SCI_ID_A] = 0U;
+    s_u16TxBusy[HW_SCI_ID_A] = 1U;
+    s_au16ErrFlag[HW_SCI_ID_A] = 1U;
+
+    RxRound();
+    (void)SciPortRecover(HW_SCI_ID_A, &u16Remain);   /* CLASSIFY -> WAIT_TX */
+    (void)SciPortRecover(HW_SCI_ID_A, &u16Remain);   /* 建立等待基准 */
+
+    TicksAdvanceUs(3000UL);
+
+    s_bTickOk = 0U;
+    PortTask();                                      /* 入口取时失败 */
+    s_bTickOk = 1U;
+
+    Check(SciPortForceResets(HW_SCI_ID_A) == 0UL, "S-05B-26 failed round forces nothing");
+
+    /* 旧基准若还在，累计 9 ms 会立即越过阈值；正确实现应先重建基准 */
+    TicksAdvanceUs(6000UL);
+    Check(SciPortRecover(HW_SCI_ID_A, &u16Remain) == SCI_RECOVER_BUSY, "S-05B-26 rebuilds base");
+    Check(SciPortForceResets(HW_SCI_ID_A) == 0UL, "S-05B-26 no force after rebuild");
+    Check(SciPortRxState(HW_SCI_ID_A) == SCI_RX_RECOVER_REQ, "S-05B-26 still waiting");
+
+    TicksAdvanceUs(9000UL);
+    (void)SciPortRecover(HW_SCI_ID_A, &u16Remain);   /* 超过阈值：只落强制意图 */
+    Check(SciPortRxState(HW_SCI_ID_A) == SCI_RX_HW_RESET, "S-05B-26 forced intent after window");
+    (void)SciPortRecover(HW_SCI_ID_A, &u16Remain);   /* 下一轮才执行复位 */
+    Check(SciPortForceResets(HW_SCI_ID_A) == 1UL, "S-05B-26 force after full new window");
+}
+
+/* S-05B-27：复位回读 TXFFST 仍非零 → PAUSED，且不会自动重复强制复位 */
+static void TestTxDirtyPauses(void)
+{
+    Uint16 u16Remain = 0xCAFEU;
+    Uint16 au16Data[3];
+
+    Fixture();
+
+    au16Data[0] = 0xD1U;
+    au16Data[1] = 0xD2U;
+    au16Data[2] = 0xD3U;
+    Check(SciPortWriteTx(HW_SCI_ID_A, au16Data, 3U) == 3U, "S-05B-27 queued");
+
+    /* 发送侧两处都要"忙"：清除入口看 s_u16TxBusy，空闲查询看 s_u16TxIdle。
+     * 只设前者会让端口读到"空闲"，直接走普通复位，测不到 8 ms 意图路径。 */
+    s_u16TxBusy[HW_SCI_ID_A] = 1U;
+    s_u16TxIdle[HW_SCI_ID_A] = 0U;
+    s_au16ErrFlag[HW_SCI_ID_A] = 1U;
+
+    RxRound();                                        /* RECOVER_REQ / CLASSIFY */
+    (void)SciPortRecover(HW_SCI_ID_A, &u16Remain);    /* CLASSIFY -> WAIT_TX */
+    (void)SciPortRecover(HW_SCI_ID_A, &u16Remain);    /* 单独一次：建立等待基准 */
+    TicksAdvanceUs(9000UL);                           /* 累计越过 8 ms 判定阈值 */
+
+    Check(SciPortRecover(HW_SCI_ID_A, &u16Remain) == SCI_RECOVER_BUSY,
+          "S-05B-27 force intent only");
+    Check(SciPortRxState(HW_SCI_ID_A) == SCI_RX_HW_RESET, "S-05B-27 reset stage");
+
+    s_u16ClearKind[HW_SCI_ID_A] = 4U;                 /* 复位后回读仍非空 */
+    Check(SciPortRecover(HW_SCI_ID_A, &u16Remain) == SCI_RECOVER_FAIL,
+          "S-05B-27 tx dirty is a failure");
+    Check(SciPortRxState(HW_SCI_ID_A) == SCI_RX_PAUSED, "S-05B-27 tx dirty pauses");
+    Check(SciPortForceResets(HW_SCI_ID_A) == 1UL, "S-05B-27 one force executed");
+    Check(s_u32ClearCalls == 1U, "S-05B-27 driver cleared once");
+
+    /* 继续推进时间也不能自己重来一次 */
+    TicksAdvanceUs(30000UL);
+    Check(SciPortRecover(HW_SCI_ID_A, &u16Remain) == SCI_RECOVER_FAIL,
+          "S-05B-27 stays paused");
+    Check(SciPortForceResets(HW_SCI_ID_A) == 1UL, "S-05B-27 no auto repeat");
+    Check(s_u32ClearCalls == 1U, "S-05B-27 no auto re-clear");
+
+    /* 只有显式重试才离开 PAUSED；TX 已清空则允许继续 */
+    s_u16TxIdle[HW_SCI_ID_A] = 1U;
+    Check(SciPortRecoverRetry(HW_SCI_ID_A) == SCI_RECOVER_OK, "S-05B-27 retry accepted");
+    Check(SciPortRxState(HW_SCI_ID_A) == SCI_RX_RECOVER_REQ, "S-05B-27 retry restarts");
+}
+
+/* S-05B-28：同轮完成与跨轮完成，返回码与出参必须一致 */
+static void TestOutParamPerRound(void)
+{
+    Uint16 u16Remain;
+
+    /* 路径 A：一次调用走完 RESET 与 RESET_DONE */
+    Fixture();
+    s_au16ErrFlag[HW_SCI_ID_A] = 1U;
+    RxRound();
+
+    u16Remain = 0xCAFEU;
+    Check(SciPortRecover(HW_SCI_ID_A, &u16Remain) == SCI_RECOVER_BUSY, "S-05B-28 classify");
+    u16Remain = 0xCAFEU;
+    Check(SciPortRecover(HW_SCI_ID_A, &u16Remain) == SCI_RECOVER_BUSY, "S-05B-28 wait base");
+    u16Remain = 0xCAFEU;
+    Check(SciPortRecover(HW_SCI_ID_A, &u16Remain) == SCI_RECOVER_BUSY, "S-05B-28 commit reset");
+    Check(SciPortRxState(HW_SCI_ID_A) == SCI_RX_HW_RESET, "S-05B-28 reset stage a");
+
+    u16Remain = 0xCAFEU;
+    Check(SciPortRecover(HW_SCI_ID_A, &u16Remain) == SCI_RECOVER_OK, "S-05B-28 ok same round");
+    Check(u16Remain == 0U, "S-05B-28 same round writes zero");
+
+    /* 路径 B：RESET 执行后预算判定失败，下一轮才完成 */
+    Fixture();
+    PortBudgetBegin(s_u32Tick);
+    s_au16ErrFlag[HW_SCI_ID_A] = 1U;
+    RxRound();
+
+    u16Remain = 0xCAFEU;
+    Check(SciPortRecover(HW_SCI_ID_A, &u16Remain) == SCI_RECOVER_BUSY, "S-05B-28 classify b");
+    u16Remain = 0xCAFEU;
+    Check(SciPortRecover(HW_SCI_ID_A, &u16Remain) == SCI_RECOVER_BUSY, "S-05B-28 wait base b");
+    u16Remain = 0xCAFEU;
+    Check(SciPortRecover(HW_SCI_ID_A, &u16Remain) == SCI_RECOVER_BUSY, "S-05B-28 commit reset b");
+    Check(SciPortRxState(HW_SCI_ID_A) == SCI_RX_HW_RESET, "S-05B-28 reset stage b");
+
+    /* 下一次读取即 RESET_DONE 的预算判定：让它失败，停在 RESET_DONE */
+    s_u32TickFailAtCall = s_u32TickCalls + 2UL;
+    u16Remain = 0xCAFEU;
+    Check(SciPortRecover(HW_SCI_ID_A, &u16Remain) == SCI_RECOVER_BUSY, "S-05B-28 budget stops");
+    Check(u16Remain == 0xCAFEU, "S-05B-28 busy keeps sentinel");
+    Check(SciPortRecPhase(HW_SCI_ID_A) == SCI_REC_PHASE_RESET_DONE, "S-05B-28 phase reset done");
+
+    s_u32TickFailAtCall = 0UL;
+    PortBudgetBegin(s_u32Tick);                        /* 新窗口清故障锁存 */
+    u16Remain = 0xCAFEU;
+    Check(SciPortRecover(HW_SCI_ID_A, &u16Remain) == SCI_RECOVER_OK, "S-05B-28 ok next round");
+    Check(u16Remain == 0U, "S-05B-28 next round writes zero");
+    PortBudgetEnd();
+}
+
+/* S-05B-29：TX_DIRTY 之后的显式重试必须重新核验 TX FIFO 残留 */
+static void TestRetryVerifiesTx(void)
+{
+    Uint16 u16Remain = 0xCAFEU;
+    Uint16 au16Data[3];
+
+    Fixture();
+
+    au16Data[0] = 0xE1U;
+    au16Data[1] = 0xE2U;
+    au16Data[2] = 0xE3U;
+    Check(SciPortWriteTx(HW_SCI_ID_A, au16Data, 3U) == 3U, "S-05B-29 queued");
+
+    s_u16TxBusy[HW_SCI_ID_A] = 1U;
+    s_u16TxIdle[HW_SCI_ID_A] = 0U;
+    s_au16ErrFlag[HW_SCI_ID_A] = 1U;
+
+    RxRound();
+    (void)SciPortRecover(HW_SCI_ID_A, &u16Remain);    /* -> WAIT_TX */
+    (void)SciPortRecover(HW_SCI_ID_A, &u16Remain);    /* 建等待基准 */
+    TicksAdvanceUs(9000UL);
+    Check(SciPortRecover(HW_SCI_ID_A, &u16Remain) == SCI_RECOVER_BUSY, "S-05B-29 intent");
+    Check(SciPortRxState(HW_SCI_ID_A) == SCI_RX_HW_RESET, "S-05B-29 reset stage");
+
+    s_u16ClearKind[HW_SCI_ID_A] = 4U;
+    Check(SciPortRecover(HW_SCI_ID_A, &u16Remain) == SCI_RECOVER_FAIL, "S-05B-29 tx dirty");
+    Check(SciPortRxState(HW_SCI_ID_A) == SCI_RX_PAUSED, "S-05B-29 paused");
+    Check(SciPortTxResume(HW_SCI_ID_A) == 0U, "S-05B-29 tx frozen while paused");
+
+    /* 第一次显式重试：RX 错误位已归零，但 TX FIFO 仍有残留 */
+    s_au16ErrFlag[HW_SCI_ID_A] = 0U;
+    s_u16TxIdle[HW_SCI_ID_A] = 0U;
+    Check(SciPortRecoverRetry(HW_SCI_ID_A) == SCI_RECOVER_OK, "S-05B-29 retry accepted");
+    Check(SciPortRecover(HW_SCI_ID_A, &u16Remain) == SCI_RECOVER_FAIL,
+          "S-05B-29 retry rejects dirty tx");
+    Check(SciPortRxState(HW_SCI_ID_A) == SCI_RX_PAUSED, "S-05B-29 stays paused");
+    Check(SciPortTxResume(HW_SCI_ID_A) == 0U, "S-05B-29 still frozen");
+    Check(s_u32ClearCalls == 1U, "S-05B-29 no clear without clean tx");
+
+    /* 第二次显式重试：TX 已清空，才允许完成恢复 */
+    s_u16TxIdle[HW_SCI_ID_A] = 1U;
+    Check(SciPortRecoverRetry(HW_SCI_ID_A) == SCI_RECOVER_OK, "S-05B-29 retry again");
+    Check(SciPortRecover(HW_SCI_ID_A, &u16Remain) == SCI_RECOVER_OK,
+          "S-05B-29 clean tx allows recovery");
+    DriveRecoverToIdle(HW_SCI_ID_A);
+    Check(SciPortRxState(HW_SCI_ID_A) == SCI_RX_IDLE, "S-05B-29 back to idle");
+}
+
 int main(void)
 {
     TestInitAndMapping();
@@ -1459,6 +2114,21 @@ int main(void)
     TestSciRecoverDropsOldBatch();
     TestSciRecoverParam();
     TestSciResetBudgetCarryOver();
+    TestForceIntentThenExecute();
+    TestForceBudgetDeferred();
+    TestForceReadBackFails();
+    TestTwoFaultsInvalidate();
+    TestSwResyncThenFault();
+    TestTxGateAtomic();
+    TestInitGating();
+    TestRecoverOutParam();
+    TestStageOutParamSentinel();
+    TestSecondFaultNoForce();
+    TestTxBlockedUntilDrain();
+    TestPortTaskTickFaultRebuild();
+    TestTxDirtyPauses();
+    TestOutParamPerRound();
+    TestRetryVerifiesTx();
 
     printf("checks=%d fails=%d\n", s_iChecks, s_iFails);
     return (s_iFails == 0) ? 0 : 1;

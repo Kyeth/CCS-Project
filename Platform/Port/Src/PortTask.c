@@ -12,6 +12,7 @@
 
 #include "PortTask.h"
 #include "Hw_TimeBase.h"
+#include "Schedule.h"
 
 #define PORT_TASK_NO_UNIT (0xFFFFU)
 
@@ -116,6 +117,7 @@ Uint16 PortBudgetHasLeft(void)
     {
         s_u32TimeSrcFailures++;
         s_bBudgetTickFault = 1U;
+        SciPortInvalidateWaitBases();   /* 本轮时间不可信：等待基准一并作废 */
         return 0U;
     }
     u32Elapsed = (Uint32)(s_u32BudgetStart - u32Now);  /* Timer0 递减 */
@@ -176,6 +178,7 @@ void PortTask(void)
     {
         s_u32TimeSrcFailures++;
         s_u16LastFirst = PORT_TASK_NO_UNIT;
+        SciPortInvalidateWaitBases();   /* 入口就没起来：同样不能留着旧基准 */
         return;
     }
 
@@ -247,4 +250,19 @@ Uint32 PortTaskBudgetTruncations(void)
 Uint32 PortTaskTimeSourceFailures(void)
 {
     return s_u32TimeSrcFailures;
+}
+
+void PortTaskServiceFromHeartbeat(Uint16 bPortInitError)
+{
+    if (bPortInitError != 0U)
+    {
+        return;
+    }
+
+    (void)SciPortService100us();
+}
+
+Uint16 PortTaskRegister(void)
+{
+    return Task_Start(PortTask, 1U, 0U);
 }

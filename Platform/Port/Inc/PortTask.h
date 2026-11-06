@@ -52,6 +52,14 @@ void PortTask(void);
  * 越界返回 0xFFFF。 */
 Uint16 PortTaskUnitPortId(Uint16 u16Unit);
 
+/** 心跳内的端口服务入口（main.c 的 100 us 中断调用）。
+ *  bPortInitError != 0 时完全不调用端口服务：初始化失败的端口不应被搬运，
+ *  启停判定只在一处，主机桩也能直接验证门禁生效。 */
+void PortTaskServiceFromHeartbeat(Uint16 bPortInitError);
+
+/** 注册 1 ms 端口任务（内部调用 Task_Start）。成功返回 1，失败返回 0。 */
+Uint16 PortTaskRegister(void);
+
 /* ---------------- 观测 ---------------- */
 
 /** 上一轮第一个被服务的单元序号（0..UNIT_NUM-1）；未服务时为 0xFFFF */
