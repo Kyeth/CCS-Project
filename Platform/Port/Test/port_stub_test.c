@@ -560,6 +560,50 @@ static void TestGapBad(void)
     Check(SciPortPopBatch(HW_SCI_ID_A, au16Buf, 16U, &stSeg) == 1U, "S-05A-05 batch still published");
 }
 
+/* S-05B-31：O1 共享取时失败时的混合状态（A 待排空 / C 正常 / D 只有 RXFFOVF） */
+static void TestSharedTickFailure(void)
+{
+    Uint16 au16Buf[16];
+    ST_SCI_RX_SEG stSeg;
+
+    Fixture();
+
+    /* C 先建基准，并留下 1 字节待发布。 */
+    SciFeed(HW_SCI_ID_C, 0xC1U);
+    RxRound();
+    Check(SciPortRxUsed(HW_SCI_ID_C) == 0U, "S-05B-31 C base round publishes nothing");
+
+    /* A 喂 40 字节后重同步：排空配额 32，剩 8 字节待丢。 */
+    SciFeedRun(HW_SCI_ID_A, 0x40U, 40U);
+    (void)SciPortResync(HW_SCI_ID_A);
+    Check(SciPortIsResyncDraining(HW_SCI_ID_A) != 0U, "S-05B-31 A has pending drain");
+
+    /* D 只有 FIFO 溢出。 */
+    s_au16ErrFlag[HW_SCI_ID_D] = HW_SCI_RXSTS_RXFFOVF;
+
+    /* 本轮共享取时失败。 */
+    s_bTickOk = 0U;
+    (void)SciPortService100us();
+
+    Check(s_au16FeedPos[HW_SCI_ID_A] == s_au16FeedLen[HW_SCI_ID_A],
+          "S-05B-31 A keeps draining without tick");
+    Check(SciPortIsResyncDraining(HW_SCI_ID_A) == 0U, "S-05B-31 A drain finishes");
+    Check(SciPortRxUsed(HW_SCI_ID_C) == 0U, "S-05B-31 C publishes nothing without tick");
+    Check(SciPortIsTimingBad(HW_SCI_ID_C) != 0U, "S-05B-31 C timing bad set");
+    Check(SciPortIsStreamBreak(HW_SCI_ID_D) != 0U, "S-05B-31 D latches overflow fault");
+    Check(SciPortRxErrEvents(HW_SCI_ID_D) != 0U, "S-05B-31 D counts hardware event");
+    Check(SciPortPopBatch(HW_SCI_ID_C, au16Buf, 16U, &stSeg) == 0U, "S-05B-31 C ring empty");
+
+    /* 取时恢复：第一轮只重建基准，第二轮才发布。 */
+    s_bTickOk = 1U;
+    (void)SciPortService100us();
+    Check(SciPortRxUsed(HW_SCI_ID_C) == 0U, "S-05B-31 C rebaselines after recovery");
+
+    (void)SciPortService100us();
+    Check(SciPortPopBatch(HW_SCI_ID_C, au16Buf, 16U, &stSeg) == 1U,
+          "S-05B-31 C publishes on the second round");
+}
+
 /* S-05B-30：O2 阈值边界（与原 floor 判据等价：500 µs 通过、501 µs 起超限） */
 static void TestGapBoundary(void)
 {
@@ -2112,6 +2156,7 @@ int main(void)
     TestTwoBatchesWithEmpty();
     TestGapBad();
     TestGapBoundary();
+    TestSharedTickFailure();
     TestTxPartial();
     TestHwOverwriteLatch();
     TestPendingHead();

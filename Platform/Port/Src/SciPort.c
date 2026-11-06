@@ -245,7 +245,27 @@ static Uint16 SciPortIsrDrop(ST_SCI_PORT *p)
 }
 
 /* 单端口一轮搬运。返回 1 = 本轮有批次提交，0 = 无动作。 */
-static Uint16 SciPortServiceRx(ST_SCI_PORT *p)
+/* O1：每轮只做一次经过校验的取时，三路共享"本轮开始服务的观察时刻"。
+ * 取时源取第一个已绑定驱动的端口；都未绑定时退回默认驱动表。
+ * 返回值 0 表示本轮时间不可用——调用方不得据此发布任何时标。 */
+static Uint16 SciPortReadRoundTick(Uint32 *pu32Tick)
+{
+    const ST_SCI_PORT_DRV *pstDrv = s_astSciPort[0].pstDrv;
+
+    if (pstDrv == (const ST_SCI_PORT_DRV *)0)
+    {
+        pstDrv = &s_stSciPortDrvDefault;
+    }
+
+    if (pstDrv->pfTryGetTick == (Uint16 (*)(Uint32 *))0)
+    {
+        return 0U;
+    }
+
+    return pstDrv->pfTryGetTick(pu32Tick);
+}
+
+static Uint16 SciPortServiceRx(ST_SCI_PORT *p, Uint32 u32TickRound, Uint16 u16TickValid)
 {
     Uint16 au16Buf[SCI_PORT_RX_QUOTA];
     ST_SCI_RX_SEG stSeg;
@@ -333,14 +353,17 @@ static Uint16 SciPortServiceRx(ST_SCI_PORT *p)
         return 0U;
     }
 
-    /* 时间读取失败：本轮不发布时标，也不改任何观察量。 */
-    if (p->pstDrv->pfTryGetTick(&u32Tick) == 0U)
+    /* O1：本轮的观察时刻由 SciPortService100us() 统一取一次，三路共用。
+     * 共享取时失败时，本口作废时间基准并停止发布；硬件错误检测已在上面完成，
+     * 已进入排空阶段的端口在上面的丢弃分支里照常按配额推进。 */
+    if (u16TickValid == 0U)
     {
-        /* 时间源失效：本轮不搬，同时作废旧基准，恢复后必须重新建基准。 */
         p->bTimingBad = 1U;
         p->bTimeBaseValid = 0U;
         return 0U;
     }
+
+    u32Tick = u32TickRound;
 
     if (p->bTimeBaseValid == 0U)
     {
@@ -826,15 +849,21 @@ Uint16 SciPortService100us(void)
 {
     Uint16 i;
     Uint16 u16Active = 0U;
+    Uint16 u16TickValid;
+    Uint32 u32RoundTick = 0UL;
 
     if (s_u32ServiceCalls < 0xFFFFFFFFUL)
     {
         s_u32ServiceCalls++;
     }
 
+    /* O1：本轮只取一次时标，三路共享同一个观察时刻。 */
+    u16TickValid = SciPortReadRoundTick(&u32RoundTick);
+
     for (i = 0U; i < SCI_PORT_NUM; i++)
     {
-        u16Active = (Uint16)(u16Active + SciPortServiceRx(&s_astSciPort[i]));
+        u16Active = (Uint16)(u16Active +
+                             SciPortServiceRx(&s_astSciPort[i], u32RoundTick, u16TickValid));
     }
 
     return u16Active;
