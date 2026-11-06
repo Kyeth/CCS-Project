@@ -33,7 +33,7 @@
  * 测完改回 0U，重新构建并确认产物与基线一致后再提交；测量期间的打点差异需
  * 记录在 05B 文档 §8.3。
  * ==========================================================================*/
-#define PORT_BENCH_TEST (0U)
+#define PORT_BENCH_TEST (1U)
 
 #if (PORT_BENCH_TEST != 0U)
 #define BENCH_SCI_PORT   (HW_SCI_ID_D)   /* SCI-D：TX=GPIO93 / RX=GPIO94，38400 8N1 */
@@ -53,6 +53,22 @@ Uint32 g_u32BenchPopCalls;        /* 回显模式下成功取到的批次数 */
 Uint32 g_u32IsrMarkTicks;         /* ISR 进入时刻的 Timer0 计数 */
 Uint32 g_u32IsrMarkMaxTicks;      /* ISR 最长耗时（tick，200 tick = 1 us） */
 Uint16 g_u16IsrMarkValid;
+
+/* GPIO33 打点模式（从 CCS Expressions 里改，改完下一拍生效）：
+ *   0 = 心跳 ISR 全程（含三路 SCI 服务，配合 g_u32IsrMarkMaxTicks 看软件计时）
+ *   1 = Isr_Control 全程（20 kHz 控制中断，默认；示波器直接量脉宽与周期）
+ *   2 = 心跳 ISR 里 SCI 服务那一段
+ *   3 = 心跳 ISR 里定时器分频与毫秒任务段
+ * 同一时刻只有一种模式生效，GPIO33 只有一个脚。 */
+Uint16 g_u16BenchMarkMode = 1U;
+
+/**
+ * @brief 只翻转打点引脚，不做软件计时（示波器测量用）。
+ */
+static void BenchMarkPin(Uint16 u16Level)
+{
+    Hw_GpioWritePin(BENCH_GPIO_MARK, u16Level);
+}
 
 /**
  * @brief 1 ms 回显/灌满任务。
@@ -311,7 +327,14 @@ void StartSystem(void)
 
 static __interrupt void Isr_Control(void)
 {
-    Uint16 next = Cla1ToCpuMsg.u16NextMuxAddress & 7U;
+    Uint16 next;
+#if (PORT_BENCH_TEST != 0U)
+    if (g_u16BenchMarkMode == 1U)
+    {
+        BenchMarkPin(1U);
+    }
+#endif
+    next = Cla1ToCpuMsg.u16NextMuxAddress & 7U;
 
     /* Sample the 20 result registers of this tick before advancing the MUX. */
     AdcSampleFast();
@@ -328,6 +351,12 @@ static __interrupt void Isr_Control(void)
 
     Cla1Regs.MICLR.bit.INT1 = 1U;
     PieCtrlRegs.PIEACK.all = PIEACK_GROUP11;
+#if (PORT_BENCH_TEST != 0U)
+    if (g_u16BenchMarkMode == 1U)
+    {
+        BenchMarkPin(0U);
+    }
+#endif
 }
 
 static __interrupt void Isr_Heartbeat(void)
@@ -335,7 +364,10 @@ static __interrupt void Isr_Heartbeat(void)
     static Uint32 lastControlCount = 0UL;
 
 #if (PORT_BENCH_TEST != 0U)
-    BenchIsrMarkBegin();
+    if (g_u16BenchMarkMode == 0U)
+    {
+        BenchIsrMarkBegin();
+    }
 #endif
 
     /* TIF is cleared here only; Hw_CpuTimerIsrTick() does not touch it. */
@@ -347,8 +379,26 @@ static __interrupt void Isr_Heartbeat(void)
        cadence; its budget is bounded by SCI_PORT_RX_QUOTA x 8 reads.
        PortTaskServiceFromHeartbeat() honours bPortInitError: a port layer that
        failed to initialize is never serviced from here either. */
+#if (PORT_BENCH_TEST != 0U)
+    if (g_u16BenchMarkMode == 2U)
+    {
+        BenchMarkPin(1U);
+    }
+#endif
     PortTaskServiceFromHeartbeat(stBringupStatus.unError.Bits.bPortInitError);
+#if (PORT_BENCH_TEST != 0U)
+    if (g_u16BenchMarkMode == 2U)
+    {
+        BenchMarkPin(0U);
+    }
+#endif
 
+#if (PORT_BENCH_TEST != 0U)
+    if (g_u16BenchMarkMode == 3U)
+    {
+        BenchMarkPin(1U);
+    }
+#endif
     /* u16TickDivCoef = 10: one return of 1 every 10 hardware interrupts, i.e. 1 ms. */
     if (Hw_CpuTimerIsrTick((ST_SYS_TIMER *)&stSysCpuTimer1) != 0U)
     {
@@ -368,9 +418,18 @@ static __interrupt void Isr_Heartbeat(void)
             lastControlCount = stBringupStatus.u32ControlIsrCount;
         }
     }
+#if (PORT_BENCH_TEST != 0U)
+    if (g_u16BenchMarkMode == 3U)
+    {
+        BenchMarkPin(0U);
+    }
+#endif
 
 #if (PORT_BENCH_TEST != 0U)
-    BenchIsrMarkEnd();
+    if (g_u16BenchMarkMode == 0U)
+    {
+        BenchIsrMarkEnd();
+    }
 #endif
 }
 
