@@ -1,4 +1,4 @@
-# 步骤 05B：SCI 驱动补全、错误恢复与端口接线（v0.9：代码审阅与主机桩已通过，上板验收待完成）
+# 步骤 05B：SCI 驱动补全、错误恢复与端口接线（v0.9：代码、主机桩与 CCS Debug 构建均通过，上板验收待完成）
 
 - base_sha：`5bb641f70f0588cdf70f0b0c01ea4a0b321963df`
 - head_sha：工作区待审
@@ -506,7 +506,7 @@ void TaskCreate(void)
 | `EP15K_minimal.out` | 780,428 B，sha256 `125227201dc5f85b8666d76610de99adf149e30680a16f4ae019e5c5dcdb9a94` |
 | `EP15K_minimal.map` | 99,780 B（**sha256 不作为校验值**：map 内含链接时间戳，同一份源码连续两次链接得到不同哈希，v0.6 归档差异即由此产生） |
 | 备注 | v0.5 为 775,148 B / 99,074 B；v0.6 为 779,132 B / 99,670 B；v0.7 新增 TX FIFO 复位与等待基准作废；v0.8 区分复位后回读失败并调整出参来源；v0.9 增加 `VERIFY_TX` 阶段，`.out` 780,428 B / `.map` 99,780 B |
-| CCS Debug 构建（2026-11-06） | 全部 **37 个编译单元**、零 warning、链接成功，生成 `Debug/EP15K_2026.out`（758,760 B）与 `Debug/EP15K_2026.hex`；`Debug/EP15K_2026.map` 99,303 B 中 `RAMGS0` 用量 `0xE90`／余 `0x170`（368 字）、`.portbuf` run `0x00DC00`／`0x180`，与上表的 `build_minimal.py` 结果一致；两份产物的字节数不同只因编译单元集合与 `-g` 调试信息不同 |
+| CCS Debug 构建（2026-11-06） | 全部 **37 个编译单元**、零 warning、链接成功，生成 `Debug/EP15K_2026.out`（758,760 B）与 `Debug/EP15K_2026.hex`；`Debug/EP15K_2026.map` 99,303 B 中 `RAMGS0` 用量 `0xE90`／余 `0x170`（368 字）、`.portbuf` run `0x00DC00`／`0x180`，与上表的 `build_minimal.py` 结果一致；两份产物的**字节数不同**（758,760 B 与 780,428 B），差异来源尚未逐项比对编译/链接参数后确认；目前可核实的是一致性——两份 map 的 `RAMGS0` 用量与余量（`0xE90`／`0x170`）以及 `.portbuf` 的 run 地址与长度（`0x00DC00`／`0x180`）完全相同 |
 | CCS 工程配置（本步新增，`.cproject`） | Debug 与 Release 两个配置各加 `${PROJECT_ROOT}/Platform/Common/Inc`、`${PROJECT_ROOT}/Platform/Port/Inc` 两条 include；两个配置都排除 `Platform/Port/Test/`（Debug 改原 `<sourceEntries>` 条目，Release 补一块）；`Test/shim` 不进入固件 include，固件侧不定义 `PORT_CRITICAL_HOOKS` |
 
 ### 7.3 静态核对
@@ -539,6 +539,7 @@ void TaskCreate(void)
 | 项 | 结果 |
 | --- | --- |
 | 实施方目标构建（v0.9） | **通过**：35 个编译单元、零 warning、零 error（`tools/build_minimal.py`，数字见 §7.2） |
+| CCS Debug clean build（2026-11-06） | **通过**：37 个编译单元零 warning、链接与 hex 生成成功；`Debug/EP15K_2026.out` 758,760 B（sha256 `717418a7ce25308fb12b2c8565fa4eda9b0b971b33179a400ef63a0608ca9f0f`）、`.hex` 93,345 B |
 | 审阅方对 v0.8 原包的主机桩测试 | `checks=339 fails=11`（普通构建与 ASan+UBSan 一致；Sanitizer 未报地址/UB 异常；11 条集中在 `S-05B-27`/`S-05B-28` 的刺激条件） |
 | 审阅方在诊断副本修正两个用例的刺激后 | `checks=339 fails=0`（仅改刺激，未改交付源码与断言） |
 | 审阅方对 v0.9 包的主机桩测试 | **通过**：`checks=355 fails=0`，`-O2 -Wall -Wextra` 与 ASan+UBSan 两次一致，编译无警告、Sanitizer 未报异常 |
@@ -546,7 +547,7 @@ void TaskCreate(void)
 | 本轮用例变化 | 新增 `S-05B-29`；补正 `S-05B-27`/`S-05B-28` 的刺激条件；断言点由 339 增至 **355** |
 | 05A 基线 | v0.9 包：`checks=151 fails=0`（主机 `-O2 -Wall -Wextra` 与 ASan+UBSan 两种运行） |
 | 上板项 | `S-05B-07`~`S-05B-14` 全部未测；新增 `S-05B-25` 的逐字节 TX 临界区对 20 kHz 控制响应的影响仍需上板 |
-| 05B 代码状态 | **代码审阅及主机桩通过（2026-11-06，v0.9 包）**：355 项检查、0 项失败；四轮历史 217/8 → 276/12 → 314/1 → 339/11 → 355/0；上板验收待完成 |
+| 05B 代码状态 | **代码、主机桩与 CCS Debug 构建均通过（2026-11-06，v0.9 包，检查点 `ec59056`）**：355 项检查、0 项失败；四轮历史 217/8 → 276/12 → 314/1 → 339/11 → 355/0；上板验收待完成 |
 
 ### 7.6 第二轮返工记录（m03507）
 
@@ -607,7 +608,8 @@ void TaskCreate(void)
 | 主机桩（`-O2 -Wall -Wextra`） | `checks=355 fails=0`，编译无警告 |
 | 主机桩（ASan＋UBSan） | `checks=355 fails=0`，Sanitizer 未报地址/UB 异常 |
 | `.map` | `RAMGS0` 余 368 字；`.portbuf` 位于 `0x00DC00`、占 `0x180` 字；预留区余 `0x280` 字 |
-| 目标构建 | 35 个编译单元零警告，沿用实施方构建记录；本轮独立执行的是主机验证 |
+| 目标构建（脚本） | 35 个编译单元零警告，沿用实施方构建记录 |
+| CCS Debug clean build | **通过**（2026-11-06）：37 个编译单元零 warning、链接与 hex 生成成功；`.map` 的 `RAMGS0` 与 `.portbuf` 与脚本构建一致 |
 
 ### 8.2 上轮阻塞项的复核结果
 
@@ -626,4 +628,6 @@ void TaskCreate(void)
 1. **强制复位后线路上是否仍有旧帧尾部**：用逻辑分析仪观察强制复位前后 TX 引脚，确认 `TXFIFORESET` + `SWRESET` 之后没有残留字节继续移出。
 2. **三路同时恢复时的心跳 ISR 耗时**：三路 SCI 同时进入排空，测量 100 µs 心跳里 `SciPortService100us()` 的最坏耗时（每端口 8 次读取，合计上限 24 次）。
 3. **逐字节 TX 临界区对 20 kHz 控制中断响应的影响**：测量 `SciPortServiceTx()` 的每字节临界区长度与主中断的最坏响应抖动。
+
+每条记录都须写明：①实际烧录文件名与构建配置（如 `Debug/EP15K_2026.out`、Debug）；②该文件的 SHA-256；③测量条件与波形/截图编号；④若临时加入 GPIO 打点，记录相对检查点 `ec59056` 的打点差异，测完删除后再提交。
 
