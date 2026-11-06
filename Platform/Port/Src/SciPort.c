@@ -45,6 +45,13 @@ static volatile Uint16 s_au16TxBufD[128];
 
 static ST_SCI_PORT s_astSciPort[SCI_PORT_NUM];
 static Uint32 s_u32TicksPerUs = SCI_PORT_TICKS_PER_US_DEF;
+
+/* O2：服务间隔阈值预置成 tick 数，热路径只做一次无符号比较。
+   与原判据等价：floor(gapTicks / ticksPerUs) > SCI_PORT_SERVICE_GAP_LIMIT_US
+   等价于 gapTicks >= (SCI_PORT_SERVICE_GAP_LIMIT_US + 1) * ticksPerUs。
+   200 tick/µs 下阈值为 100200（即 501 µs 起算超限，500 µs 整仍通过）。 */
+static Uint32 s_u32GapLimitTicks =
+    ((SCI_PORT_SERVICE_GAP_LIMIT_US + 1UL) * SCI_PORT_TICKS_PER_US_DEF);
 static Uint32 s_u32ServiceCalls = 0UL;   /* 心跳服务调用次数（观测/桩测试） */
 
 /* ------------------------------------------------------------------ */
@@ -116,6 +123,20 @@ static Uint16 SciPortGapToUs(Uint32 u32Ticks)
     }
 
     return (Uint16)u32Ticks;
+}
+
+/* 按当前 ticksPerUs 重算间隔阈值；初始化与更新时基时都必须调用。 */
+static void SciPortUpdateGapLimit(void)
+{
+    Uint32 u32Limit = (SCI_PORT_SERVICE_GAP_LIMIT_US + 1UL);
+
+    if (s_u32TicksPerUs > (0xFFFFFFFFUL / u32Limit))
+    {
+        s_u32GapLimitTicks = 0xFFFFFFFFUL;
+        return;
+    }
+
+    s_u32GapLimitTicks = u32Limit * s_u32TicksPerUs;
 }
 
 /* 新的故障事件：代次递增并置流中断。所有会破坏字节流连续性的路径都走这里。 */
@@ -336,7 +357,8 @@ static Uint16 SciPortServiceRx(ST_SCI_PORT *p)
         p->u32MaxGap = u32Gap;
     }
 
-    if (SciPortGapToUs(u32Gap) > SCI_PORT_SERVICE_GAP_LIMIT_US)
+    /* O2：tick 阈值比较，避免热路径做 32 位除法。 */
+    if (u32Gap >= s_u32GapLimitTicks)
     {
         p->bTimingBad = 1U;
     }
@@ -774,6 +796,9 @@ void SciPortInit(void)
         s_astSciPort[i].u16RxState = SCI_RX_IDLE;
         s_astSciPort[i].u16RecPhase = SCI_REC_PHASE_NONE;
     }
+
+    /* O2：阈值与当前 ticksPerUs 对齐（时基变化时由 SciPortSetSysclkHz 再同步）。 */
+    SciPortUpdateGapLimit();
 }
 
 Uint16 SciPortBindDriver(Uint16 u16PortId, const ST_SCI_PORT_DRV *pstDrv)
@@ -794,6 +819,7 @@ void SciPortSetSysclkHz(Uint32 u32SysclkHz)
     Uint32 u32TicksPerUs = u32SysclkHz / 1000000UL;
 
     s_u32TicksPerUs = (u32TicksPerUs == 0UL) ? 1UL : u32TicksPerUs;
+    SciPortUpdateGapLimit();
 }
 
 Uint16 SciPortService100us(void)

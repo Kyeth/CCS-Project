@@ -560,6 +560,33 @@ static void TestGapBad(void)
     Check(SciPortPopBatch(HW_SCI_ID_A, au16Buf, 16U, &stSeg) == 1U, "S-05A-05 batch still published");
 }
 
+/* S-05B-30：O2 阈值边界（与原 floor 判据等价：500 µs 通过、501 µs 起超限） */
+static void TestGapBoundary(void)
+{
+    Uint16 au16Buf[16];
+    ST_SCI_RX_SEG stSeg;
+
+    /* 100199 tick = 500.995 µs，仍应判为正常。 */
+    Fixture();                      /* ticksPerUs = 200 */
+    RxRound();                      /* 建基准 */
+    s_u32Tick -= 100199UL;
+    SciFeed(HW_SCI_ID_A, 0x5AU);
+    RxRound();
+
+    Check(SciPortIsTimingBad(HW_SCI_ID_A) == 0U, "S-05B-30 gap 100199 ticks not timing bad");
+    Check(SciPortPopBatch(HW_SCI_ID_A, au16Buf, 16U, &stSeg) == 1U, "S-05B-30 batch published at 100199");
+
+    /* 100200 tick = 501 µs，必须置位。 */
+    Fixture();
+    RxRound();
+    s_u32Tick -= 100200UL;
+    SciFeed(HW_SCI_ID_A, 0x5AU);
+    RxRound();
+
+    Check(SciPortIsTimingBad(HW_SCI_ID_A) != 0U, "S-05B-30 gap 100200 ticks sets timing bad");
+    Check(SciPortPopBatch(HW_SCI_ID_A, au16Buf, 16U, &stSeg) == 1U, "S-05B-30 batch published at 100200");
+}
+
 /* S-05A-06：部分发送后剩余字节与顺序 */
 static void TestTxPartial(void)
 {
@@ -2084,6 +2111,7 @@ int main(void)
     TestQuotaAndAttempts();
     TestTwoBatchesWithEmpty();
     TestGapBad();
+    TestGapBoundary();
     TestTxPartial();
     TestHwOverwriteLatch();
     TestPendingHead();
