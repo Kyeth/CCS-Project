@@ -24,6 +24,117 @@
 #include "SampleData.h"
 #include "AdcSample.h"
 
+/* ============================================================================
+ * 上板测量开关（对应 05B 文档 §8.4）
+ *
+ * PORT_BENCH_TEST == 0U：不编译任何测量代码，目标镜像与检查点 ec59056 一致。
+ * PORT_BENCH_TEST == 1U：编译回显/灌满任务与 ISR 打点，仅用于上板测量第 1~4 项。
+ *
+ * 测完改回 0U，重新构建并确认产物与基线一致后再提交；测量期间的打点差异需
+ * 记录在 05B 文档 §8.3。
+ * ==========================================================================*/
+#define PORT_BENCH_TEST (0U)
+
+#if (PORT_BENCH_TEST != 0U)
+#define BENCH_SCI_PORT   (HW_SCI_ID_D)   /* SCI-D：TX=GPIO93 / RX=GPIO94，38400 8N1 */
+#define BENCH_BUF_WORDS  (128U)
+#define BENCH_FLOOD_LEN  (128U)
+#define BENCH_GPIO_MARK  (33U)           /* 配置表里的"测试引脚"，独占不用 */
+
+static Uint16 s_au16BenchBuf[BENCH_BUF_WORDS];
+static ST_SCI_RX_SEG s_stBenchSeg;
+
+/* 下面四个量从 CCS Expressions 里直接改/看（非 static，保证有符号） */
+Uint16 g_u16BenchMode;            /* 0=回显 1=灌满 TX */
+Uint32 g_u32BenchTxTotal;         /* 累计写入 TX 环的字节数 */
+Uint32 g_u32BenchResumeTries;     /* 强制复位后解冻尝试次数 */
+Uint32 g_u32BenchPopCalls;        /* 回显模式下成功取到的批次数 */
+
+Uint32 g_u32IsrMarkTicks;         /* ISR 进入时刻的 Timer0 计数 */
+Uint32 g_u32IsrMarkMaxTicks;      /* ISR 最长耗时（tick，200 tick = 1 us） */
+Uint16 g_u16IsrMarkValid;
+
+/**
+ * @brief 1 ms 回显/灌满任务。
+ */
+void BenchTask(void)
+{
+    Uint16 u16Got;
+    Uint16 u16Put;
+
+    /* 强制复位后 TX 冻结，这里模拟协议层：恢复回 IDLE 后主动解冻 */
+    if (SciPortIsTxSuspended(BENCH_SCI_PORT) != 0U)
+    {
+        if (SciPortRxState(BENCH_SCI_PORT) == SCI_RX_IDLE)
+        {
+            (void)SciPortTxResume(BENCH_SCI_PORT);
+            g_u32BenchResumeTries++;
+        }
+        return;
+    }
+
+    if (g_u16BenchMode == 0U)                    /* 回显：收到什么发回什么 */
+    {
+        u16Got = SciPortPopBatch(BENCH_SCI_PORT, s_au16BenchBuf,
+                                 (Uint16)(BENCH_BUF_WORDS / 2U), &s_stBenchSeg);
+        if (u16Got != 0U)
+        {
+            g_u32BenchPopCalls++;
+            u16Put = SciPortWriteTx(BENCH_SCI_PORT, s_au16BenchBuf, u16Got);
+            g_u32BenchTxTotal += (Uint32)u16Put;
+        }
+    }
+    else                                         /* 灌满 TX：0x40..0x7F 循环，便于识别残留 */
+    {
+        Uint16 i;
+        for (i = 0U; i < BENCH_FLOOD_LEN; ++i)
+        {
+            s_au16BenchBuf[i] = (Uint16)(0x40U + (i & 0x3FU));
+        }
+        u16Put = SciPortWriteTx(BENCH_SCI_PORT, s_au16BenchBuf, BENCH_FLOOD_LEN);
+        g_u32BenchTxTotal += (Uint32)u16Put;
+    }
+}
+
+/**
+ * @brief ISR 入口打点：拉高 GPIO33 并记下 Timer0 计数。
+ */
+static void BenchIsrMarkBegin(void)
+{
+    Hw_GpioWritePin(BENCH_GPIO_MARK, 1U);
+    if (Hw_TimeBaseIsReady() == 0U)
+    {
+        g_u16IsrMarkValid = 0U;
+        return;
+    }
+    g_u16IsrMarkValid = 1U;
+    g_u32IsrMarkTicks = Hw_TimeBaseTicks();
+}
+
+/**
+ * @brief ISR 出口打点：拉低 GPIO33，更新最长耗时。
+ */
+static void BenchIsrMarkEnd(void)
+{
+    Uint32 u32Elapsed;
+
+    Hw_GpioWritePin(BENCH_GPIO_MARK, 0U);
+    if (g_u16IsrMarkValid == 0U)
+    {
+        return;
+    }
+    u32Elapsed = Hw_TimeBaseElapsed(g_u32IsrMarkTicks);
+    if (Hw_TimeBaseIsReady() == 0U)
+    {
+        return;
+    }
+    if (u32Elapsed > g_u32IsrMarkMaxTicks)
+    {
+        g_u32IsrMarkMaxTicks = u32Elapsed;
+    }
+}
+#endif /* PORT_BENCH_TEST */
+
 static __interrupt void Isr_Control(void);
 static __interrupt void Isr_Heartbeat(void);
 
@@ -169,6 +280,14 @@ void TaskCreate(void)
             stBringupStatus.unError.Bits.bTaskCreateError = 1U;
         }
     }
+
+#if (PORT_BENCH_TEST != 0U)
+    /* 上板测量任务（§8.4）：回显或灌满 TX，1 ms 一次 */
+    if (Task_Start(BenchTask, 1U, 0U) == 0U)
+    {
+        stBringupStatus.unError.Bits.bTaskCreateError = 1U;
+    }
+#endif
 }
 
 /**
@@ -215,6 +334,10 @@ static __interrupt void Isr_Heartbeat(void)
 {
     static Uint32 lastControlCount = 0UL;
 
+#if (PORT_BENCH_TEST != 0U)
+    BenchIsrMarkBegin();
+#endif
+
     /* TIF is cleared here only; Hw_CpuTimerIsrTick() does not touch it. */
     Hw_CpuTimerClearIntFlag((ST_SYS_TIMER *)&stSysCpuTimer1);
 
@@ -245,6 +368,10 @@ static __interrupt void Isr_Heartbeat(void)
             lastControlCount = stBringupStatus.u32ControlIsrCount;
         }
     }
+
+#if (PORT_BENCH_TEST != 0U)
+    BenchIsrMarkEnd();
+#endif
 }
 
 void main(void)
