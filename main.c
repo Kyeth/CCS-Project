@@ -33,7 +33,7 @@
  * 测完改回 0U，重新构建并确认产物与基线一致后再提交；测量期间的打点差异需
  * 记录在 05B 文档 §8.3。
  * ==========================================================================*/
-#define PORT_BENCH_TEST (1U)
+#define PORT_BENCH_TEST (0U)
 
 #if (PORT_BENCH_TEST != 0U)
 #define BENCH_SCI_PORT   (HW_SCI_ID_D)   /* SCI-D：TX=GPIO93 / RX=GPIO94，38400 8N1 */
