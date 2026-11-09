@@ -58,6 +58,9 @@
 									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/Platform/Pll/Inc"/>
 									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/Platform/Common/Inc"/>
 									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/Platform/Port/Inc"/>
+									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/Platform/Protocol/Inc"/>
+									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/Platform/Protocol/Modbus/Inc"/>
+									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/UserApp/Inc"/>
 									<listOptionValue builtIn="false" value="${CG_TOOL_ROOT}/include"/>
 								</option>
 								<option id="com.ti.ccstudio.buildDefinitions.C2000_22.6.compilerID.ABI.1661857823" name="Application binary interface [See 'General' page to edit] (--abi)" superClass="com.ti.ccstudio.buildDefinitions.C2000_22.6.compilerID.ABI" useByScannerDiscovery="false" value="com.ti.ccstudio.buildDefinitions.C2000_22.6.compilerID.ABI.eabi" valueType="enumerated"/>
@@ -103,7 +106,7 @@
 						</toolChain>
 					</folderInfo>
 					<sourceEntries>
-						<entry excluding="Platform/Port/Test/" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name=""/>
+						<entry excluding="Platform/Port/Test/,Platform/Protocol/Test/" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name=""/>
 					</sourceEntries>
 				</configuration>
 			</storageModule>
@@ -164,6 +167,9 @@
 									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/Platform/Pll/Inc"/>
 									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/Platform/Common/Inc"/>
 									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/Platform/Port/Inc"/>
+									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/Platform/Protocol/Inc"/>
+									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/Platform/Protocol/Modbus/Inc"/>
+									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/UserApp/Inc"/>
 									<listOptionValue builtIn="false" value="${CG_TOOL_ROOT}/include"/>
 								</option>
 								<option id="com.ti.ccstudio.buildDefinitions.C2000_22.6.compilerID.ABI.1473868968" superClass="com.ti.ccstudio.buildDefinitions.C2000_22.6.compilerID.ABI" useByScannerDiscovery="false" value="com.ti.ccstudio.buildDefinitions.C2000_22.6.compilerID.ABI.eabi" valueType="enumerated"/>
@@ -203,7 +209,7 @@
 						</toolChain>
 					</folderInfo>
 					<sourceEntries>
-						<entry excluding="Platform/Port/Test/" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name=""/>
+						<entry excluding="Platform/Port/Test/,Platform/Protocol/Test/" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name=""/>
 					</sourceEntries>
 				</configuration>
 			</storageModule>

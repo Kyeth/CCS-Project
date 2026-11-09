@@ -153,6 +153,8 @@ SECTIONS
 
     /* 05C：前台服务间隔统计（每单元 last tick/max gap）。
        RAMGS0 只剩 8 字，统计量放这里，不占工作区 RAMGS0。 */
+    /* 05D：协议实例与 Modbus 收发缓冲（3 x 420 字 + 实例表）占用 RAMGS1 剩余部分 */
+    .protobuf        : > RAMGS1, PAGE = 1, ALIGN(4)
     .portstat        : > RAMGS1, PAGE = 1, ALIGN(4)
 #else
     .ebss            : >> RAMGS0 | RAMGS1 | RAMGS2 | RAMGS3, PAGE = 1, ALIGN(4)

@@ -24,6 +24,8 @@
 #include "PortBench.h"
 #include "SampleData.h"
 #include "AdcSample.h"
+#include "Protocol.h"
+#include "AppModbus.h"
 
 /* ============================================================================
  * 上板测量开关（对应 05B 文档 §8.4）
@@ -552,7 +554,10 @@ void PlatformInit(void)
  */
 void ApplicationInit(void)
 {
-    /* No application objects in the peripheral bring-up image. */
+    /* Modbus point tables + protocol instance table. The tables are
+       validated here so a bad binding is reported at startup, not when
+       the first request arrives. */
+    AppModbusInit();
 }
 
 /**
@@ -574,6 +579,15 @@ void TaskCreate(void)
     if (stBringupStatus.unError.Bits.bPortInitError == 0U)
     {
         (void)PortTaskRegister();
+    }
+
+    /* Protocol service runs as its own 1 ms task. 1 ms is the task
+       period, not the RTU timing resolution: frame gap and frame
+       timeout come from the batch observation ticks, not from the
+       number of task runs. */
+    if (Task_Start(ProtocolTask, 1U, 0U) == 0U)
+    {
+        stBringupStatus.unError.Bits.bTaskCreateError = 1U;
     }
 
 #if (PORT_BENCH_TEST != 0U)

@@ -1,113 +1,291 @@
-# 步骤 05D：应用层 RingBuff 接入（申请，v0.1）
+# 步骤 05D 申请：Modbus RTU 从机（表驱动）
 
-- base_sha：`83dba4c`（`test/board-bringup-20261031`，05C 基线登记提交）
-- 前置：05C 前台轮转**已登记为可用基线**（主机回归交付包 435/0；三路自环、吞吐、停发排空、故障隔离通过）
-- 状态：**待所有者裁定**（本文件只是申请，未改任何生产代码）
-- 范围：应用层（`UserApp/`）在**现有** `SciPort` / `CanPort` 接口之上使用 `RingBuff`；**CAN 不动、SCI 不再追加性能微调**
+| 项 | 内容 |
+| --- | --- |
+| 文档版本 | v0.3 |
+| 日期 | 2026-11-09 |
+| 基线 | `83dba4c`（05C 前台轮转可用基线） |
+| 状态 | 已实现、目标构建通过，待审阅 |
+| 取代 | v0.2（把"协议服务放主循环 + 16 位回调"改为三层表驱动） |
 
----
+## 0. 结论先行
 
-## 1. 要做的事
+本步在**不改** 05C 已验收的通信搬运路径的前提下，加入三路 Modbus RTU 从机：
 
-在 `UserApp/` 新建链路帧层，把"字节流"变成"应用帧"，并管住三件事：谁拥有队列、发送只发到一半时怎么办、端口故障后怎么恢复。不新增中断、不改 `SciPort`/`CanPort`/`RingBuff`/`PortTask` 的任何语义。
+- 应用层只维护 **Modbus 点表**（地址、权限、类型、变量绑定、上下限）与**协议实例配置表**（哪个 SCI 口、什么协议、从机地址、哪张点表）；
+- 平台层提供 **协议操作表**（Init / Service / Reset）与通用点表访问，负责查表、类型转换、校验与收发；
+- 协议服务注册为独立的 **1 ms 任务** `ProtocolTask`；主循环仍只有 `Hw_FeedWatchDog(); PortTaskService(); Task_Run();`。
+
+## 1. 范围与不做
+
+做：
+
+1. Modbus RTU 从机，功能码 `0x03` / `0x06` / `0x10`；
+2. 三路实例：SCI-A（19200，从机 1）、SCI-C（115200，从机 1）、SCI-D（38400，从机 2）；
+3. 点表支持 `Uint16` / `int16` / `Uint32` / `int32` / `float`，32 位量占两个寄存器、高字在前；
+4. 初始化期检查点表（地址递增不重叠、类型与限值合法），错误在启动时暴露。
+
+不做（本步）：
+
+- 不改 `SciPort` / `CanPort` / `RingBuff` / `PortTask` / `PortBudget`；
+- 不新增中断，不把协议解析放进心跳 ISR；
+- CAN 不新建队列；
+- 不实现 `0x01`/`0x02`/`0x04`/`0x05`/`0x0F`（统一回异常 `0x01`）；
+- 不做应用层重发、序号回填、跨端口去重；
+- 不重跑 05C 板测，`S-05B-08/09` 的未达标记录保持原样。
+
+## 2. 三层表与模块
+
+| 层 | 内容 | 实现位置 |
+| --- | --- | --- |
+| 应用层 | Modbus 点表、协议实例配置表 | `UserApp/Inc/AppModbus.h`、`UserApp/Src/AppModbus.c` |
+| 平台框架 | 协议操作表、实例装配、1 ms 任务分发 | `Platform/Protocol/Inc/Protocol.h`、`Platform/Protocol/Src/Protocol.c` |
+| 协议核心 | 组帧、CRC、功能码、异常应答、待发状态 | `Platform/Protocol/Modbus/{Inc,Src}/ModbusRtu.{h,c}` |
+| 点表访问 | 类型转换、限值、写原子性 | `Platform/Protocol/Modbus/{Inc,Src}/ModbusTbl.{h,c}` |
+| 端口适配 | SciPort 收发、批次时标、故障恢复 | `Platform/Protocol/Modbus/{Inc,Src}/ModbusProto.{h,c}` |
+
+依赖方向：`AppModbus → Protocol → ModbusProto → {ModbusRtu, ModbusTbl, SciPort}`。`ModbusRtu` 不含 `Hw_SciDriver.h`，也不访问寄存器。
+
+配置示例（`AppModbus.c` 内的实例表）：
 
 ```
-心跳 100 µs ──► SciPortService100us() ──► stRxRing(每端口 127 B)   ← 现状，不改
-                                              │
-主循环每圈 ──► AppLinkService()  ├─ 搬字节：SciPortPopBatch() ──► 重组状态机 ──► stRxFrames
-                                 └─ 推字节：stTxFrames 队头 ──► SciPortWriteTx()（部分接受即停）
-                                              │
-1 kHz 任务 ──► 应用：AppLinkPopFrame() / AppLinkPushFrame()
+SCI-A → Modbus 从机 → 地址 1 → 点表 A
+SCI-C → Modbus 从机 → 地址 1 → 点表 C
+SCI-D → Modbus 从机 → 地址 2 → 点表 D
 ```
 
-## 2. 接口（新增 `UserApp/Inc/AppLink.h`）
+三路共用同一份协议实现（一张协议操作表），但接收缓冲、待发缓冲、超时与故障状态各自独立（每实例一份 `ST_MB_PROTO_STATE`）。
+
+## 3. 点表格式
 
 ```c
-#define APP_LINK_PORTS        (3U)   /* 0=A, 1=C, 2=D，映射 HW_SCI_ID_A/C/D */
-#define APP_FRAME_MAX_DATA    (32U)  /* 负载上限（含功能码），整帧最多 36 字节 */
-#define APP_RX_DEPTH          (6U)   /* 每端口收帧队列深度 */
-#define APP_TX_DEPTH          (4U)   /* 每端口待发帧队列深度 */
-#define APP_RX_ROUND_BYTES    (16U)  /* 每圈每端口最多搬的字节数 */
-#define APP_FRAME_TIMEOUT_MS  (100UL)
-
 typedef struct {
-    Uint16 u16Len;                   /* 实际字节数，1..APP_FRAME_MAX_DATA */
-    Uint16 au16Data[APP_FRAME_MAX_DATA];
-} ST_APP_FRAME;
-
-void   AppLinkInit(void);
-void   AppLinkService(void);                                  /* 主循环每圈调用一次 */
-Uint16 AppLinkPopFrame (Uint16 u16Idx, ST_APP_FRAME *pstFrame); /* 1=取到，0=空 */
-Uint16 AppLinkPushFrame(Uint16 u16Idx, const ST_APP_FRAME *pstFrame); /* 1=入队，0=队满 */
-Uint16 AppLinkTxBusy   (Uint16 u16Idx);                       /* 1=队头帧尚未全部交给硬件 */
-
-Uint32 AppLinkRxFrames(Uint16 u16Idx);
-Uint32 AppLinkRxDropFrames(Uint16 u16Idx);                    /* 半帧被断流/超时丢弃 */
-Uint32 AppLinkTxFrames(Uint16 u16Idx);
-Uint32 AppLinkTxAborted(Uint16 u16Idx);                       /* 复位丢数据导致作废 */
-Uint32 AppLinkTxBusyRounds(Uint16 u16Idx);                    /* 环满/暂停而没交出去的圈数 */
+    Uint16 u16Addr;      /* 起始寄存器地址 */
+    Uint16 u16Type;      /* MB_PT_U16 / I16 / U32 / I32 / F32 */
+    Uint16 u16Access;    /* MB_PT_READ / WRITE / READWRITE */
+    Uint16 u16Reserved;  /* 预留：保存属性等 */
+    void  *pVar;         /* 绑定的变量，必须非空 */
+    Uint32 u32Min;       /* 整数下限（按类型宽度解释） */
+    Uint32 u32Max;       /* 整数上限 */
+    float  fMin;         /* 浮点下限 */
+    float  fMax;         /* 浮点上限 */
+} ST_MODBUS_POINT;
 ```
 
-只用到现有接口：`SciPortPopBatch`、`SciPortWriteTx`、`SciPortTxFree`、`SciPortIsTxSuspended`、`SciPortTxResetQueue`、`SciPortTxResetDrop`、`SciPortIsStreamBreak`、`SciPortClearStreamBreak`、`SciPortFaultGeneration`、`SciPortRxState`、`SciPortRxUsed`、`RingBuffWriteExact`、`RingBuffPeek`、`RingBuffDrop`、`RingBuffUsed`、`RingBuffFree`、`PortEnterCriticalReal` / `PortExitCriticalReal`。
+应用点表实例（每路一套，绑定该路自己的变量）：
 
-## 3. 队列所有权
+| 地址 | 类型 | 权限 | 变量 | 限值 |
+| --- | --- | --- | --- | --- |
+| 0x0000 | Uint16 | 读写 | `s_au16TestMode[i]` | 0..1000 |
+| 0x0001 | int16 | 读写 | `s_ai16TestOffset[i]` | −500..500 |
+| 0x0003 | Uint32 | 读写 | `s_au32TestCounter[i]` | 0..1000000 |
+| 0x0005 | int32 | 读写 | `s_ai32TestTrim[i]` | −100000..100000 |
+| 0x0007 | float | 读写 | `s_afTestGain[i]` | −50.0..150.0 |
+| 0x0009 | Uint16 | 只读 | `s_au16TestStatus[i]` | — |
 
-| 队列 | 存储位置 | 生产者 | 消费者 | 容量 | 同步 |
-| --- | --- | --- | --- | --- | --- |
-| SCI 收字节环 `stRxRing` | `.portbuf`（已有） | 心跳 ISR `SciPortService100us()` | 主循环 `AppLinkService()` | 127 B × 3 | 已有 SPSC 约定，不改 |
-| 应用收帧队列 `stRxFrames` | 新增 `.appbuf` | 主循环 `AppLinkService()` | 1 kHz 任务（`AppLinkPopFrame`） | 6 帧 × 3 | 两者都在前台，短临界区内 `Push/Pop` |
-| 应用待发队列 `stTxFrames` | 新增 `.appbuf` | 1 kHz 任务（`AppLinkPushFrame`） | 主循环 `AppLinkService()` | 4 帧 × 3 | 同上 |
-| SCI 发字节环 `stTxRing` | `.portbuf`（已有） | 主循环 `AppLinkService()` | 前台 TX 单元 `SciPortTaskOne()` | 127 B × 3 | 都是前台，无 ISR 参与 |
+变量类型保持不变（`Uint16` / `int16` / `Uint32` / `int32` / `float`），**不**统一强转成同一种寄存器类型；访问器按 `u16Type` 选择对应类型的 `volatile` 指针，保留 `volatile` 语义（控制 ISR 更新的变量不会被缓存读）。
 
-- **应用层绝不直接写 `stRxRing`/`stTxRing`**：字节环的唯一入口是 `SciPortPopBatch()` 与 `SciPortWriteTx()`。
-- `.appbuf` 预算：`ST_APP_FRAME` 34 字 × (6 + 4) × 3 端口 = **1,020 字**；放 `RAMGS1`（现有 3,072 字，` .portstat` 占 20 字）。若嫌紧，把收/发深度降到 4/2 即 612 字。链接脚本加 `APPBUF : > RAMGS1` 段，不占 `RAMGS0`。
+### 3.1 类型转换规则
 
-## 4. 部分发送
+- `Uint16` / `int16`：占 1 个寄存器，值直接放入；
+- `Uint32` / `int32` / `float`：占 2 个寄存器，**高字在前**（`regs[0] = bits >> 16`、`regs[1] = bits & 0xFFFF`），每个寄存器在报文中高字节在前（由 `ModbusRtu` 的 `MbPutBe16` 负责）；
+- 线上地址仍是 16 位寄存器，类型信息只存在于点表。
 
-`SciPortWriteTx()` 返回**实际进环**的字节数（0..count），环满时可能只接受一部分。规则：
+### 3.2 初始化期检查（`ModbusTblValidate`）
 
-1. 每端口维护 `s_au16TxOffset[i]`。每圈只提交 `len - offset` 这段，`offset += 返回值`。
-2. `offset == len` 才弹出该帧并清零 offset；**绝不重发已进环的字节**（否则线上重复）。
-3. 返回 0 时本圈放弃该端口（`u32TxBusyRounds++`），不等待、不阻塞主循环，下一圈再来。
-4. `APP_TX_DEPTH` 满时 `AppLinkPushFrame()` 返回 0，由调用方退避；本层不排队、不阻塞。
+逐项检查并在任何一项失败时拒绝启用该实例：
 
-## 5. 故障恢复
+1. 类型已知、权限在 `1..3`、`pVar` 非空；
+2. 地址严格递增且区间不重叠（`addr >= prev_addr + prev_regs`）；
+3. 区间不越过 16 位地址空间；
+4. 整型限值与类型宽度一致（例：`Uint16` 配上限 `66530` 必须在这里报错，不能留到收报文时）；
+5. 浮点上下限用 float 比较，`NaN` 也会被拒绝。
 
-| 事件 | 判据 | 本层动作 |
-| --- | --- | --- |
-| 断流 | `SciPortIsStreamBreak(i) != 0` | 丢弃正在重组的半帧（`u32RxDropFrames++`）、清本地解析状态；取 `SciPortFaultGeneration(i)` 后调用 `SciPortClearStreamBreak(i, gen)`（**必须带代次**，避免清掉新一轮故障） |
-| 端口在恢复态 | `SciPortRxState(i) != SCI_RX_IDLE` | 本圈不搬该端口字节；只累计 `u32RxErrEvents` 的增量，不尝试"抢读" |
-| 半帧超时 | 同一帧超过 `APP_FRAME_TIMEOUT_MS` 未收齐 | 丢弃（`u32RxDropFrames++`），重新找帧头 |
-| TX 被强制复位清掉 | `SciPortTxResetDrop(i)` 增长，或 `SciPortIsTxSuspended(i) != 0` | 该端口队头帧作废（`u32TxAborted++`、`offset = 0`、弹出）；是否重发由上层决定，本层不自动重发 |
-| 恢复完成 | `SciPortRxState(i)` 回 `IDLE` 且断流标志已清 | 正常搬运；解析状态从"找帧头"重新开始 |
+## 4. 协议实例配置表与协议操作表
 
-本层**不做**：自动重发、序号回填、跨端口去重、总线仲裁。
+```c
+struct ST_PROTO_INSTANCE {
+    Uint16 u16SciId;         /* HW_SCI_ID_A / _C / _D */
+    Uint16 u16Type;          /* PROTO_TYPE_MODBUS */
+    Uint16 u16SlaveAddr;
+    Uint16 u16Enabled;
+    Uint16 u16TblCount;
+    Uint32 u32Baud;          /* 来自工程配置（Broad 的 stSciCfg） */
+    const void *pstTbl;      /* 点表 */
+    void *pCtx;              /* 协议私有上下文 */
+};
 
-## 6. 验收（精简，5 项）
+typedef struct {
+    Uint16 u16Type;
+    Uint16 (*pfInit)(ST_PROTO_INSTANCE *);
+    Uint16 (*pfService)(ST_PROTO_INSTANCE *);
+    void   (*pfReset)(ST_PROTO_INSTANCE *);
+} ST_PROTO_OPS;
+```
 
-复用现有 `Platform/Port/Test/port_stub_test.c` 的桩与 `Check()` 框架，不新建测试设施；新增用例约 20 条断言。
+- 增加协议（如 Xmodem）时只需新增一行 `ST_PROTO_OPS` 并 `ProtocolRegisterOps()`，通过 `ProtocolResetPort()` 取得端口所有权；
+- 实例装配顺序：`ProtocolInit()` → `ProtocolRegisterOps(&stModbusProtoOps)` → 逐实例 `ProtocolAddInstance()`（内部调用 `pfInit`，失败则该实例不参与服务）；
+- 波特率由 `AppModbus` 从 `stSciCfg` 查表搬入实例配置，平台层不引用 `Broad`。
 
-| # | 用例 | 判据 |
-| --- | --- | --- |
-| 1 | 单端口完整帧 | 注入 1 帧 → `AppLinkPopFrame` 恰好 1 次，长度与内容一致，无多余帧 |
-| 2 | 跨批次重组 | 一帧分 3 段（3/3/剩余字节）注入，中间穿插空轮 → 仍重组正确（`SciPortPopBatch` 段长小于帧长） |
-| 3 | 断流半帧 | 半帧中途 `SciPortResync()` → 半帧丢弃、`u32RxDropFrames` +1；随后完整帧正常 |
-| 4 | 部分发送 | TX 环只剩 4 字节空位时投 13 字节帧 → 先入 4 字节、`offset = 4`；补足空位后余下 9 字节入环、帧弹出；拼出的字节流与源帧逐字节相同（无重复、无缺口） |
-| 5 | 恢复后继续 | 仅对 A 注入错误 → A 回 `IDLE` 后收发正常，C/D 的收帧计数与错误计数不受影响 |
+## 5. 调度
 
-上板只加一项观察：三路自环跑 60 s，`AppLinkRxFrames == AppLinkTxFrames`（±在途 1 帧）、`u32RxDropFrames` 与 `u32TxAborted` 为 0。
+`ProtocolTask` 注册为独立的 1 ms 任务：
 
-## 7. 需要所有者裁定
+```c
+Task_Start(ProtocolTask, 1U, 0U);
+```
 
-1. **帧格式**：本申请假设 `帧头(1) + 长度(1) + 数据(≤32) + CRC16(2)`，整帧上限 36 字节。实际协议若不同，只需替换内部解析函数与 `APP_FRAME_MAX_DATA`，接口不变。是否由本层负责 CRC？
-2. **队列深度**：收 6／发 4（1,020 字）是否合适？还是要更省（4/2，612 字）。
-3. **重发策略**：本层"不自动重发"，把 TX 复位丢数据上报给上层。是否接受？
-4. **驱动位置**：`AppLinkService()` 挂在主循环（推荐，与 `PortTaskService()` 并列），还是放进 1 kHz 任务？前者延迟低、后者简单。
-5. **任务边界**：应用帧的消费/生产放进现有 `AdcSampleTask`，还是新开一个 1 ms 任务？本申请倾向前者（不新增任务）。
+主循环保持 05C 原样：
 
-## 8. 明确不做
+```c
+while (1)
+{
+    Hw_FeedWatchDog();
+    (void)PortTaskService();
+    Task_Run();
+}
+```
 
-- 不改 `SciPort`/`CanPort`/`RingBuff`/`PortTask`/`PortBudget` 任何语义，不新增中断。
-- CAN 侧不新建队列，应用直接用 `CanPortPopRx()` / `CanPortPushTx()`。
-- 不追加 SCI 性能优化，不重跑 05C 的板测；`S-05B-08/09` 保持历史未达标记录。
-- 控制入口抖动仍单列跟踪，不进本步骤验收。
+`ProtocolTask` 遍历实例表，对每个启用实例调用一次 `pfService`：每端口最多 32 字节（两段 × 16 字节）、有界处理、不等整帧、不等 TX 空闲、不做阻塞 Flash 操作。
+
+**1 ms 是协议任务的运行周期，不是 RTU 的计时精度。** 帧间隔（3.5 字符）与候选帧超时（100 ms）都由 `SciPortPopBatch()` 返回的批次观察时刻（`ST_SCI_RX_SEG.u32Tick`）与 `Hw_TimeBaseTicks()` 计算，不能把"两次任务调用"当成"静默 2 ms"。
+
+`PortTaskService()` 仍由 100 µs 心跳置通知位、主循环每圈领取一次、每拍只服务一个通信单元。它**不能**改成 1 ms 周期任务：那样每个单元约 5 ms 才获得一次机会，会退回 05C 之前的饥饿状态（实测 54 帧/s）。
+
+## 6. 协议核心规则（`ModbusRtu`）
+
+### 6.1 接收
+
+- 独立接收缓冲 + 跨批次状态：`MB_RX_HUNT`（找地址）→ `MB_RX_FRAME`（累积）→ `MB_RX_COMPLETE`（长度已达，等静默确认）；
+- 先按功能码算**预期长度**：`0x03`/`0x06` = 8 字节；`0x10` = 9 + byteCount；其他功能码 = 8（先收齐再回异常 `0x01`）；
+- 长度达到**不等于**执行：必须静默满足 `t3.5` 才校验 CRC 并执行；
+- 超长（> 256）、断流、时标不可信：丢弃候选帧；
+- 处在长帧中间时，一次空读**不**清空缓冲（否则每遇空读就重启，永远收不全）。
+
+### 6.2 校验与应答
+
+| 情况 | 处理 |
+| --- | --- |
+| 地址不匹配、CRC 错 | 不回复 |
+| 广播写（地址 0） | 执行，不回复 |
+| 广播读 | 忽略 |
+| 功能码不支持 | 异常 `0x01` |
+| 寄存器地址不存在、32 位项被不完整访问、只读点被写 | 异常 `0x02` |
+| 数量 0 或 > 32、`0x10` 的 byteCount 与数量不符、值超限 | 异常 `0x03` |
+
+异常应答 5 字节：`从机地址 | 功能码 OR 0x80 | 异常码 | CRC 低 | CRC 高`。
+
+`ModbusCrc16` 入参为 `const Uint16 *`，只取每个单元的低 8 位，返回 CRC 值本身（低字节先发）。
+
+### 6.3 数值与防回绕
+
+- 数量 1..32；起始地址加数量用 32 位中间值计算，避免 `Uint16` 回绕；
+- `0x10` 的 `byteCount` 必须等于 `2 × 数量`。
+
+## 7. 点表访问
+
+- **32 位项必须完整访问**：请求起点落在 32 位项的第二个寄存器（中间），或只覆盖其中一个寄存器，都返回 `0x02`；
+- 写采用"先整段校验、再提交"：第一遍只检查（存在、可写、完整、限值），全部通过后第二遍才写入，任何一项失败都不留半写状态；
+- 只读点被写返回 `0x02`（不是 `0x03`）；
+- 数值超限返回 `0x03`。
+
+## 8. 收发路径
+
+### 8.1 接收
+
+`MbProtoService()` 每轮：
+
+1. 取一次当前时标（`Hw_TimeBaseTicks()` + `Hw_TimeBaseIsReady()`）；
+2. 处理故障（见 §9）；
+3. 有待发回复且端口未冻结：`SciPortWriteTx()` 提交，按**实际接受的字节数**推进 offset；
+4. 仅在 `SCI_RX_IDLE` 时读端口：每轮最多两段、合计 32 字节，每段带自己的观察时刻交给 `ModbusRtuFeed()`；
+5. `ModbusRtuPoll()` 做静默/超时判定与执行。
+
+端口在 `SCI_RX_HW_RESET` / `SCI_RX_PAUSED` / 流中断期间不搬字节，候选帧被丢弃并等待重新同步。
+
+### 8.2 发送
+
+- 回复**整帧**组好后进入实例的待发缓冲，只有端口接受的部分才推进 offset；
+- `offset == len` 只代表"进了端口队列"，不代表硬件发出、更不代表对端收到；`ModbusProtoTxSubmitted` 只统计"整帧已提交进端口环"；
+- 端口挂起（`SciPortIsTxSuspended()`）时保留 offset，本层不重发、不丢弃；
+- `SciPortWriteTx()` 自身不检查挂起，所以协议层必须自己先查；
+- 硬件环满返回 0 时保留 offset，下轮再试（`u32TxBusyRounds++`）。
+
+## 9. 故障恢复
+
+| 事件 | 协议层动作 |
+| --- | --- |
+| 新发生强制复位（`SciPortForceResets()` 增长） | 作废尚未提交完的回复（`ModbusRtuDiscardReply()`），置冻结标志，`u32TxLostEvents++`；**不自动重发** |
+| 端口回到 `SCI_RX_IDLE` 且冻结 | 调 `SciPortTxResume()` 确认"接受这次损失"，解冻 |
+| 流中断（`SciPortIsStreamBreak()`，带代次） | 丢弃候选帧；代次变化才重新登记；`SciPortClearStreamBreak(id, gen)` 成功才继续 |
+| `HW_RESET` / `PAUSED` | 丢弃候选帧，不搬字节 |
+| 时标不可信 | 只累加 `u32TimeInvalid`，**不**提交请求（尤其不执行写） |
+
+不能只看 `u32TxResetDrop` 增长来判断"是否丢了一帧"：软件环已空而硬件仍有在途数据时也会损失，必须结合强制复位计数与恢复标志。
+
+## 10. 内存与链接
+
+- 每实例 `ST_MB_INSTANCE` = 418 字（接收 256 + 回复 128 + 状态），三路 1,254 字；
+- 新增段 `.protobuf`（`RAMGS1`，`PAGE = 1`）：`ModbusProto 0x504` + `AppModbus 0x24` + `Protocol 0x24` = **`0x54C` 字**，起点 `0x00D000`；
+- `.portstat` 顺移到 `0x00D54C`（`0x14` 字）；
+- `.portbuf` 仍在 `0x00DC00`（`0x180` 字），未受影响。
+
+## 11. 构建
+
+`tools/build_minimal.py --cgt C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS`（默认 `--cgt` 指向已失效的 `E:\CCS\…`，必须显式传）：
+
+| 项 | 值 |
+| --- | --- |
+| 编译单元 | **42** 个（05C 的 37 个 + `Protocol.c` / `ModbusRtu.c` / `ModbusTbl.c` / `ModbusProto.c` / `AppModbus.c`） |
+| 警告 | 0 |
+| `.text` | `0x5286`（05C 基线 `0x45AF`） |
+| `RAMGS0` | 用 `0xEEB`，余 `0x115`（277 字） |
+| `RAMGS1` | 用 `0x560`，余 `0x6A0` |
+| `EP15K_minimal.out` | 843,956 B，sha256 `61b4eef795f572fd2446b36e32f3a8733c3f05b1b4ada04ebc4bb1ab1a87e5c0` |
+| `EP15K_minimal.map` | 107,982 B，sha256 `22926c846ce1fabbb14029ea3e8580858adddec85cb75054a9da0f1344d75bbe` |
+
+`PORT_BENCH_TEST` 仍为 `0U`（生产态）。
+
+## 12. 验收
+
+主机：测试源码 `Platform/Protocol/Test/modbus_stub_test.c`（自带 `main()`，不接 SciPort）。
+本机没有 `cc`/`gcc`，**五组用例未在实施方执行**；只用 `cl2000` 按 C28x 类型做过语法与类型检查
+（零错误零警告），请审阅方按下面命令跑：
+
+```
+cc -std=c99 -Wall -Wextra -ITest/shim -I../Inc -I../Modbus/Inc \
+   modbus_stub_test.c ../Modbus/Src/ModbusRtu.c ../Modbus/Src/ModbusTbl.c \
+   -o modbus_stub_test
+```
+
+五组用例：
+
+1. CRC 与组帧（已知报文向量、异常应答字节序）；
+2. 点表校验（重叠、类型、`Uint16` 配 66530、浮点限值）；
+3. 类型转换（`Uint32` 高字在前、`float` 往返、`int32` 负值）；
+4. 32 位项不完整访问 → `0x02`；只读被写 → `0x02`；超限 → `0x03` 且变量未被改；
+5. 广播写执行不回复、广播读忽略、坏 CRC/地址不符不回复、`0x10` byteCount 不符回 `0x03`。
+
+上板（需 Modbus 主站，PC + USB 转串口）：
+
+1. 三路同时通信 60 s：`ModbusProtoRxFrames` 与主站请求数一致，`u32TxLostEvents = 0`；
+2. 读 `0x03` 回 32 个寄存器；写 `0x06` 单寄存器、`0x10` 读回一致；
+3. 写超限值收到 `0x03` 且变量保持原值；
+4. 只给 A 注入短故障：C/D 请求不中断，A 恢复后继续应答；
+5. 控制侧：`u16ControlStallMs = 0`，入口间隔仍按单列记录（本步不改控制路径）。
+
+## 13. 待确认
+
+1. `t3.5` 是否在当前换算（38.5 位时间向上取整）之外再加保守系数？
+2. 候选帧超时定为 100 ms 是否合适（现为 `MB_FRAME_TIMEOUT_MS`）？
+3. 测试点表（0x0000..0x0009，含 5 种类型）是否够用，还是需要按实际业务变量另给地址表？
+
+## 14. 实施记录
+
+- 新增：`Platform/Protocol/Inc/Protocol.h`、`Platform/Protocol/Src/Protocol.c`、`Platform/Protocol/Modbus/Inc/{ModbusRtu,ModbusTbl,ModbusProto}.h`、`Platform/Protocol/Modbus/Src/{ModbusRtu,ModbusTbl,ModbusProto}.c`、`UserApp/Inc/AppModbus.h`、`UserApp/Src/AppModbus.c`；
+- 修改：`main.c`（`ApplicationInit()` 调 `AppModbusInit()`；`TaskCreate()` 注册 `ProtocolTask` 1 ms）、`CMD/2837xS_FLASH_APP_CLA_lnk.cmd`（新增 `.protobuf`）、`tools/build_minimal.py`（5 个源文件 + 3 个 include 路径）、`.cproject`（3 个 include 路径）；
+- 首轮实现曾按"16 位回调 + 协议服务放主循环"写（v0.2），按 m06854 改为现在这三层表驱动结构；`ModbusSci.{h,c}` 已删除，由 `ModbusProto.{h,c}` 取代；
+- 编译期修掉的错误：`Sint16`/`Sint32` 在 C28x 头文件里不存在，改用工程自带的 `int16`/`int32`；
+- 新增主机测试 `Platform/Protocol/Test/modbus_stub_test.c`（5 组、`Check(` 位置数见包内 README），
+  并把 `int16`/`int32` 补进主机 shim `Platform/Port/Test/shim/F2837xS_device.h`；
+- CCS 的源路径排除项扩展为 `Platform/Port/Test/,Platform/Protocol/Test/`，测试不进固件。
