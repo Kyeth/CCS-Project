@@ -52,10 +52,18 @@ static Uint32 s_u32TickStepTicks = 0UL;   /* 每次读取后自动递减（模�
 static Uint32 s_u32TickCalls = 0UL;       /* 本轮累计读取次数 */
 static Uint32 s_u32TickFailAtCall = 0UL;  /* 1 起算：仅第 N 次读取失败，随后恢复 */
 static Uint32 s_u32TicksRead = 0UL;       /* Hw_TimeBaseTicks() 实际被调用次数 */
+static Uint16 s_bRequestOnTick = 0U;      /* 1 = 下一次取时调用里发一次 PortTaskRequest() */
 
 static Uint16 TestTick(Uint32 *pu32Tick)
 {
     s_u32TickCalls++;
+
+    /* 一次性注入：在服务执行期间（通知位已被清）模拟 ISR 再发一次通知。 */
+    if (s_bRequestOnTick != 0U)
+    {
+        s_bRequestOnTick = 0U;
+        PortTaskRequest();
+    }
 
     if (s_bTickOk == 0U)
     {
@@ -107,6 +115,7 @@ static void TickReset(void)
     s_u32TickCalls = 0UL;
     s_u32TickFailAtCall = 0UL;
     s_u32TicksRead = 0UL;
+    s_bRequestOnTick = 0U;
 }
 
 /* ================= SCI 桩 ================= */
@@ -739,7 +748,7 @@ static void TestGapBoundary(void)
     /* 100199 tick = 500.995 µs，仍应判为正常。 */
     Fixture();                      /* ticksPerUs = 200 */
     RxRound();                      /* 建基准：A 在首拍被服务 */
-    s_u32Tick += (100199UL - (300UL * TICKS_PER_US));
+    s_u32Tick -= (100199UL - (300UL * TICKS_PER_US));
     SciFeed(HW_SCI_ID_A, 0x5AU);
     RxRound();
 
@@ -749,7 +758,7 @@ static void TestGapBoundary(void)
     /* 100200 tick = 501 µs，必须置位。 */
     Fixture();
     RxRound();
-    s_u32Tick += (100200UL - (300UL * TICKS_PER_US));
+    s_u32Tick -= (100200UL - (300UL * TICKS_PER_US));
     SciFeed(HW_SCI_ID_A, 0x5AU);
     RxRound();
 
@@ -1303,16 +1312,19 @@ static void TestPortTaskBudget(void)
     Check(PortTaskService() == 1U, "S-05A-18 one opportunity serves one unit");
     Check(PortTaskService() == 0U, "S-05A-18 no request no service");
 
-    /* 先清通知、再服务：服务期间到达的请求下一次必须仍能被执行 */
+    /* 真注入：服务执行期间（通知位已清）由取时桩回调发一次请求 */
     PortTaskRequest();
-    Check(PortTaskService() == 1U, "S-05A-18 request during service served next time");
+    s_bRequestOnTick = 1U;
+    Check(PortTaskService() == 1U, "S-05A-18 service runs while a request arrives inside it");
+    Check(s_bRequestOnTick == 0U, "S-05A-18 in-service request fired once");
+    Check(PortTaskService() == 1U, "S-05A-18 request injected during service served next time");
     Check(PortTaskService() == 0U, "S-05A-18 then idle again");
 
-    /* 服务期间（通知位已清）新到的请求不会丢：再置位即可被下一次取走 */
+    /* 连续通知领取（两次服务之间发请求，不是并发注入）：不丢、不合并不补跑 */
     PortTaskRequest();
     (void)PortTaskService();
     PortTaskRequest();
-    Check(PortTaskService() == 1U, "S-05A-18 late request not lost");
+    Check(PortTaskService() == 1U, "S-05A-18 request between services not lost");
 
     /* 时间源失败：本次不服务 */
     Fixture();
