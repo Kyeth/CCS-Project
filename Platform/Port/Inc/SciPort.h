@@ -111,7 +111,7 @@ typedef struct {
     Uint16 u16RxRejected;          /* 整批拒收时丢弃的字节数 */
     Uint16 u16TxRejected;          /* TX 环写入被拒字节数 */
     Uint16 u16TxStall;             /* 某轮一个字节都没送进 FIFO 的次数 */
-    Uint16 u16TxBudgetStop;        /* 前台 TX 因轮次预算用尽而收手的次数 */
+    Uint16 u16TxBudgetStop;        /* 前台 TX 因单元/整轮预算用尽而收手的次数 */
     Uint16 u16RxErrorCount;        /* 硬件错误使端口进入恢复的轮数 */
     Uint16 u16RxState;             /* SCI_RX_* */
     Uint16 u16RecPhase;            /* SCI_REC_PHASE_* */
@@ -130,6 +130,10 @@ typedef struct {
     volatile Uint16 bTimingBad;    /* 时间关系不可信 */
     volatile Uint16 bFrozen;       /* 端口停用（保留） */
     volatile Uint16 u16FaultGen;   /* 故障代次：每次新的故障事件 +1 */
+    Uint32 u32TxServiceCalls;      /* 前台 TX 服务被调用的次数（诊断） */
+    Uint32 u32TxBytesSent;         /* 已提交给硬件的 TX 字节数（诊断） */
+    Uint32 u32TxMaxGapTicks;       /* 相邻两次 TX 服务的最大间隔（tick，诊断） */
+    Uint32 u32TxLastSvcTick;       /* 上一次 TX 服务所在单元的起点时标 */
     Uint32 u32LastTick;
     Uint32 u32TickEmptyLast;
     Uint32 u32MaxGap;              /* 本端口实测最大服务间隔（tick） */
@@ -192,6 +196,15 @@ Uint16 SciPortRxErrSeen(Uint16 u16PortId);
 Uint16 SciPortRecoveryFlags(Uint16 u16PortId);
 Uint16 SciPortRecFifoLevel(Uint16 u16PortId);
 Uint32 SciPortForceResets(Uint16 u16PortId);
+
+/** 诊断：前台 TX 服务被调用的次数 */
+Uint32 SciPortTxServiceCalls(Uint16 u16PortId);
+
+/** 诊断：已提交给硬件的 TX 字节数 */
+Uint32 SciPortTxBytesSent(Uint16 u16PortId);
+
+/** 诊断：相邻两次 TX 服务之间的最大间隔（tick） */
+Uint32 SciPortTxMaxGapTicks(Uint16 u16PortId);
 Uint32 SciPortRxErrEvents(Uint16 u16PortId);
 Uint32 SciPortRecoverDrop(Uint16 u16PortId);
 Uint32 SciPortTimeSrcFail(Uint16 u16PortId);

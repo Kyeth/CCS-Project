@@ -1,34 +1,50 @@
 /**
  * @file PortTask.c
- * @brief 端口层汇总服务实现
- * @version 0.1
- * @date 2026-11-05
+ * @brief 端口层前台服务实现：一次服务机会只服务一个单元
+ * @version 0.2
+ * @date 2026-11-09
  *
  * 三条约束：
- *   1. 公平：每轮从不同单元开始，避免 CAN 满载时饿死后面的单元；
- *   2. 有界：每个单元开始前检查轮次预算，超预算立即收手，不再发起新调用；
- *   3. 时间源失败即停：读不到可靠时标时整轮不服务（宁可延迟，不用坏时间做预算）。
+ *   1. 有界：单个单元最多占用 PORT_TASK_UNIT_BUDGET_US，到期不再发起新的
+ *      驱动调用，已开始的调用允许完成；
+ *   2. 不积攒补跑：心跳与主循环之间用一条"待服务"通知连接，重复通知合并，
+ *      主循环来不及时只丢机会、不补跑历史节拍，游标照常前进；
+ *   3. 时间源失败即停：读不到可靠时标时本次服务不执行，故障锁存到本次结束。
  */
 
 #include "PortTask.h"
 #include "Hw_TimeBase.h"
-#include "Schedule.h"
 
 #define PORT_TASK_NO_UNIT (0xFFFFU)
 
 static Uint16 s_u16Cursor;
-static Uint16 s_u16LastFirst = PORT_TASK_NO_UNIT;
+static Uint16 s_u16LastUnit = PORT_TASK_NO_UNIT;
 static Uint16 s_u16LastUnits;
 static Uint32 s_u32Truncations;
 static Uint32 s_u32TimeSrcFailures;
+static Uint32 s_u32ServiceCalls;
+static Uint32 s_u32RequestsMerged;
 static Uint32 s_u32TicksPerUs = 200UL;
 static Uint16 s_bBudgetTickFault;
+static Uint16 s_bTruncCounted;
 static PORT_TASK_TICK_FN s_pfTryGetTick = (PORT_TASK_TICK_FN)0;
 
-/* 轮次预算窗口（服务层通过 PortBudgetHasLeft() 查询）。 */
+/* 服务预算窗口：一次调用只有一个单元，所以只有一个窗口。 */
 static Uint16 s_bBudgetActive;
-static Uint32 s_u32BudgetStart;
-static Uint32 s_u32BudgetLimit;
+static Uint32 s_u32UnitStart;
+static Uint32 s_u32UnitLimit;
+
+/* 待服务通知：1 = 有一次服务机会尚未被主循环取走。 */
+static Uint16 s_bRequest;
+
+/* 每个单元的实际服务间隔（递减计数器读数与最大间隔）。
+   RAMGS0 余量只剩个位数，这 10 个字放进 .portstat（RAMGS1）。 */
+static Uint32 s_au32LastTick[PORT_TASK_UNIT_NUM];
+static Uint32 s_au32MaxGap[PORT_TASK_UNIT_NUM];
+#ifdef __TMS320C28XX__
+#pragma DATA_SECTION(s_au32LastTick, ".portstat")
+#pragma DATA_SECTION(s_au32MaxGap, ".portstat")
+#endif
 
 /* 单元 -> 硬件 ID。SCI A/C/D 的硬件 ID 是 0/2/3，不等于槽位 0/1/2。 */
 static const Uint16 s_au16SciUnitPort[SCI_PORT_NUM] = { HW_SCI_ID_A, HW_SCI_ID_C, HW_SCI_ID_D };
@@ -67,21 +83,23 @@ static Uint16 PortTaskTryGetTick(Uint32 *pu32Tick)
     return PortTaskDefaultTryGetTick(pu32Tick);
 }
 
-/* ---------------- 轮次预算窗口 ---------------- */
+/* ---------------- 服务预算窗口 ---------------- */
 
 void PortBudgetBegin(Uint32 u32StartTick)
 {
-    s_u32BudgetStart = u32StartTick;
-    s_u32BudgetLimit = PORT_TASK_BUDGET_US * s_u32TicksPerUs;
+    s_u32UnitStart = u32StartTick;
+    s_u32UnitLimit = PORT_TASK_UNIT_BUDGET_US * s_u32TicksPerUs;
     s_bBudgetActive = 1U;
 
-    /* 新一轮重新开放预算：上一轮的故障锁存只在本轮内有效。 */
+    /* 新的一次服务机会重新开放预算：上一单元的故障锁存不跨调用累计。 */
     s_bBudgetTickFault = 0U;
+    s_bTruncCounted = 0U;
 }
 
 void PortBudgetEnd(void)
 {
     s_bBudgetActive = 0U;
+    s_u32UnitStart = 0UL;
 }
 
 Uint16 PortBudgetActive(void)
@@ -92,6 +110,11 @@ Uint16 PortBudgetActive(void)
 Uint16 PortBudgetFaulted(void)
 {
     return s_bBudgetTickFault;
+}
+
+Uint32 PortBudgetUnitStartTick(void)
+{
+    return s_u32UnitStart;
 }
 
 Uint16 PortBudgetHasLeft(void)
@@ -105,9 +128,8 @@ Uint16 PortBudgetHasLeft(void)
         return 1U;
     }
 
-    /* 本轮内只要出现过一次时间读取失败，就锁存到本轮结束：
-       后续端口不得因为"下一次读取又成功"而继续发起驱动调用。
-       时间源中途失效意味着已经量不准，整轮停止优于只停一个端口。 */
+    /* 本次调用内只要出现过一次时间读取失败，就锁存到本次结束：
+       后续驱动调用不得因为"下一次读取又成功"而继续。 */
     if (s_bBudgetTickFault != 0U)
     {
         return 0U;
@@ -117,29 +139,53 @@ Uint16 PortBudgetHasLeft(void)
     {
         s_u32TimeSrcFailures++;
         s_bBudgetTickFault = 1U;
-        SciPortInvalidateWaitBases();   /* 本轮时间不可信：等待基准一并作废 */
+        SciPortInvalidateWaitBases();   /* 时间不可信：等待基准一并作废 */
         return 0U;
     }
-    u32Elapsed = (Uint32)(s_u32BudgetStart - u32Now);  /* Timer0 递减 */
 
-    return (u32Elapsed < s_u32BudgetLimit) ? 1U : 0U;
+    u32Elapsed = (Uint32)(s_u32UnitStart - u32Now);   /* Timer0 递减 */
+
+    if (u32Elapsed >= s_u32UnitLimit)
+    {
+        /* 每次开窗最多记一次收手，避免同一单元内逐次查询把计数刷爆。 */
+        if (s_bTruncCounted == 0U)
+        {
+            s_u32Truncations++;
+            s_bTruncCounted = 1U;
+        }
+        return 0U;
+    }
+
+    return 1U;
 }
 
 /* ---------------- 对外接口 ---------------- */
 
 void PortTaskInit(void)
 {
+    Uint16 u16Unit;
+
     s_u16Cursor = 0U;
-    s_u16LastFirst = PORT_TASK_NO_UNIT;
+    s_u16LastUnit = PORT_TASK_NO_UNIT;
     s_u16LastUnits = 0U;
     s_u32Truncations = 0UL;
     s_u32TimeSrcFailures = 0UL;
+    s_u32ServiceCalls = 0UL;
+    s_u32RequestsMerged = 0UL;
     s_u32TicksPerUs = 200UL;
     s_pfTryGetTick = (PORT_TASK_TICK_FN)0;
     s_bBudgetActive = 0U;
-    s_u32BudgetStart = 0UL;
-    s_u32BudgetLimit = 0UL;
+    s_u32UnitStart = 0UL;
+    s_u32UnitLimit = 0UL;
     s_bBudgetTickFault = 0U;
+    s_bTruncCounted = 0U;
+    s_bRequest = 0U;
+
+    for (u16Unit = 0U; u16Unit < PORT_TASK_UNIT_NUM; u16Unit++)
+    {
+        s_au32LastTick[u16Unit] = 0UL;
+        s_au32MaxGap[u16Unit] = 0UL;
+    }
 }
 
 Uint16 PortTaskUnitPortId(Uint16 u16Unit)
@@ -168,73 +214,97 @@ void PortTaskSetTimeSource(PORT_TASK_TICK_FN pfTryGetTick, Uint32 u32SysclkHz)
 void PortTask(void)
 {
     Uint32 u32Start;
-    Uint16 u16Unit;
+    Uint32 u32Gap;
     Uint16 u16Slot;
-    Uint16 u16Units = 0U;
 
     s_u16LastUnits = 0U;
+    s_u16LastUnit = PORT_TASK_NO_UNIT;
 
     if (PortTaskTryGetTick(&u32Start) == 0U)
     {
         s_u32TimeSrcFailures++;
-        s_u16LastFirst = PORT_TASK_NO_UNIT;
         SciPortInvalidateWaitBases();   /* 入口就没起来：同样不能留着旧基准 */
         return;
     }
 
-    s_u16LastFirst = s_u16Cursor;
+    /* 游标只在取用单元时前进一次：被丢掉的服务机会不会让某一格饿死。 */
+    u16Slot = s_u16Cursor;
+    s_u16Cursor = (Uint16)((s_u16Cursor + 1U) % PORT_TASK_UNIT_NUM);
+    s_u16LastUnit = u16Slot;
 
-    /* 开窗：单元之间与服务层内部（每次驱动调用前）都查同一个 deadline。 */
+    /* 记录本单元与上一次服务之间的实际间隔（首次不记）。 */
+    if (s_au32LastTick[u16Slot] != 0UL)
+    {
+        u32Gap = (Uint32)(s_au32LastTick[u16Slot] - u32Start);
+        if (u32Gap > s_au32MaxGap[u16Slot])
+        {
+            s_au32MaxGap[u16Slot] = u32Gap;
+        }
+    }
+    s_au32LastTick[u16Slot] = u32Start;
+
     PortBudgetBegin(u32Start);
 
-    for (u16Unit = 0U; u16Unit < PORT_TASK_UNIT_NUM; u16Unit++)
+    /* 槽位不是硬件 ID：经映射表换成真实端口号。 */
+    if (u16Slot < SCI_PORT_NUM)
     {
-        u16Slot = (Uint16)((s_u16Cursor + u16Unit) % PORT_TASK_UNIT_NUM);
+        Uint16 u16PortId = s_au16SciUnitPort[u16Slot];
+        Uint16 u16State = SciPortRxState(u16PortId);
+        Uint16 u16Remain;
 
-        /* 预算检查放在每个单元之前：超出就不再发起新调用。 */
-        if (PortBudgetHasLeft() == 0U)
+        /* 恢复优先：先推进一次受限动作，再在门禁允许时补发。
+           顺序不能反——否则 bTxSuspended 会把自己挡在恢复门外。 */
+        if ((u16State == SCI_RX_RECOVER_REQ) || (u16State == SCI_RX_HW_RESET))
         {
-            if (s_bBudgetTickFault == 0U)
-            {
-                s_u32Truncations++;
-            }
-            break;
+            (void)SciPortRecover(u16PortId, &u16Remain);
         }
 
-        /* 槽位不是硬件 ID：经映射表换成真实端口号。 */
-        if (u16Slot < SCI_PORT_NUM)
-        {
-            Uint16 u16PortId = s_au16SciUnitPort[u16Slot];
-            Uint16 u16State = SciPortRxState(u16PortId);
-            Uint16 u16Remain;
-
-            /* 恢复优先：先推进一次受限动作，再在门禁允许时补发。
-               顺序不能反——否则 bTxSuspended 会把自己挡在恢复门外。
-               复位动作同样受同一个 20 us 轮次预算约束。 */
-            if ((u16State == SCI_RX_RECOVER_REQ) || (u16State == SCI_RX_HW_RESET))
-            {
-                (void)SciPortRecover(u16PortId, &u16Remain);
-            }
-
-            SciPortTaskOne(u16PortId);
-        }
-        else
-        {
-            CanPortServiceOne(s_au16CanUnitPort[(Uint16)(u16Slot - SCI_PORT_NUM)]);
-        }
-
-        u16Units++;
+        SciPortTaskOne(u16PortId);
+    }
+    else
+    {
+        CanPortServiceOne(s_au16CanUnitPort[(Uint16)(u16Slot - SCI_PORT_NUM)]);
     }
 
     PortBudgetEnd();
 
-    s_u16LastUnits = u16Units;
-    s_u16Cursor = (Uint16)((s_u16Cursor + 1U) % PORT_TASK_UNIT_NUM);
+    s_u16LastUnits = 1U;
+    s_u32ServiceCalls++;
+}
+
+Uint16 PortTaskService(void)
+{
+    if (s_bRequest == 0U)
+    {
+        return 0U;
+    }
+
+    /* 先消费通知再服务：服务期间新到的通知留给下一次，不叠加。 */
+    s_bRequest = 0U;
+    PortTask();
+
+    return s_u16LastUnits;
+}
+
+void PortTaskRequest(void)
+{
+    if (s_bRequest != 0U)
+    {
+        /* 上一次机会还没被取走：合并，不排队补跑。 */
+        s_u32RequestsMerged++;
+    }
+
+    s_bRequest = 1U;
+}
+
+Uint16 PortTaskLastUnit(void)
+{
+    return s_u16LastUnit;
 }
 
 Uint16 PortTaskLastFirstUnit(void)
 {
-    return s_u16LastFirst;
+    return s_u16LastUnit;
 }
 
 Uint16 PortTaskLastUnits(void)
@@ -252,6 +322,26 @@ Uint32 PortTaskTimeSourceFailures(void)
     return s_u32TimeSrcFailures;
 }
 
+Uint32 PortTaskServiceCalls(void)
+{
+    return s_u32ServiceCalls;
+}
+
+Uint32 PortTaskRequestsMerged(void)
+{
+    return s_u32RequestsMerged;
+}
+
+Uint32 PortTaskUnitMaxGapTicks(Uint16 u16Unit)
+{
+    if (u16Unit >= PORT_TASK_UNIT_NUM)
+    {
+        return 0UL;
+    }
+
+    return s_au32MaxGap[u16Unit];
+}
+
 void PortTaskServiceFromHeartbeat(Uint16 bPortInitError)
 {
     if (bPortInitError != 0U)
@@ -260,9 +350,14 @@ void PortTaskServiceFromHeartbeat(Uint16 bPortInitError)
     }
 
     (void)SciPortService100us();
+
+    /* 只登记"有一次前台服务机会"：重复通知合并，不补跑历史节拍。 */
+    PortTaskRequest();
 }
 
 Uint16 PortTaskRegister(void)
 {
-    return Task_Start(PortTask, 1U, 0U);
+    /* 不再注册 1 ms 任务：前台入口由主循环 + 心跳通知承担，
+       避免两个入口重复消费 TX 队列或访问 CAN。 */
+    return 1U;
 }

@@ -468,17 +468,38 @@ static void SciPortServiceTx(ST_SCI_PORT *p)
     Uint16 u16Byte;
     Uint16 k;
     Uint16 u16Accepted = 0U;
+    Uint32 u32SvcTick;
 
     if ((p->bFrozen != 0U) || (p->pstDrv == (const ST_SCI_PORT_DRV *)0))
     {
         return;
     }
 
+    /* 诊断：每进入一次记一次服务；间隔用单元窗口起点换算，不额外读时标。 */
+    p->u32TxServiceCalls++;
+    u32SvcTick = PortBudgetUnitStartTick();
+
+    if (u32SvcTick != 0UL)
+    {
+        if (p->u32TxLastSvcTick != 0UL)
+        {
+            Uint32 u32SvcGap = (Uint32)(p->u32TxLastSvcTick - u32SvcTick);
+
+            if (u32SvcGap > p->u32TxMaxGapTicks)
+            {
+                p->u32TxMaxGapTicks = u32SvcGap;
+            }
+        }
+
+        p->u32TxLastSvcTick = u32SvcTick;
+    }
+
     for (k = 0U; k < SCI_PORT_TX_QUOTA; k++)
     {
         ST_PORT_IRQ_STATE stIrq;
 
-        /* 前台轮次预算：已开始的写入允许完成，下一个字节前先看预算。 */
+        /* 前台预算（单元 20 us / 整轮 100 us）：已开始的写入允许完成，
+           下一个字节前先看预算。 */
         if (PortBudgetHasLeft() == 0U)
         {
             if (p->u16TxBudgetStop < 0xFFFFU)
@@ -524,6 +545,7 @@ static void SciPortServiceTx(ST_SCI_PORT *p)
         PORT_EXIT_CRITICAL(stIrq);
 
         u16Accepted++;
+        p->u32TxBytesSent++;
     }
 }
 
@@ -1456,6 +1478,27 @@ Uint32 SciPortForceResets(Uint16 u16PortId)
     ST_SCI_PORT *p = SciPortFind(u16PortId);
 
     return (p == (ST_SCI_PORT *)0) ? 0UL : p->u32ForceResets;
+}
+
+Uint32 SciPortTxServiceCalls(Uint16 u16PortId)
+{
+    ST_SCI_PORT *p = SciPortFind(u16PortId);
+
+    return (p == (ST_SCI_PORT *)0) ? 0UL : p->u32TxServiceCalls;
+}
+
+Uint32 SciPortTxBytesSent(Uint16 u16PortId)
+{
+    ST_SCI_PORT *p = SciPortFind(u16PortId);
+
+    return (p == (ST_SCI_PORT *)0) ? 0UL : p->u32TxBytesSent;
+}
+
+Uint32 SciPortTxMaxGapTicks(Uint16 u16PortId)
+{
+    ST_SCI_PORT *p = SciPortFind(u16PortId);
+
+    return (p == (ST_SCI_PORT *)0) ? 0UL : p->u32TxMaxGapTicks;
 }
 
 Uint32 SciPortServiceCallCount(void)

@@ -87,6 +87,18 @@ static void TicksAdvanceUs(Uint32 u32Us)
     s_u32Tick -= (u32Us * TICKS_PER_US);
 }
 
+/* 服务一整圈五单元：每个 100 us 服务机会只服务一个单元。 */
+static void TaskSweep(void)
+{
+    Uint16 u16Unit;
+
+    for (u16Unit = 0U; u16Unit < PORT_TASK_UNIT_NUM; u16Unit++)
+    {
+        TicksAdvanceUs(100UL);
+        PortTask();
+    }
+}
+
 static void TickReset(void)
 {
     s_u32Tick = 1000000UL;
@@ -1264,30 +1276,32 @@ static void TestSetFrameTypeGuard(void)
 }
 
 /* S-05A-18：PortTask 预算截断与游标推进 */
+/* S-05A-18：一次服务机会只服务一个单元，游标顺序推进，通知合并 */
 static void TestPortTaskBudget(void)
 {
-    Uint16 u16First;
     Uint16 i;
 
     Fixture();
-    PortTask();
-    Check(PortTaskLastUnits() == 5U, "S-05A-18 all 5 units served");
-    u16First = PortTaskLastFirstUnit();
-    PortTask();
-    Check(PortTaskLastFirstUnit() != u16First, "S-05A-18 cursor rotates");
-
-    /* 每次读时标消耗 15 µs，20 µs 预算只能服务少量单元 */
-    Fixture();
-    s_u32TickStepTicks = 15UL * TICKS_PER_US;
-    for (i = 0U; i < 3U; i++)
+    for (i = 0U; i < PORT_TASK_UNIT_NUM; i++)
     {
         PortTask();
+        Check(PortTaskLastUnits() == 1U, "S-05A-18 one unit per opportunity");
+        Check(PortTaskLastUnit() == i, "S-05A-18 units served in cursor order");
     }
 
-    Check(PortTaskBudgetTruncations() > 0UL, "S-05A-18 budget truncation counted");
-    Check(PortTaskLastUnits() < 5U, "S-05A-18 stops before all units");
+    PortTask();
+    Check(PortTaskLastUnit() == 0U, "S-05A-18 cursor wraps to A");
 
-    /* 时间源失败：整轮不服务 */
+    /* 通知合并：主循环没取走之前再来的通知不排队、不补跑 */
+    Fixture();
+    PortTaskRequest();
+    PortTaskRequest();
+    PortTaskRequest();
+    Check(PortTaskRequestsMerged() == 2UL, "S-05A-18 repeated requests merged");
+    Check(PortTaskService() == 1U, "S-05A-18 one opportunity serves one unit");
+    Check(PortTaskService() == 0U, "S-05A-18 no request no service");
+
+    /* 时间源失败：本次不服务 */
     Fixture();
     s_bTickOk = 0U;
     PortTask();
@@ -1313,20 +1327,20 @@ static void TestBudgetFaultLatch(void)
     s_au16TxAccept[HW_SCI_ID_C] = 8U;
     s_au16TxAccept[HW_SCI_ID_D] = 8U;
 
-    /* 第 1 次 = PortTask 取起点；第 2 次 = 单元 A 前；第 3 次 = A 的服务内部。
-       失败后时间源自行恢复，但本轮必须锁存停止。 */
-    s_u32TickFailAtCall = 3UL;
+    /* 第 1 次 = PortTask 取起点；第 2 次 = A 的 TX 循环内第一次查预算。
+       失败后时间源自行恢复，但本次调用必须锁存停止。 */
+    s_u32TickFailAtCall = 2UL;
     PortTask();
 
-    Check(PortTaskLastUnits() == 1U, "S-05A-26 only one unit before latch");
+    Check(PortTaskLastUnit() == 0U, "S-05A-26 opportunity went to SCI-A");
     Check(s_au16TxLogLen[HW_SCI_ID_C] == 0U, "S-05A-26 SCI-C not served after transient failure");
     Check(s_au16TxLogLen[HW_SCI_ID_D] == 0U, "S-05A-26 SCI-D not served after transient failure");
     Check(PortTaskTimeSourceFailures() > 0UL, "S-05A-26 failure counted");
 
-    /* 下一轮 PortBudgetBegin() 复位锁存：时间源正常则服务全部 5 个单元 */
+    /* 下一次服务机会重新开窗：游标已到 C，锁存不跨调用累计 */
     PortTask();
-    Check(PortTaskLastUnits() == 5U, "S-05A-26 latch cleared on next window");
-    Check(s_au16TxLogLen[HW_SCI_ID_C] == 3U, "S-05A-26 SCI-C served in next round");
+    Check(PortTaskLastUnit() == 1U, "S-05A-26 next opportunity goes to SCI-C");
+    Check(s_au16TxLogLen[HW_SCI_ID_C] == 3U, "S-05A-26 SCI-C served in next opportunity");
 }
 
 /* S-05A-19：PortTask 必须按硬件 ID 服务 A/C/D（不是槽位 0/1/2） */
@@ -1347,7 +1361,7 @@ static void TestPortTaskSciMapping(void)
     s_au16TxAccept[HW_SCI_ID_C] = 8U;
     s_au16TxAccept[HW_SCI_ID_D] = 8U;
 
-    PortTask();
+    TaskSweep();
 
     Check(s_au16TxLogLen[HW_SCI_ID_A] == 3U, "S-05A-19 SCI-A served");
     Check(s_au16TxLogLen[HW_SCI_ID_C] == 3U, "S-05A-19 SCI-C served");
@@ -1382,8 +1396,12 @@ static void TestBudgetMidService(void)
     Fixture();
     s_u16CanReadRet = HW_CAN_OK;
     s_u16CanReadOkLeft = 8U;
-    s_u32CanReadCostTicks = 30UL * TICKS_PER_US;
+    s_u32CanReadCostTicks = 120UL * TICKS_PER_US;   /* 单次读即超 100 us */
 
+    /* 游标先把三路 SCI 走完，第 4 次机会才轮到 CAN-A */
+    PortTask();
+    PortTask();
+    PortTask();
     PortTask();
 
     Check(s_u32CanReadCount == 1UL, "S-05A-22 single read before budget stop");
@@ -1667,6 +1685,16 @@ static void TestSciRecoverParam(void)
     Check(SciPortRecover(HW_SCI_ID_A, &u16Remain) == SCI_RECOVER_IDLE_OK, "S-05B-08 idle returns idle_ok");
 }
 
+/* 制造"单元预算已耗尽"：开整轮窗与单元窗，让单元起点先被记录，
+ * 再把时标推进 25 us（> 单元预算 20 us）。递减计数器：时标变小 = 时间前进。 */
+static void BudgetStarveUnit(void)
+{
+    PortBudgetBegin(s_u32Tick);
+    Check(PortBudgetHasLeft() == 1U, "budget starve: unit window opened");
+    s_u32Tick = s_u32Tick - 20001UL;   /* 100 us + 1 tick */
+    Check(PortBudgetHasLeft() == 0U, "budget starve: unit budget exhausted");
+}
+
 /* S-05B-09：预算不足时 RESET 阶段保持原状、下一轮继续且不重复记损失 */
 static void TestSciResetBudgetCarryOver(void)
 {
@@ -1687,8 +1715,7 @@ static void TestSciResetBudgetCarryOver(void)
     Check(SciPortRxState(HW_SCI_ID_A) == SCI_RX_HW_RESET, "S-05B-09 forced path committed");
 
     /* 人为制造预算不足：RESET 阶段本轮不得执行清除 */
-    PortBudgetBegin(s_u32Tick + 5000UL);
-    Check(PortBudgetHasLeft() == 0U, "S-05B-09 budget exhausted");
+    BudgetStarveUnit();
     Check(SciPortRecover(HW_SCI_ID_A, &u16Remain) == SCI_RECOVER_BUSY, "S-05B-09 reset deferred");
     Check(SciPortRecPhase(HW_SCI_ID_A) == SCI_REC_PHASE_RESET, "S-05B-09 phase kept");
     Check(s_u32ClearCalls == 0UL, "S-05B-09 clear not executed");
@@ -1803,8 +1830,7 @@ static void TestForceBudgetDeferred(void)
     SciDriveWaitTxTimeout(HW_SCI_ID_A);
     Check(SciPortRxState(HW_SCI_ID_A) == SCI_RX_HW_RESET, "S-05B-16 forced path committed");
 
-    PortBudgetBegin(s_u32Tick + 5000UL);
-    Check(PortBudgetHasLeft() == 0U, "S-05B-16 budget exhausted");
+    BudgetStarveUnit();
     (void)SciPortRecover(HW_SCI_ID_A, &u16Remain);
     Check(SciPortForceResets(HW_SCI_ID_A) == 0UL, "S-05B-16 no force while starved");
     Check(SciPortTxResetDrop(HW_SCI_ID_A) == 0UL, "S-05B-16 no loss while starved");
@@ -2007,8 +2033,7 @@ static void TestStageOutParamSentinel(void)
     Check(u16Remain == 0xCAFEU, "S-05B-23 busy keeps sentinel");
 
     /* 预算截断：阶段门禁挡住时同样不写调用方出参 */
-    PortBudgetBegin(s_u32Tick + 5000UL);
-    Check(PortBudgetHasLeft() == 0U, "S-05B-23 budget exhausted");
+    BudgetStarveUnit();
     u16Remain = 0xCAFEU;
     Check(SciPortRecover(HW_SCI_ID_A, &u16Remain) == SCI_RECOVER_BUSY, "S-05B-23 truncation busy");
     Check(u16Remain == 0xCAFEU, "S-05B-23 truncation keeps sentinel");
@@ -2307,6 +2332,59 @@ static void TestRetryVerifiesTx(void)
     Check(SciPortRxState(HW_SCI_ID_A) == SCI_RX_IDLE, "S-05B-29 back to idle");
 }
 
+/* S-05B-35：单元预算与整轮预算相互独立，故障锁存跨单元保留 */
+static void TestBudgetUnitWindow(void)
+{
+    Uint16 au16Tx[2];
+
+    /* 路径 1：窗口到期后不再发起新的驱动调用 */
+    Fixture();
+    s_u32Tick = 200000UL;
+    PortBudgetBegin(s_u32Tick);
+    Check(PortBudgetHasLeft() == 1U, "S-05B-35 unit window opens");
+    TicksAdvanceUs(100UL);
+    Check(PortBudgetHasLeft() == 1U, "S-05B-35 still open at 100 us");
+    TicksAdvanceUs(1UL);
+    Check(PortBudgetHasLeft() == 0U, "S-05B-35 window closes past 100 us");
+    PortBudgetEnd();
+
+    /* 路径 2：下一次服务机会重新开窗 */
+    Fixture();
+    s_u32Tick = 300000UL;
+    PortBudgetBegin(s_u32Tick);
+    TicksAdvanceUs(101UL);
+    Check(PortBudgetHasLeft() == 0U, "S-05B-35 first window exhausted");
+    PortBudgetEnd();
+    PortBudgetBegin(s_u32Tick);
+    Check(PortBudgetHasLeft() == 1U, "S-05B-35 next opportunity reopens");
+    PortBudgetEnd();
+
+    /* 路径 3：时间源失败锁存到本次调用结束，重新开窗才清 */
+    Fixture();
+    s_u32Tick = 400000UL;
+    PortBudgetBegin(s_u32Tick);
+    s_u32TickFailAtCall = s_u32TickCalls + 1UL;
+    Check(PortBudgetHasLeft() == 0U, "S-05B-35 tick failure stops unit");
+    s_u32TickFailAtCall = 0UL;
+    Check(PortBudgetHasLeft() == 0U, "S-05B-35 fault latch survives");
+    Check(PortBudgetFaulted() == 1U, "S-05B-35 fault latched");
+    PortBudgetEnd();
+    PortBudgetBegin(s_u32Tick);
+    Check(PortBudgetHasLeft() == 1U, "S-05B-35 new window clears latch");
+
+    /* 路径 4：诊断计数随 TX 服务增长 */
+    Fixture();
+    au16Tx[0] = 0x31U;
+    au16Tx[1] = 0x32U;
+    Check(SciPortWriteTx(HW_SCI_ID_A, au16Tx, 2U) == 2U, "S-05B-35 tx queued");
+    PortBudgetBegin(s_u32Tick);
+    SciPortTaskOne(HW_SCI_ID_A);
+    Check(SciPortTxServiceCalls(HW_SCI_ID_A) == 1UL, "S-05B-35 tx service counted");
+    Check(SciPortTxBytesSent(HW_SCI_ID_A) == 2UL, "S-05B-35 tx bytes counted");
+    Check(SciPortTxMaxGapTicks(HW_SCI_ID_A) == 0UL, "S-05B-35 first service no gap");
+    PortBudgetEnd();
+}
+
 int main(void)
 {
     TestInitAndMapping();
@@ -2363,6 +2441,7 @@ int main(void)
     TestTxDirtyPauses();
     TestOutParamPerRound();
     TestRetryVerifiesTx();
+    TestBudgetUnitWindow();
 
     printf("checks=%d fails=%d\n", s_iChecks, s_iFails);
     return (s_iFails == 0) ? 0 : 1;

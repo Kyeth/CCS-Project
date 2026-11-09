@@ -150,6 +150,10 @@ SECTIONS
     /* 05B：SCI TX 环（3 x 128 字 = 0x180 字）落在独立预留区 RAMGS1_PORTBUF。
        该区 0x400 字；本步只占 0x180，余 0x280 留给 05C 协议层缓冲。 */
     .portbuf         : > RAMGS1_PORTBUF, PAGE = 1, ALIGN(4)
+
+    /* 05C：前台服务间隔统计（每单元 last tick/max gap）。
+       RAMGS0 只剩 8 字，统计量放这里，不占工作区 RAMGS0。 */
+    .portstat        : > RAMGS1, PAGE = 1, ALIGN(4)
 #else
     .ebss            : >> RAMGS0 | RAMGS1 | RAMGS2 | RAMGS3, PAGE = 1, ALIGN(4)
     .esysmem         : > RAMGS0, PAGE = 1, ALIGN(4)

@@ -481,3 +481,100 @@ u16Active = SciPortServiceRx(&s_astSciPort[u16Port], u32RoundTick, u16TickValid)
 2. **不修改正式节拍**：CPU Timer1 心跳仍为 **100 µs**；B 版下每个端口的 RX 标称服务间隔为 **300 µs**（三拍轮转），该值是标称间隔，不是耗时指标。`S-05B-08 ≤1.5 µs` 契约不变，**历史未达标记录保留**，本轮不再作为落地前置条件。
 3. **不做分段耗时归因**：`S-05B-08`／`S-05B-09` 的实测结论仍按 §2.3 与 `05b` §9.13 记录，B 版不再追每微秒构成。
 4. 若实测暴露接收遗漏或控制响应问题，按具体问题修正，不提前扩展设计。
+
+## 12. 前台五单元轮转（按"控制中断优先、前台及时搬运、通信有界执行"重构）
+
+### 12.1 裁定来源与取代关系
+
+本节按用户 2026-11-09 的裁定实施，**取代 §11 之前关于"1 ms PortTask + 20 µs 轮次预算"的全部设计**：
+
+1. SCI 接收保持现状：100 µs 心跳每拍服务一路，A→C→D，每路标称 300 µs，最多 8 次读取尝试。
+2. 前台五单元轮转：SCI-A TX、SCI-C TX、SCI-D TX、CAN-A 收发、CAN-B 收发；**每 100 µs 只释放一次服务机会**，每路标称 500 µs。
+3. 每单元最多 100 µs 预算，只作"停止发起后续驱动调用"的门限，空闲/忙/配额用完立即返回；驱动原有超时保留。
+4. 控制 ISR 可抢占前台通信：不把整段服务包进临界区，关中断只用于短状态更新。
+5. 不积攒补跑：合并待服务通知，不连续补跑历史节拍，游标正常推进，记录实际服务间隔。
+6. 替换原 1 ms 的 `PortTask` 注册，避免两个入口重复消费 TX 队列或访问 CAN；时间源失败仍停止当前服务，不因切换单元清故障。
+7. RingBuff、TX"硬件接受后才 Drop"、CAN 未决冻结、SCI 恢复机制保留；500 µs 是标称间隔，不承诺前台繁忙时严格执行。
+
+### 12.2 结构调整
+
+| 项 | 旧（1 ms 任务轮） | 新（100 µs 服务机会） |
+| --- | --- | --- |
+| 入口 | `Task_Start(PortTask, 1U, 0U)` 注册的 1 ms 任务 | 心跳只发通知，主循环 `PortTaskService()` 取用 |
+| 每次调用服务的单元数 | 最多 5 个 | 恰好 1 个 |
+| 游标 | 一轮服务完 5 个单元后前进一格 | 每服务一个单元前进一格 |
+| 预算 | 单元 20 µs + 整轮 100 µs | 单元 100 µs（`PORT_TASK_UNIT_BUDGET_US`） |
+| 通知 | 无（调度器周期即通知） | `PortTaskRequest()` 记账，重复通知计数合并 |
+| 每路标称间隔 | 5 ms（被预算饥饿后实际更差） | 500 µs |
+
+代码落点：
+
+- `Platform/Port/Inc/PortTask.h`：`PORT_TASK_UNIT_BUDGET_US (100UL)`，新增 `PortTaskService()`、`PortTaskRequest()`、`PortTaskLastUnit()`、`PortTaskServiceCalls()`、`PortTaskRequestsMerged()`、`PortTaskUnitMaxGapTicks()`；`PortTaskRegister()` 保留名字但只负责"使能前台入口"，不再调用 `Task_Start`。
+- `Platform/Port/Src/PortTask.c`：`PortTask()` 只服务游标指向的一个单元；`s_bRequest` 是唯一通知位，`PortTaskRequest()` 在已置位时累加 `s_u32RequestsMerged` 而不排队；`PortTaskService()` 先消费通知再服务，服务期间新到的通知留给下一次。
+- `Platform/Port/Src/PortTask.c` 的 `PortTaskServiceFromHeartbeat()`：先做 SCI 接收（原逻辑），再 `PortTaskRequest()`。
+- `main.c`：`TaskCreate()` 不再注册 1 ms 任务，只在 `bPortInitError == 0` 时 `PortTaskRegister()`；主循环 `while (1) { Hw_FeedWatchDog(); (void)PortTaskService(); Task_Run(); }`。
+- `Platform/Port/Inc/PortBudget.h`：回到单窗口语义（`PortBudgetBegin(u32StartTick)` 直接记起点，不再惰性取时标），`PortBudgetHasLeft()` 到期一次只记一次收手（`s_bTruncCounted`）。
+- `CMD/2837xS_FLASH_APP_CLA_lnk.cmd`：新增 `.portstat : > RAMGS1`，承载每单元 `last tick` / `max gap` 共 10 个 `Uint32`；RAMGS0 只剩个位数余量，不再往里塞统计量。
+
+### 12.3 观测项（用于验收汇报）
+
+| 观测 | 含义 |
+| --- | --- |
+| `PortTaskServiceCalls()` | 实际执行过的服务机会数 |
+| `PortTaskRequestsMerged()` | 主循环来不及消费而被合并掉的通知数（反映前台繁忙程度） |
+| `PortTaskUnitMaxGapTicks(u16Unit)` | 该单元相邻两次服务之间的最大间隔（tick） |
+| `PortTaskBudgetTruncations()` | 单元预算到期而提前收手的次数（每次开窗最多记一次） |
+| `PortTaskTimeSourceFailures()` | 时间源读取失败次数 |
+| `s_astSciPort[i].u32TxServiceCalls/u32TxBytesSent` | 每路 TX 实际服务次数与发出的字节数 |
+
+### 12.4 构建与区段账（2026-11-09）
+
+| 状态 | `.text` | `RAMGS0` 用量 / 余量 | `.portstat` | 镜像 |
+| --- | --- | --- | --- | --- |
+| 生产态 `PORT_BENCH_TEST = 0U` | `0x45AF` | `0xEB2` / **`0x14E`** | 20 字（RAMGS1） | 786,736 B，sha256 `04e57b8ce8d8b1bd867d61b15e9105c4d99c33d1cb7ac8ad1348db9360ec388d` |
+| 测量态 `PORT_BENCH_TEST = 1U` | `0x492B` | `0xFE4` / **`0x1C`** | 20 字（RAMGS1） | 804,860 B，sha256 `709631bfb702c9d5e3b37cc2f4388d70ea8e0a22b582ab5c351ebdfd7c1289bc` |
+
+两态均 37 单元、零 warning（`tools/build_minimal.py --cgt C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS`）。
+
+### 12.5 主机桩同步（未在本机执行）
+
+本机无 `cc`/`gcc`，桩测试**只改源码、未执行**，因此不登记为通过。改动：
+
+1. 新增 `TaskSweep()`：五拍各服务一个单元，供需要跑满一圈的旧用例使用（`S-05A-19` 已改用）。
+2. `S-05A-18` 改为单单元语义：连续五次调用依次服务 0..4、第六次回绕到 0；新增通知合并（三次 `PortTaskRequest()` 只服务一次、`RequestsMerged() == 2`）与"无通知不服务"。
+3. `S-05A-26`：故障点改到 `PortTask()` 第 2 次取时（入口成功、TX 循环内失败），断言本次只碰 A、下一次服务机会轮到 C。
+4. `S-05A-22`：单次 CAN 读耗时改 120 µs（一次读即超 100 µs 预算），先走完三路 SCI 再断言 CAN-A 只读一次、不发送。
+5. `S-05B-35` 由 `TestBudgetUnitAndRound` 改为 `TestBudgetUnitWindow`：100 µs 边界（100 µs 仍开、101 µs 关闭）、下一次机会重新开窗、时间源失败锁存到本次结束、新窗口清锁存、TX 诊断计数。
+6. `BudgetStarveUnit()` 改为单窗口并按 100 µs 耗尽。
+
+### 12.6 上板验收结果（2026-11-09）
+
+窗口：`u32Tick100us` 由 160,000 到 766,076，**60.6 s**；模式 2 三路自环，`g_u16LoopPauseMask = 0`、`g_u16LoopFlood = 0`。
+
+| 项 | 实测 | 判读 |
+| --- | --- | --- |
+| 吞吐 A (19200) | 116,896 B / 60.6 s ≈ **1929 B/s**（目标 ≥1536） | 通过，≈100% 额定线速 |
+| 吞吐 C (115200) | 706,108 B ≈ **11,652 B/s**（目标 ≥9216） | 通过，≈101% |
+| 吞吐 D (38400) | 234,117 B ≈ **3863 B/s**（目标 ≥3072） | 通过，≈100% |
+| 数据正确性 | 81,309 帧；`SeqErr/LenErr/ChkErr/PayErr/HdrErr` 全 `[0,0,0]`；三路 `u16RxRejected` 全 0 | 通过 |
+| 收发配对 | `TxFrames [8991,54311,18007]` 对 `RxFrames [8980,54302,17997]`，差 `[11,9,10]` 为在途积压 | 通过（非丢帧） |
+| 前台节拍 | `PortTaskServiceCalls 755,413` + `RequestsMerged 11,225` = 766,638 ≈ `u32Tick100us` 766,076 | 每拍一次机会，无多无少 |
+| 合并比例 | 11,225 / 766,638 = **1.46%**，等效 9,862 次/s（标称 10,000） | 主循环 98.5% 按时消费 |
+| 单元间隔 | 每单元平均 ≈**507 µs**（标称 500 µs） | 符合设计 |
+| 预算截断 | `u16TxBudgetStop = 0`（全程） | 100 µs 单元预算从未提前截断 |
+| 故障隔离 | 仅 A 注入短故障：A 进恢复并回 `IDLE`，C/D 增量不断流、错误计数不变，A 恢复后 TX 继续增长 | 通过 |
+| 故障计数 | A：`u32ForceResets = 0`、`u32RxErrEvents = 2421`、`u32RecoverDrop = 4859` | **符合设计**：故障自愈走 `CLASSIFY → VERIFY_TX → IDLE`，强制复位只在 WAIT_TX 8 ms 超时后产生 |
+| 控制共存 | `u16ControlStallMs = 0`；`gTaskTicksProcessed / u32Tick100us = 0.1001` | 不停滞通过 |
+| 控制入口间隔 | **62.2 / 37.8 µs** 交替（上一轮 61.3 / 38.7 µs） | 同一现象，未改善也未恶化；按"入口抖动单列"登记，不作为本轮判据 |
+
+过载指示（不是缺陷）：`u16TxStall`（A）= 4810，台架按每毫秒 13 kB 向 1.92 kB/s 的线路灌数据，FIFO 满属预期。
+
+### 12.7 证据与镜像
+
+| 项 | 值 |
+| --- | --- |
+| 测量镜像 | `EP15K_05C_fg_bench_r2.out`，804,860 B，sha256 `2967034d1008fcfb01847d926e4806ee54a4bbd177c87d42beba71592bae3223`，`.text 0x492A`，`RAMGS0` 余 `0x1C` |
+| 生产镜像 | 786,736 B，sha256 `04e57b8ce8d8b1bd867d61b15e9105c4d99c33d1cb7ac8ad1348db9360ec388d`，`.text 0x45AF`，`RAMGS0` 余 `0x14E` |
+| 台架修正 | `main.c` 排空循环由 `while (u16Got == BENCH_PARSE_BUF)` 改为 `while (u16Got != 0U)`。旧写法在段长小于 48 字时每毫秒只取一段，消费速度约 4 B/ms，追不上 11.5 B/ms 的线路速率，导致整批拒收（`SciPort.c:434`）与解析失步；旧版 54 帧/s 时该缺陷不显现 |
+| 未执行项 | 主机桩（本机无 cc/gcc）只改源码未运行，断言数与会话结果以审阅方执行为准 |
+| 可选补测 | 强制复位路径：RX 持续拉低 >8 ms 且 A 的 TX 长时间非空，应观察到 `u32ForceResets +1`、`u32TxResetDrop` 增加、状态经 `HW_RESET` 回 `IDLE` 或冻结 `PAUSED` |

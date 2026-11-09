@@ -336,7 +336,7 @@ static void BenchLoopTask(void)
                     g_u32LoopBytesRx[i] += (Uint32)u16Got;
                     BenchLoopParse(i, s_au16LoopBuf, u16Got);
                 }
-            } while (u16Got == BENCH_PARSE_BUF);
+            } while (u16Got != 0U);   /* 排空为止：小段连续到达时一段一拍会追不上 */
         }
     }
 }
@@ -563,15 +563,14 @@ void TaskCreate(void)
         stBringupStatus.unError.Bits.bTaskCreateError = 1U;
     }
 
-    /* 1 ms port service: recovery first, then TX, inside one 20 us budget.
-       A port layer that failed to initialize is not registered at all, so the
-       heartbeat and this task cannot disagree about whether it is usable. */
+    /* Foreground port service: one unit per 100 us opportunity, driven by the
+       heartbeat notification and consumed here in the main loop. The scheduler
+       no longer registers a 1 ms port task: that would be a second entry that
+       could consume the TX rings or touch CAN behind this one. A port layer
+       that failed to initialize is never enabled. */
     if (stBringupStatus.unError.Bits.bPortInitError == 0U)
     {
-        if (PortTaskRegister() == 0U)
-        {
-            stBringupStatus.unError.Bits.bTaskCreateError = 1U;
-        }
+        (void)PortTaskRegister();
     }
 
 #if (PORT_BENCH_TEST != 0U)
@@ -761,6 +760,7 @@ void main(void)
     while (1)
     {
         Hw_FeedWatchDog(); // Feed the watchdog.
+        (void)PortTaskService(); // 有通知才服务一个单元，没有就立刻返回
         Task_Run();
     }
 }
