@@ -432,7 +432,7 @@ B 的实验范围（固定）：
 
 `Platform/Port/Src/SciPort.c`：
 
-- 新增静态游标 `static Uint16 s_u16NextPort = 0U;`（0=A，1=C，2=D）。
+- 新增静态游标 `static Uint16 s_u16NextPort = 0U;`（0=A，1=C，2=D），并在 `SciPortInit()` 里复位为 0，保证上电与重新初始化都从 A 开始、测试行为确定。
 - `SciPortService100us()` 去掉原来的三端口 `for` 循环，改为：
 
 ```c
@@ -448,7 +448,8 @@ u16Active = SciPortServiceRx(&s_astSciPort[u16Port], u32RoundTick, u16TickValid)
 
 `Platform/Port/Test/port_stub_test.c`：
 
-- 新增 `RxBeat()`（一拍）与把 `RxRound()` 改为三拍（A/C/D 各一次），使既有"一轮"语义保持不变；
+- 新增 `RxBeat()`（一拍）与把 `RxRound()` 改为三拍（A/C/D 各一次），**每拍之间推进 100 µs**，模拟三次真实心跳，使"一轮 = 300 µs 内三路各服务一次"；
+- `S-05B-32` 由原来的"三路同拍时标相等"改为轮转口径：每拍取时恰好一次（每轮 3 次）、轮转顺序 A→C→D、相邻两拍时标相差 100 µs（`100 x TICKS_PER_US` 递减）；
 - 原 8 处裸 `SciPortService100us()` 调用点（`DeliverFaultToPort()`、`S-05B-31` 六处、`DriveRecoverToIdle()`）全部改为 `RxRound()`；
 - 新增 `S-05B-34`：验证 A→C→D 顺序、每拍只服务一路、空端口也推进游标；
 - `S-05B-31` 的跨端口同拍断言改按"三拍为一轮"判定（A 排空 8 字节、C 不发布、D 锁存故障）。
@@ -458,10 +459,10 @@ u16Active = SciPortServiceRx(&s_astSciPort[u16Port], u32RoundTick, u16TickValid)
 | 项 | 值 |
 | --- | --- |
 | 编译单元 | 35，零 warning、零 error |
-| `.text` | `0x44EA`（B 版前为 `0x44ED`） |
+| `.text` | `0x44ED` |
 | `RAMGS0` | 用 `0xE94`／余 `0x16C`（364 字） |
-| `EP15K_minimal.out` | 781,928 B，sha256 `493b0463cf09f9b3808d334c1ad256ed9883bc32637ec56c73f323a8be8c4afb` |
-| `EP15K_minimal.map` | 100,129 B，sha256 `bff256a35213f4bb1008833d3215042af7e3ba87d6a3463a5f50b722deb04708` |
+| `EP15K_minimal.out` | 781,944 B，sha256 `247c5d8e759c0e7aec6b1176294ef28c9a43c94111864b8cbcd37de1c2fe0f73` |
+| `EP15K_minimal.map` | 100,129 B，sha256 `b244ba9dcf55b43b30fad6f5dae64dd7818bdfa1951815b4fff4587941603cb8` |
 
 主机桩：本机无 `cc`，只做 `cl2000 --compile_only`（四单元零 warning）；断言数见审阅方执行结果。
 
@@ -477,6 +478,6 @@ u16Active = SciPortServiceRx(&s_astSciPort[u16Port], u32RoundTick, u16TickValid)
 ### 11.6 明确不做与保留事项
 
 1. **不引入 SCI 接收中断**（C 案仍在评估，未实施）。
-2. **不修改正式节拍**（仍 100 µs 心跳、单路 300 µs 标称）与 `S-05B-08 ≤1.5 µs` 契约；该项**历史未达标记录保留**，本轮不再作为落地前置条件。
+2. **不修改正式节拍**：CPU Timer1 心跳仍为 **100 µs**；B 版下每个端口的 RX 标称服务间隔为 **300 µs**（三拍轮转），该值是标称间隔，不是耗时指标。`S-05B-08 ≤1.5 µs` 契约不变，**历史未达标记录保留**，本轮不再作为落地前置条件。
 3. **不做分段耗时归因**：`S-05B-08`／`S-05B-09` 的实测结论仍按 §2.3 与 `05b` §9.13 记录，B 版不再追每微秒构成。
 4. 若实测暴露接收遗漏或控制响应问题，按具体问题修正，不提前扩展设计。

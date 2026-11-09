@@ -836,6 +836,9 @@ void SciPortInit(void)
         s_astSciPort[i].u16RecPhase = SCI_REC_PHASE_NONE;
     }
 
+    /* B 版：上电与重新初始化都从 A 开始，测试与启动行为确定。 */
+    s_u16NextPort = 0U;
+
     /* O2：阈值与当前 ticksPerUs 对齐（时基变化时由 SciPortSetSysclkHz 再同步）。 */
     SciPortUpdateGapLimit();
 }

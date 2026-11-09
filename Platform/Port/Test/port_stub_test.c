@@ -475,7 +475,8 @@ static void RxBeat(void)
     (void)SciPortService100us();
 }
 
-/* 一轮 = 三拍，A/C/D 各被服务一次（与 B 版之前的"一轮"语义对齐）。 */
+/* 一轮 = 三拍，A/C/D 各被服务一次；每拍之间推进 100 µs，模拟三次真实心跳。
+ * 单端口相邻两次服务相隔 300 µs，仍低于 500 µs 的服务间隔门限。 */
 static void RxRound(void)
 {
     Uint16 i;
@@ -483,6 +484,7 @@ static void RxRound(void)
     for (i = 0U; i < SCI_PORT_NUM; i++)
     {
         (void)SciPortService100us();
+        TicksAdvanceUs(100UL);
     }
 }
 
@@ -678,7 +680,7 @@ static void TestRotationOrder(void)
     Check(s_au16FeedPos[HW_SCI_ID_A] == 2U, "S-05B-34 empty ports still advance the cursor");
 }
 
-/* S-05B-32：每轮取时恰好一次 + 三路同轮发布共享同一时标 */
+/* S-05B-32：每拍取时恰好一次 + 轮转顺序与 100 µs/拍 间隔（B 版口径） */
 static void TestSharedTickOncePerRound(void)
 {
     Uint16 au16Buf[8];
@@ -689,25 +691,28 @@ static void TestSharedTickOncePerRound(void)
 
     Fixture();
 
-    /* 建基准轮：每轮只取一次。 */
+    /* 建基准轮：三拍，每拍取时一次。 */
     u32Before = s_u32TicksRead;
     RxRound();
-    Check((s_u32TicksRead - u32Before) == 1U, "S-05B-32 one tick read in base round");
+    Check((s_u32TicksRead - u32Before) == 3U, "S-05B-32 one tick read per beat");
 
-    /* 三路各留 1 字节，同轮发布。 */
+    /* 三路各留 1 字节，同一轮（三拍）里依次发布。 */
     SciFeed(HW_SCI_ID_A, 0xA1U);
     SciFeed(HW_SCI_ID_C, 0xC1U);
     SciFeed(HW_SCI_ID_D, 0xD1U);
 
     u32Before = s_u32TicksRead;
     RxRound();
-    Check((s_u32TicksRead - u32Before) == 1U, "S-05B-32 one tick read in publish round");
+    Check((s_u32TicksRead - u32Before) == 3U, "S-05B-32 publish round reads one tick per beat");
 
     Check(SciPortPopBatch(HW_SCI_ID_A, au16Buf, 8U, &stSegA) == 1U, "S-05B-32 A publishes");
     Check(SciPortPopBatch(HW_SCI_ID_C, au16Buf, 8U, &stSegC) == 1U, "S-05B-32 C publishes");
     Check(SciPortPopBatch(HW_SCI_ID_D, au16Buf, 8U, &stSegD) == 1U, "S-05B-32 D publishes");
-    Check(stSegA.u32Tick == stSegC.u32Tick, "S-05B-32 A and C share the round tick");
-    Check(stSegC.u32Tick == stSegD.u32Tick, "S-05B-32 C and D share the round tick");
+    /* 轮转顺序 A -> C -> D：相邻两拍相隔 100 µs；递减计数器上先服务者的时标更大。 */
+    Check((Uint32)(stSegA.u32Tick - stSegC.u32Tick) == (100UL * TICKS_PER_US),
+          "S-05B-32 A earlier than C by 100us of ticks");
+    Check((Uint32)(stSegC.u32Tick - stSegD.u32Tick) == (100UL * TICKS_PER_US),
+          "S-05B-32 C earlier than D by 100us of ticks");
 }
 
 
