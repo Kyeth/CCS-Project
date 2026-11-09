@@ -29,7 +29,18 @@ typedef enum { HW_SCI_ID_A=0U, HW_SCI_ID_B, HW_SCI_ID_C, HW_SCI_ID_D, HW_SCI_ID_
 #define HW_SCI_RXSTS_PE      (0x0002U) /* 奇偶错误 */
 #define HW_SCI_RXSTS_OE      (0x0004U) /* 溢出错误（接收缓冲被覆盖） */
 #define HW_SCI_RXSTS_BI      (0x0008U) /* 断线检测 */
-#define HW_SCI_RXSTS_RXFFOVF (0x0010U) /* FIFO 溢出 */
+#define HW_SCI_RXSTS_RXFFOVF (0x0010U)
+
+/* 原始寄存器位掩码：SCIRXST 的 PE/OE/FE/BRKDT 与 SCIFFRX 的 RXFFOVF/RXFFST。
+ * 一次整字读取后用它解码，避免逐位访问同一寄存器（外设访问 16 位一次，
+ * 逐位读等于重复读同一地址）。位号见 F2837xS_sci.h 的 SCIRXST_BITS / SCIFFRX_BITS。 */
+#define HW_SCI_RXST_PE_M     (0x0004U)
+#define HW_SCI_RXST_OE_M     (0x0008U)
+#define HW_SCI_RXST_FE_M     (0x0010U)
+#define HW_SCI_RXST_BRKDT_M  (0x0020U)
+#define HW_SCI_FFRX_RXFFOVF_M (0x8000U)
+#define HW_SCI_FFRX_RXFFST_M  (0x1F00U)
+#define HW_SCI_FFRX_RXFFST_SHIFT (8U) /* FIFO 溢出 */
 
 typedef struct {
     Uint16 u16Status;      /* HW_SCI_RXSTS_* 的位或；0 表示无错误 */

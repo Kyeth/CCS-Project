@@ -108,21 +108,28 @@ Uint16 Hw_SciGetRxStatus(Uint16 id, ST_SCI_RX_STATUS *pstStatus, Uint16 bClear)
 {
     volatile struct SCI_REGS *regs;
     Uint16 u16Status = 0U;
+    Uint16 u16Scirxst;
+    Uint16 u16Sciffrx;
 
     if (id >= HW_SCI_ID_MAX || gSciInited[id] == 0U ||
         pstStatus == (ST_SCI_RX_STATUS *)0) return 0U;
 
     regs = gSci[id];
 
-    /* SCIRXST.RXERROR 只是 FE/PE/OE/BRKDT 的合并位，必须逐位取原始原因。 */
-    if (regs->SCIRXST.bit.FE != 0U) u16Status |= HW_SCI_RXSTS_FE;
-    if (regs->SCIRXST.bit.PE != 0U) u16Status |= HW_SCI_RXSTS_PE;
-    if (regs->SCIRXST.bit.OE != 0U) u16Status |= HW_SCI_RXSTS_OE;
-    if (regs->SCIRXST.bit.BRKDT != 0U) u16Status |= HW_SCI_RXSTS_BI;
-    if (regs->SCIFFRX.bit.RXFFOVF != 0U) u16Status |= HW_SCI_RXSTS_RXFFOVF;
+    /* 每个寄存器整字读一次，之后全部用掩码解码。
+     * SCIRXST.RXERROR 只是 FE/PE/OE/BRKDT 的合并位，不能代替逐位原因；
+     * SCIFFRX 的 RXFFOVF 也不与 RXERROR 合并，必须单独看。 */
+    u16Scirxst = (Uint16)(regs->SCIRXST.all);
+    u16Sciffrx = (Uint16)(regs->SCIFFRX.all);
+
+    if ((u16Scirxst & HW_SCI_RXST_FE_M) != 0U)    u16Status |= HW_SCI_RXSTS_FE;
+    if ((u16Scirxst & HW_SCI_RXST_PE_M) != 0U)    u16Status |= HW_SCI_RXSTS_PE;
+    if ((u16Scirxst & HW_SCI_RXST_OE_M) != 0U)    u16Status |= HW_SCI_RXSTS_OE;
+    if ((u16Scirxst & HW_SCI_RXST_BRKDT_M) != 0U) u16Status |= HW_SCI_RXSTS_BI;
+    if ((u16Sciffrx & HW_SCI_FFRX_RXFFOVF_M) != 0U) u16Status |= HW_SCI_RXSTS_RXFFOVF;
 
     pstStatus->u16Status = u16Status;
-    pstStatus->u16RxFifoLevel = (Uint16)(regs->SCIFFRX.bit.RXFFST & 0x1FU);
+    pstStatus->u16RxFifoLevel = (Uint16)((u16Sciffrx & HW_SCI_FFRX_RXFFST_M) >> HW_SCI_FFRX_RXFFST_SHIFT);
     pstStatus->u16TxFifoLevel = (Uint16)(regs->SCIFFTX.bit.TXFFST & 0x1FU);
 
     if (bClear != 0U)
