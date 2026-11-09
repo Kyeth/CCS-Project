@@ -735,10 +735,10 @@ void TaskCreate(void)
 
 #### 8.4.1 测量开关
 
-`main.c` 顶部有 `#define PORT_BENCH_TEST (0U)`：
+测量开关位于 `Platform/Port/Inc/PortBench.h`（`#define PORT_BENCH_TEST (0U)`，单一来源，`main.c` 与 `SciPort.c` 共用）：
 
 - `0U`（默认）：不编译 `BenchTask`、不占用额外 RAM，目标代码与检查点 `ec59056` 一致。
-- `1U`：编译回显/灌满任务与 ISR 打点，仅供上板测量使用。
+- `1U`：编译回显/灌满任务、ISR 打点与 `SciPort.c` 内的分段打点，仅供上板测量使用。
 
 开启后 CCS 编译，并在 `Expressions` 里改/看下列全局量（非 `static`，符号可见）：
 
@@ -759,6 +759,12 @@ void TaskCreate(void)
 | `1`（默认） | `Isr_Control()` 全程（20 kHz 控制中断） | 第 4 项延迟与宽度 |
 | `2` | 心跳 ISR 里的 SCI 服务段（`PortTaskServiceFromHeartbeat()`） | 把整段拆成 SCI 部分 |
 | `3` | 心跳 ISR 里的定时器分频与毫秒任务段 | 把整段拆成非 SCI 部分 |
+| `7` | `SciPortService100us()` 里的共享取时一次 | 每轮 1 个脉冲，量共享取时单价 |
+| `8` | 单次 `pfGetStatus()` 调用（`SciPortServiceRx()` 内） | 每轮 3 个脉冲，量状态查询单价 |
+| `9` | 单次 `pfTryRead()` 探测调用 | 每轮至少 3 个脉冲，有数据时等于读取次数 |
+| `10` | 单路 `SciPortServiceRx()` 全程 | 每轮 3 个脉冲，量单路服务总价 |
+
+模式 7~10 由 `SciPort.c` 里的 `PORT_BENCH_MARK_MODE(mode, level)` 宏翻转同一个 GPIO33；`PORT_BENCH_TEST` 为 `0U` 时该宏退化为空语句。
 
 测量结束必须改回 `0U`、重新构建，并确认 `.text` 与 `RAMGS0` 回到 §7.5 的关闭态数字后再提交。
 

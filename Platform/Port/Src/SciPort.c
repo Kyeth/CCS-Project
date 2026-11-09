@@ -17,6 +17,7 @@
  */
 
 #include "SciPort.h"
+#include "PortBench.h"
 #include "Hw_TimeBase.h"
 #include "PortBudget.h"
 
@@ -279,6 +280,8 @@ static Uint16 SciPortServiceRx(ST_SCI_PORT *p, Uint32 u32TickRound, Uint16 u16Ti
     Uint16 u16Count = 0U;
     Uint16 u16Byte;
     Uint16 u16State;
+    Uint16 u16StatusOk;
+    Uint16 u16Read;
     Uint16 i;
 
     if ((p->bFrozen != 0U) || (p->pstDrv == (const ST_SCI_PORT_DRV *)0))
@@ -334,7 +337,11 @@ static Uint16 SciPortServiceRx(ST_SCI_PORT *p, Uint32 u32TickRound, Uint16 u16Ti
 
     /* IDLE：每轮都查接收状态，不能因为本轮 FIFO 空就跳过。
      * 这是“硬件溢出/帧错误一定会被看见”的唯一入口。 */
-    if (p->pstDrv->pfGetStatus(p->u16PortId, &stStatus, 0U) == 0U)
+    PORT_BENCH_MARK_MODE(8U, 1U);
+    u16StatusOk = p->pstDrv->pfGetStatus(p->u16PortId, &stStatus, 0U);
+    PORT_BENCH_MARK_MODE(8U, 0U);
+
+    if (u16StatusOk == 0U)
     {
         /* 状态不可读：按硬件未知处理，进入恢复（不能当成无错误）。 */
         if (p->u16RxErrorCount < 0xFFFFU)
@@ -395,7 +402,11 @@ static Uint16 SciPortServiceRx(ST_SCI_PORT *p, Uint32 u32TickRound, Uint16 u16Ti
     /* 最多读出配额字节；配额到即结束本轮，不做额外探测。 */
     for (i = 0U; i < SCI_PORT_RX_QUOTA; i++)
     {
-        if (p->pstDrv->pfTryRead(p->u16PortId, &u16Byte) == 0U)
+        PORT_BENCH_MARK_MODE(9U, 1U);
+        u16Read = p->pstDrv->pfTryRead(p->u16PortId, &u16Byte);
+        PORT_BENCH_MARK_MODE(9U, 0U);
+
+        if (u16Read == 0U)
         {
             break;
         }
@@ -862,12 +873,16 @@ Uint16 SciPortService100us(void)
     }
 
     /* O1：本轮只取一次时标，三路共享同一个观察时刻。 */
+    PORT_BENCH_MARK_MODE(7U, 1U);
     u16TickValid = SciPortReadRoundTick(&u32RoundTick);
+    PORT_BENCH_MARK_MODE(7U, 0U);
 
     for (i = 0U; i < SCI_PORT_NUM; i++)
     {
+        PORT_BENCH_MARK_MODE(10U, 1U);
         u16Active = (Uint16)(u16Active +
                              SciPortServiceRx(&s_astSciPort[i], u32RoundTick, u16TickValid));
+        PORT_BENCH_MARK_MODE(10U, 0U);
     }
 
     return u16Active;
