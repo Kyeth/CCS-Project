@@ -551,7 +551,7 @@ u16Active = SciPortServiceRx(&s_astSciPort[u16Port], u32RoundTick, u16TickValid)
 
 唯一失败是 `S-05B-30` 的递减计数器方向写反：`RxRound()` 已把时标推进 60 000 tick，构造 100199／100200 tick 的间隔应继续**减**，原代码用了 `+=`，实际间隔变成约 19 800 tick，自然触发不到 100200 的边界。
 
-本轮修正（`8e64064`）：
+本轮修正（`Platform/Port/Test/port_stub_test.c`）：
 
 - `S-05B-30` 两处 `s_u32Tick += (...)` 改为 `s_u32Tick -= (...)`；
 - `S-05A-18` 原"服务期间请求"用例其实是在 `PortTaskService()` 前后发请求，并非并发注入。改为在取时桩 `TestTick()` 里挂一次性回调（`s_bRequestOnTick`）：服务已清通知位、正在执行时由回调发一次 `PortTaskRequest()`，断言本次服务仍返回 1、回调只触发一次、下一次服务能领到那次请求；原用例改名保留为"连续通知领取（两次服务之间发请求，不是并发注入）"。
