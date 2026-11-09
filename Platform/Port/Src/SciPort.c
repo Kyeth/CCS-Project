@@ -54,6 +54,7 @@ static Uint32 s_u32TicksPerUs = SCI_PORT_TICKS_PER_US_DEF;
 static Uint32 s_u32GapLimitTicks =
     ((SCI_PORT_SERVICE_GAP_LIMIT_US + 1UL) * SCI_PORT_TICKS_PER_US_DEF);
 static Uint32 s_u32ServiceCalls = 0UL;   /* 心跳服务调用次数（观测/桩测试） */
+static Uint16 s_u16NextPort = 0U;       /* B 版轮转游标：0=A, 1=C, 2=D */
 
 /* ------------------------------------------------------------------ */
 /* 驱动接口：默认绑真实驱动，桩测试可覆盖                              */
@@ -862,8 +863,8 @@ void SciPortSetSysclkHz(Uint32 u32SysclkHz)
 
 Uint16 SciPortService100us(void)
 {
-    Uint16 i;
-    Uint16 u16Active = 0U;
+    Uint16 u16Active;
+    Uint16 u16Port;
     Uint16 u16TickValid;
     Uint32 u32RoundTick = 0UL;
 
@@ -872,18 +873,20 @@ Uint16 SciPortService100us(void)
         s_u32ServiceCalls++;
     }
 
-    /* O1：本轮只取一次时标，三路共享同一个观察时刻。 */
+    /* B 版轮转：每拍只服务一路，游标无条件前进。即使当前端口为空、暂停、
+     * 冻结或本轮时间读取失败，也不占用下一拍，另外两路的节拍不受影响。
+     * 单路服务间隔 = 100 µs x SCI_PORT_NUM = 300 µs。 */
+    u16Port = s_u16NextPort;
+    s_u16NextPort = (Uint16)((s_u16NextPort + 1U) % SCI_PORT_NUM);
+
+    /* 本轮只取一次时标，被服务的那一路使用这个观察时刻。 */
     PORT_BENCH_MARK_MODE(7U, 1U);
     u16TickValid = SciPortReadRoundTick(&u32RoundTick);
     PORT_BENCH_MARK_MODE(7U, 0U);
 
-    for (i = 0U; i < SCI_PORT_NUM; i++)
-    {
-        PORT_BENCH_MARK_MODE(10U, 1U);
-        u16Active = (Uint16)(u16Active +
-                             SciPortServiceRx(&s_astSciPort[i], u32RoundTick, u16TickValid));
-        PORT_BENCH_MARK_MODE(10U, 0U);
-    }
+    PORT_BENCH_MARK_MODE(10U, 1U);
+    u16Active = SciPortServiceRx(&s_astSciPort[u16Port], u32RoundTick, u16TickValid);
+    PORT_BENCH_MARK_MODE(10U, 0U);
 
     return u16Active;
 }

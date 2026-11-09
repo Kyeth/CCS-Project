@@ -327,10 +327,12 @@ static Uint16 s_u16ExitCount;
 
 /* 投递动作不只是记变量：让驱动报错并跑一轮服务，
  * 相当于"中断在恢复后立刻执行了一次接收服务"，端口必须真的变成流中断。 */
+static void RxRound(void);
+
 static void DeliverFaultToPort(void)
 {
     s_au16ErrFlag[HW_SCI_ID_A] = 1U;
-    (void)SciPortService100us();
+    RxRound();
     s_au16ErrFlag[HW_SCI_ID_A] = 0U;
 }
 
@@ -467,9 +469,21 @@ static void Fixture(void)
     PortTaskSetTimeSource(TestTick, 200000000UL);
 }
 
-static void RxRound(void)
+/* B 版：一个 100 µs 心跳只服务一路，三拍覆盖 A/C/D 一次。 */
+static void RxBeat(void)
 {
     (void)SciPortService100us();
+}
+
+/* 一轮 = 三拍，A/C/D 各被服务一次（与 B 版之前的"一轮"语义对齐）。 */
+static void RxRound(void)
+{
+    Uint16 i;
+
+    for (i = 0U; i < SCI_PORT_NUM; i++)
+    {
+        (void)SciPortService100us();
+    }
 }
 
 /* ================= 用例 ================= */
@@ -594,9 +608,9 @@ static void TestSharedTickFailure(void)
     /* D 只有 FIFO 溢出。 */
     s_au16ErrFlag[HW_SCI_ID_D] = HW_SCI_RXSTS_RXFFOVF;
 
-    /* 第一轮：共享取时失败。排空按配额推进 8 字节，C 停止发布，D 锁存故障。 */
+    /* 第一轮（三拍）：共享取时失败。排空按配额推进 8 字节，C 停止发布，D 锁存故障。 */
     s_bTickOk = 0U;
-    (void)SciPortService100us();
+    RxRound();
 
     Check(s_au16FeedPos[HW_SCI_ID_A] == 8U, "S-05B-31 round 1 drops one quota");
     Check(SciPortIsResyncDraining(HW_SCI_ID_A) != 0U, "S-05B-31 still draining after round 1");
@@ -609,24 +623,59 @@ static void TestSharedTickFailure(void)
     /* 第 2~5 轮：时间源持续失败，排空仍按每轮 8 字节推进到 40。 */
     for (i = 0U; i < 4U; i++)
     {
-        (void)SciPortService100us();
+        RxRound();
     }
 
     Check(s_au16FeedPos[HW_SCI_ID_A] == 40U, "S-05B-31 rounds 2-5 drain the rest");
     Check(SciPortIsResyncDraining(HW_SCI_ID_A) != 0U, "S-05B-31 drained but empty not seen");
 
     /* 第 6 轮：真正读到空，排空结束。 */
-    (void)SciPortService100us();
+    RxRound();
     Check(SciPortIsResyncDraining(HW_SCI_ID_A) == 0U, "S-05B-31 finishes only on empty read");
 
     /* 取时恢复：第一轮只重建基准，第二轮才发布。 */
     s_bTickOk = 1U;
-    (void)SciPortService100us();
+    RxRound();
     Check(SciPortRxUsed(HW_SCI_ID_C) == 0U, "S-05B-31 C rebaselines after recovery");
 
-    (void)SciPortService100us();
+    RxRound();
     Check(SciPortPopBatch(HW_SCI_ID_C, au16Buf, 16U, &stSeg) == 1U,
           "S-05B-31 C publishes on the second round");
+}
+
+/* S-05B-34：每拍只服务一路，A→C→D 轮转；空端口也照常推进游标 */
+static void TestRotationOrder(void)
+{
+    Fixture();
+
+    /* 拍 1~3：三路各自建立时间基准。 */
+    RxBeat();
+    RxBeat();
+    RxBeat();
+
+    SciFeed(HW_SCI_ID_A, 0xA1U);
+    SciFeed(HW_SCI_ID_C, 0xC1U);
+    SciFeed(HW_SCI_ID_D, 0xD1U);
+
+    /* 拍 4：只服务 A。 */
+    RxBeat();
+    Check(s_au16FeedPos[HW_SCI_ID_A] == 1U, "S-05B-34 beat 4 serves A");
+    Check(s_au16FeedPos[HW_SCI_ID_C] == 0U, "S-05B-34 beat 4 leaves C");
+    Check(s_au16FeedPos[HW_SCI_ID_D] == 0U, "S-05B-34 beat 4 leaves D");
+
+    /* 拍 5：只服务 C。 */
+    RxBeat();
+    Check(s_au16FeedPos[HW_SCI_ID_C] == 1U, "S-05B-34 beat 5 serves C");
+    Check(s_au16FeedPos[HW_SCI_ID_D] == 0U, "S-05B-34 beat 5 leaves D");
+
+    /* 拍 6：只服务 D。 */
+    RxBeat();
+    Check(s_au16FeedPos[HW_SCI_ID_D] == 1U, "S-05B-34 beat 6 serves D");
+
+    /* 空端口不占用下一拍：三路都空时再走三拍，喂给 A 的数据在第 1 拍就被取走。 */
+    SciFeed(HW_SCI_ID_A, 0xA2U);
+    RxBeat();
+    Check(s_au16FeedPos[HW_SCI_ID_A] == 2U, "S-05B-34 empty ports still advance the cursor");
 }
 
 /* S-05B-32：每轮取时恰好一次 + 三路同轮发布共享同一时标 */
@@ -1665,7 +1714,7 @@ static void DriveRecoverToIdle(Uint16 u16PortId)
         }
 
         (void)SciPortRecover(u16PortId, &u16Remain);
-        (void)SciPortService100us();
+        RxRound();
     }
 }
 
@@ -2262,6 +2311,7 @@ int main(void)
     TestGapBoundary();
     TestSharedTickFailure();
     TestSharedTickOncePerRound();
+    TestRotationOrder();
     TestTxPartial();
     TestHwOverwriteLatch();
     TestPendingHead();
