@@ -15,8 +15,8 @@
 | ADC | ADCA/B/C/D，50 MHz ADC 时钟；EPWM1 SOCA 在 CTR=ZERO 触发 SOC；ADCA SOC15 EOC 产生 ADCINT1 |
 | CLA / CPU | ADCINT1 → CLA Task1（只查表发布下一拍 MUX 地址，不读 ADC）→ PIE11.1 主控制 ISR；CPU 在 ISR 里读全部 20 路结果寄存器、按地址归档 MUX、跑零漂状态机，并更新 MUX 地址 GPIO46/47/42 供下一采样周期使用 |
 | 心跳 | CPU Timer1，硬件中断 100 µs（PRD=19999），软件 10 分频得 1 ms；CPU INT13；记录 `u32Tick100us`、1 ms 心跳与主中断停滞计数 |
-| 后台任务 | 定时器 ISR 只登记 1 ms 节拍；`Task_Run` 在主循环消费节拍，当前注册 1 个任务：1 kHz 显示层滤波 `AdcSampleTask` |
-| SCI | A 19200、C 115200、D 38400，8N1；收发采用轮询 API。步骤 05B 起 100 µs 心跳里调用 `SciPortService100us()`（每端口每轮最多 8 次读），发送由 1 ms `PortTask` 服务 |
+| 后台任务 | 定时器 ISR 只登记 1 ms 节拍；`Task_Run` 在主循环消费节拍，当前注册 1 个任务：1 kHz 显示层滤波 `AdcSampleTask`。通信前台不再按 1 ms 注册：100 µs 心跳置通知位，主循环 `PortTaskService()` 每拍领取一次、只服务一个单元 |
+| SCI | A 19200、C 115200、D 38400，8N1；收发采用轮询 API。步骤 05C 起：接收由 100 µs 心跳每拍服务一路（A→C→D 轮转，每路标称 300 µs，每次最多 8 次读）；发送在前台五单元轮转里（SCI-A/C/D TX 与 CAN-A/B），每 100 µs 一次服务机会、每路标称 500 µs、单元预算 100 µs |
 | CAN | A 500 kbit/s、B 1 Mbit/s，外部总线模式；逐接收对象过滤（A 只收标准数据帧、B 只收扩展数据帧，ID/掩码暂为 0 作过渡）；运行期 API 带时间预算，超时用 Timer0 时间基准；当前不发送应用报文 |
 
 MUX 轮询地址为 `0→1→2→3→4→6→7→0`，跳过未定义的地址 5。B3（MUX2）在地址 0~3 输出 PV1~PV4 电压、地址 4 输出 VISO；共用同一组地址线的 D3（MUX1）只在地址 6、7 输出 BUSL（下半母线）和 BUSH（上半母线）。
@@ -33,6 +33,8 @@ GPIO88 在 GPIO 表首项配置为低，板上驱动使能保持关闭；继电�
 
 PV1/2/3/4 过流 GPIO13/17/41/40、INV 过流/短路 GPIO81/82 经 INPUT X-BAR 与 ePWM X-BAR 接到各自 TRIP；外部正常高、故障低，独立 TRIP 反相后进入 DCAH/DCBH 的 CBC。BUS 故障 GPIO77/80 已作为异步输入配置，但六路可直连 ePWM X-BAR 的 INPUT1–6 已分配给 PV 和 INV，EPWM8 **没有专属硬件 TZ 故障源**。启用 BUS 功率输出前须另行确定硬件保护路由并实测。INV/PV 的 CBC 极性、门极有效电平及 80 TBCLK 死区也须在断开功率级的台架上核验。
 
+05C 前台轮转已登记为**可用基线**（2026-11-09）：三路自环 60.6 s 零错误、吞吐达标、停发排空后收发帧数与字节数完全一致、单路故障不影响另两路、控制不停滞；控制入口 62.2／37.8 µs 抖动单列跟踪，`S-05B-08/09` 保留历史未达标记录。CAN 保持不动，SCI 不再追加性能微调。
+
 观察量统一放在 `stBringupStatus` 结构体中：`bReady=1` 表示驱动初始化调用通过并已启用 ePWM 时基，不代表实板外设链路验收；`unError` 的位 0/1/2/3 分别表示 CLA 消息 RAM、SCI、CAN（含 Timer0 时间基准未能启动）、时钟配置检查失败；位 4 `bPortInitError` 表示 CAN-B 帧类型绑定失败，位 5 `bTaskCreateError` 表示 `AdcSampleTask` 或 `PortTask` 未注册成功。即使初始化通过，所有功率输出也仍封锁。`u16CalState`（0 空闲/1 跳过/2 跟踪/3 就绪/4 失败）与 `bCalReady` 反映采样层零漂状态：只有 `bCalReady=1` 时 `stSampleIns` 才有意义。
 
 ## 构建与静态复核
@@ -44,7 +46,7 @@ python tools/build_minimal.py --cgt 'D:\ti\CCS1110\ccs\tools\compiler\ti-cgt-c20
 python tools/verify_config.py --pin-sheet 'Z:\Git1029\CCS-Project\docs\review\2026-10-29\15KW软件管脚整理文档.xlsx'
 ```
 
-独立构建产物默认在项目目录外的 `CCS-Project-minimal-build/`，避免 CCS 工程扫描到另一套 `.obj`。步骤 01 加入采样层后，用 CGT 22.6.2.LTS 完成 29 个编译单元、零编译警告、链接成功；步骤 02 加入 L3/L4/L5 与 `Platform/Pll` 后为 30 个编译单元，同样零警告、链接成功；步骤 03 把硬件心跳改为 100 µs 后仍为 30 个编译单元、零警告，`EP15K_minimal.out` 671,632 字节；步骤 04 加入 CAN 驱动修正与 CPU Timer0 时间基准后为 31 个编译单元；步骤 05A 加入端口层与环形缓存后为 34 个；步骤 05B 加入 `PortCritical.c` 与 SCI 恢复状态机后为 35 个编译单元、零警告，`EP15K_minimal.out` 775,148 字节（sha256 `78112ce2…6eb4c8d`）IB800U 风格改写后曾由 CCS headless 使用 CGT 22.6.4.LTS 清理后全量构建，生成 `.out/.hex`，0 错误、0 警告。当前 PV 独立运行配置的静态核对为 132 项通过。所有构建产物只供本机复核，未做烧录或实板测试。
+独立构建产物默认在项目目录外的 `CCS-Project-minimal-build/`，避免 CCS 工程扫描到另一套 `.obj`。步骤 01 加入采样层后，用 CGT 22.6.2.LTS 完成 29 个编译单元、零编译警告、链接成功；步骤 02 加入 L3/L4/L5 与 `Platform/Pll` 后为 30 个编译单元，同样零警告、链接成功；步骤 03 把硬件心跳改为 100 µs 后仍为 30 个编译单元、零警告，`EP15K_minimal.out` 671,632 字节；步骤 04 加入 CAN 驱动修正与 CPU Timer0 时间基准后为 31 个编译单元；步骤 05A 加入端口层与环形缓存后为 34 个；步骤 05B 加入 `PortCritical.c` 与 SCI 恢复状态机后为 35 个编译单元、零警告，`EP15K_minimal.out` 775,148 字节（sha256 `78112ce2…6eb4c8d`）；步骤 05C 加入前台五单元轮转后为 37 个编译单元、零警告，生产态 `EP15K_minimal.out` 786,740 字节（sha256 `4309649d…18207`，`.text 0x45AF`、`RAMGS0` 余 `0x14E`），测量态 804,964 字节（sha256 `0709f765…1a9`）IB800U 风格改写后曾由 CCS headless 使用 CGT 22.6.4.LTS 清理后全量构建，生成 `.out/.hex`，0 错误、0 警告。当前 PV 独立运行配置的静态核对为 132 项通过。所有构建产物只供本机复核，未做烧录或实板测试。
 
 ## 首次实板验收顺序
 
