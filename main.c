@@ -38,7 +38,9 @@
 #if (PORT_BENCH_TEST != 0U)
 #define BENCH_SCI_PORT   (HW_SCI_ID_D)   /* SCI-D：TX=GPIO93 / RX=GPIO94，38400 8N1 */
 #define BENCH_BUF_WORDS  (128U)
-#define BENCH_FLOOD_LEN  (128U)
+/* Must stay below the TX ring capacity (128 slots -> 127 bytes):
+ * SciPortWriteTx() uses RingBuffWriteExact(), which rejects the whole batch. */
+#define BENCH_FLOOD_LEN  (64U)
 #define BENCH_GPIO_MARK  (33U)           /* 配置表里的"测试引脚"，独占不用 */
 
 static Uint16 s_au16BenchBuf[BENCH_BUF_WORDS];
