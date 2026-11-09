@@ -40,7 +40,7 @@ typedef enum { HW_SCI_ID_A=0U, HW_SCI_ID_B, HW_SCI_ID_C, HW_SCI_ID_D, HW_SCI_ID_
 #define HW_SCI_RXST_BRKDT_M  (0x0020U)
 #define HW_SCI_FFRX_RXFFOVF_M (0x8000U)
 #define HW_SCI_FFRX_RXFFST_M  (0x1F00U)
-#define HW_SCI_FFRX_RXFFST_SHIFT (8U) /* FIFO 溢出 */
+#define HW_SCI_FFRX_RXFFST_SHIFT (8U) /* FIFO 层数右移位数 */
 
 typedef struct {
     Uint16 u16Status;      /* HW_SCI_RXSTS_* 的位或；0 表示无错误 */
