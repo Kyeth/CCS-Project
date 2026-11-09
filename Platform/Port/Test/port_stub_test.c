@@ -114,6 +114,7 @@ static Uint16 s_u16StatusOk[4];
 static Uint16 s_u16TxBusy[4];      /* 普通清除时发送是否仍忙（真实驱动的门禁） */
 static Uint16 s_au16ClearForce[4]; /* 记录驱动收到的 bForce 参数 */        /* Hw_SciGetRxStatus() 是否可读 */
 static Uint16 s_u16ClearKind[4];       /* 0=正常 1=WAIT_TX 2=STILL_ERR 3=UNREADABLE 4=TX_DIRTY */
+static Uint16 s_au16StatusBits[4];     /* 0xFFFF = 用 s_au16ErrFlag，否则直接用这组原始错误位 */
 static Uint16 s_u16TxIdle[4];          /* Hw_SciGetTxIdle() 报告的空闲值 */
 static Uint16 s_u16TxIdleQueryOk[4];   /* Hw_SciGetTxIdle() 查询是否成功 */
 static Uint32 s_u32ClearCalls;         /* Hw_SciClearRxError() 调用次数 */
@@ -173,7 +174,9 @@ Uint16 Hw_SciGetRxStatus(Uint16 id, ST_SCI_RX_STATUS *pstStatus, Uint16 bClear)
         return 0U;
     }
 
-    pstStatus->u16Status = (s_au16ErrFlag[id] != 0U) ? HW_SCI_RXSTS_RXFFOVF : 0U;
+    pstStatus->u16Status = (s_au16StatusBits[id] != 0xFFFFU)
+                         ? s_au16StatusBits[id]
+                         : ((s_au16ErrFlag[id] != 0U) ? HW_SCI_RXSTS_RXFFOVF : 0U);
     pstStatus->u16RxFifoLevel = (Uint16)(s_au16FeedLen[id] - s_au16FeedPos[id]);
     pstStatus->u16TxFifoLevel = 0U;
 
@@ -289,6 +292,7 @@ static void SciStubReset(void)
         s_au16ClearForce[i] = 0U;
         s_u16TxIdle[i] = 1U;
         s_u16TxIdleQueryOk[i] = 1U;
+        s_au16StatusBits[i] = 0xFFFFU;
     }
 
     s_u32ClearCalls = 0UL;
@@ -998,6 +1002,52 @@ static void TestSciRxError(void)
     s_au16ErrFlag[HW_SCI_ID_A] = 0U;
     RxRound();
     Check(SciPortRxErrorCount(HW_SCI_ID_A) == 1U, "S-05A-21 no false count after clearing");
+}
+
+/* S-05B-33：错误位矩阵——单个位、组合与无错状态都要得出正确结论
+ * （RXFFOVF 独立于 SCIRXST.RXERROR，只有它置位也必须进恢复）。 */
+static void TestSciRxStatusMatrix(void)
+{
+    static const Uint16 au16Cases[7] =
+    {
+        0x0000U, HW_SCI_RXSTS_FE, HW_SCI_RXSTS_PE, HW_SCI_RXSTS_OE,
+        HW_SCI_RXSTS_BI, HW_SCI_RXSTS_RXFFOVF,
+        (Uint16)(HW_SCI_RXSTS_FE | HW_SCI_RXSTS_RXFFOVF)
+    };
+    Uint16 i;
+
+    for (i = 0U; i < 7U; i++)
+    {
+        Fixture();
+        s_au16StatusBits[HW_SCI_ID_A] = au16Cases[i];
+        RxRound();
+
+        if (au16Cases[i] == 0U)
+        {
+            Check(SciPortRxState(HW_SCI_ID_A) == SCI_RX_IDLE,
+                  "S-05B-33 no error keeps IDLE");
+            Check(SciPortIsStreamBreak(HW_SCI_ID_A) == 0U,
+                  "S-05B-33 no error no stream break");
+            Check(SciPortRxErrEvents(HW_SCI_ID_A) == 0UL,
+                  "S-05B-33 no error not counted");
+        }
+        else if (au16Cases[i] == HW_SCI_RXSTS_RXFFOVF)
+        {
+            Check(SciPortRxState(HW_SCI_ID_A) == SCI_RX_RECOVER_REQ,
+                  "S-05B-33 RXFFOVF alone enters recovery");
+            Check(SciPortIsStreamBreak(HW_SCI_ID_A) != 0U,
+                  "S-05B-33 RXFFOVF sets stream break");
+            Check(SciPortRxErrEvents(HW_SCI_ID_A) == 1UL,
+                  "S-05B-33 RXFFOVF counted once");
+        }
+        else
+        {
+            Check(SciPortRxState(HW_SCI_ID_A) == SCI_RX_RECOVER_REQ,
+                  "S-05B-33 error bit enters recovery");
+            Check(SciPortRxErrEvents(HW_SCI_ID_A) == 1UL,
+                  "S-05B-33 error bit counted once");
+        }
+    }
 }
 
 /* S-05A-24：故障代次确认（清除不能抹掉新故障） */
@@ -2222,6 +2272,7 @@ int main(void)
     TestSegRingFull();
     TestEmptyTickZero();
     TestSciRxError();
+    TestSciRxStatusMatrix();
     TestFaultGenerationRace();
     TestResyncCrossRoundDrain();
     TestPortTaskBudget();
