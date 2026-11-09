@@ -35,7 +35,7 @@ static Uint32 s_u32UnitStart;
 static Uint32 s_u32UnitLimit;
 
 /* 待服务通知：1 = 有一次服务机会尚未被主循环取走。 */
-static Uint16 s_bRequest;
+static volatile Uint16 s_bRequest;
 
 /* 每个单元的实际服务间隔（递减计数器读数与最大间隔）。
    RAMGS0 余量只剩个位数，这 10 个字放进 .portstat（RAMGS1）。 */

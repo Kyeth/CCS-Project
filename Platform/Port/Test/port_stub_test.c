@@ -734,10 +734,12 @@ static void TestGapBoundary(void)
     Uint16 au16Buf[16];
     ST_SCI_RX_SEG stSeg;
 
+    /* 一轮三拍会把时标推进 300 µs，A 的相邻两次服务天然相隔 60000 tick。
+     * 边界要从"两次 A 服务的实际间隔"构造：补足差额，而不是再减整个间隔。 */
     /* 100199 tick = 500.995 µs，仍应判为正常。 */
     Fixture();                      /* ticksPerUs = 200 */
-    RxRound();                      /* 建基准 */
-    s_u32Tick -= 100199UL;
+    RxRound();                      /* 建基准：A 在首拍被服务 */
+    s_u32Tick += (100199UL - (300UL * TICKS_PER_US));
     SciFeed(HW_SCI_ID_A, 0x5AU);
     RxRound();
 
@@ -747,7 +749,7 @@ static void TestGapBoundary(void)
     /* 100200 tick = 501 µs，必须置位。 */
     Fixture();
     RxRound();
-    s_u32Tick -= 100200UL;
+    s_u32Tick += (100200UL - (300UL * TICKS_PER_US));
     SciFeed(HW_SCI_ID_A, 0x5AU);
     RxRound();
 
@@ -1300,6 +1302,17 @@ static void TestPortTaskBudget(void)
     Check(PortTaskRequestsMerged() == 2UL, "S-05A-18 repeated requests merged");
     Check(PortTaskService() == 1U, "S-05A-18 one opportunity serves one unit");
     Check(PortTaskService() == 0U, "S-05A-18 no request no service");
+
+    /* 先清通知、再服务：服务期间到达的请求下一次必须仍能被执行 */
+    PortTaskRequest();
+    Check(PortTaskService() == 1U, "S-05A-18 request during service served next time");
+    Check(PortTaskService() == 0U, "S-05A-18 then idle again");
+
+    /* 服务期间（通知位已清）新到的请求不会丢：再置位即可被下一次取走 */
+    PortTaskRequest();
+    (void)PortTaskService();
+    PortTaskRequest();
+    Check(PortTaskService() == 1U, "S-05A-18 late request not lost");
 
     /* 时间源失败：本次不服务 */
     Fixture();
@@ -1986,13 +1999,12 @@ static void TestInitGating(void)
     PortTaskServiceFromHeartbeat(0U);
     Check(SciPortServiceCallCount() == (u32Calls + 1UL), "S-05B-21 heartbeat runs when ok");
 
+    /* 05C：前台改由主循环消费通知，不再注册 1 ms 周期任务 */
     s_u32TaskStartCalls = 0UL;
-    s_u16TaskStartRet = 1U;
-    Check(PortTaskRegister() == 1U, "S-05B-21 register ok");
-    Check(s_u32TaskStartCalls == 1UL, "S-05B-21 register called once");
-
     s_u16TaskStartRet = 0U;
-    Check(PortTaskRegister() == 0U, "S-05B-21 register failure propagates");
+    Check(PortTaskRegister() == 1U, "S-05B-21 register no longer fails");
+    Check(s_u32TaskStartCalls == 0UL, "S-05B-21 legacy 1 ms task not started");
+    Check(PortTaskRegister() == 1U, "S-05B-21 register idempotent");
 }
 
 /* S-05B-22：出参哨兵——参数/驱动不可用时保持调用方原值 */
@@ -2257,9 +2269,9 @@ static void TestOutParamPerRound(void)
 
     /* 路径 B：RESET 执行后预算判定失败，下一轮才完成 */
     Fixture();
-    PortBudgetBegin(s_u32Tick);
     s_au16ErrFlag[HW_SCI_ID_A] = 1U;
     RxRound();
+    PortBudgetBegin(s_u32Tick);          /* 三拍已推进 300 µs，窗口须在恢复操作前开 */
 
     u16Remain = 0xCAFEU;
     Check(SciPortRecover(HW_SCI_ID_A, &u16Remain) == SCI_RECOVER_BUSY, "S-05B-28 classify b");
@@ -2342,10 +2354,10 @@ static void TestBudgetUnitWindow(void)
     s_u32Tick = 200000UL;
     PortBudgetBegin(s_u32Tick);
     Check(PortBudgetHasLeft() == 1U, "S-05B-35 unit window opens");
-    TicksAdvanceUs(100UL);
-    Check(PortBudgetHasLeft() == 1U, "S-05B-35 still open at 100 us");
+    TicksAdvanceUs(99UL);
+    Check(PortBudgetHasLeft() == 1U, "S-05B-35 still open at 99 us");
     TicksAdvanceUs(1UL);
-    Check(PortBudgetHasLeft() == 0U, "S-05B-35 window closes past 100 us");
+    Check(PortBudgetHasLeft() == 0U, "S-05B-35 window closes at 100 us");
     PortBudgetEnd();
 
     /* 路径 2：下一次服务机会重新开窗 */
@@ -2377,6 +2389,7 @@ static void TestBudgetUnitWindow(void)
     au16Tx[0] = 0x31U;
     au16Tx[1] = 0x32U;
     Check(SciPortWriteTx(HW_SCI_ID_A, au16Tx, 2U) == 2U, "S-05B-35 tx queued");
+    s_au16TxAccept[HW_SCI_ID_A] = 2U;    /* 发送桩默认不接受字节 */
     PortBudgetBegin(s_u32Tick);
     SciPortTaskOne(HW_SCI_ID_A);
     Check(SciPortTxServiceCalls(HW_SCI_ID_A) == 1UL, "S-05B-35 tx service counted");
