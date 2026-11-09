@@ -45,6 +45,13 @@
 #define BENCH_AMP        (4U)            /* 诊断模式 4/5/6 的重复次数 */
 #define BENCH_GPIO_MARK  (33U)           /* 配置表里的"测试引脚"，独占不用 */
 
+/* 三路自环帧：SOF(0x5A) | seq_lo | seq_hi | len(=8) | payload[8] | xor */
+#define BENCH_LOOP_PORTS   (3U)
+#define BENCH_FRAME_PAYLOAD (8U)
+#define BENCH_FRAME_LEN    (Uint16)(4U + BENCH_FRAME_PAYLOAD + 1U)
+#define BENCH_FRAME_SOF    (0x5AU)
+#define BENCH_PARSE_BUF    (48U)
+
 static Uint16 s_au16BenchBuf[BENCH_BUF_WORDS];
 static ST_SCI_RX_SEG s_stBenchSeg;
 
@@ -57,6 +64,40 @@ Uint32 g_u32BenchPopCalls;        /* 回显模式下成功取到的批次数 */
 Uint32 g_u32IsrMarkTicks;         /* ISR 进入时刻的 Timer0 计数 */
 Uint32 g_u32IsrMarkMaxTicks;      /* ISR 最长耗时（tick，200 tick = 1 us） */
 Uint16 g_u16IsrMarkValid;
+
+/* ---- 三路自环台架（mode 2）----
+ * 用途：不用任何外部适配器，只把每路 TX 与 RX 用短接线连起来，就能同时跑三路
+ * 带序号的收发，检查丢失/重复/乱序、环回绕满环、单路故障恢复与控制共存。
+ *
+ *   g_u16LoopRun       0=停 1=跑；由 0 变 1 时清零全部计数（干净起点）
+ *   g_u16LoopPauseMask bit0=A bit1=C bit2=D，置 1 表示"暂停消费该路 RX"，
+ *                      用来把软件环灌满（验证拒收计数与不死锁）
+ *   g_u16LoopFlood     0=每毫秒每路最多发 1 帧；1=能写就写满（压力模式）
+ *
+ * 判据看 g_u32LoopTxFrames/RxFrames 是否同步增长、SeqErr/LenErr/ChkErr/PayErr
+ * 是否恒为 0，以及 g_u32LoopBytesTx/Rx 是否相等。 */
+volatile Uint16 g_u16LoopRun;
+volatile Uint16 g_u16LoopPauseMask;
+volatile Uint16 g_u16LoopFlood;
+
+volatile Uint32 g_u32LoopTxFrames[3];
+volatile Uint32 g_u32LoopRxFrames[3];
+volatile Uint32 g_u32LoopBytesTx[3];
+volatile Uint32 g_u32LoopBytesRx[3];
+volatile Uint32 g_u32LoopSeqErr[3];
+volatile Uint32 g_u32LoopLenErr[3];
+volatile Uint32 g_u32LoopChkErr[3];
+volatile Uint32 g_u32LoopPayErr[3];
+volatile Uint32 g_u32LoopHdrErr[3];
+
+static const Uint16 s_au16LoopPort[BENCH_LOOP_PORTS] =
+    { HW_SCI_ID_A, HW_SCI_ID_C, HW_SCI_ID_D };
+static Uint16 s_au16LoopSeq[BENCH_LOOP_PORTS];
+static Uint16 s_au16LoopExp[BENCH_LOOP_PORTS];
+static Uint16 s_au16LoopPos[BENCH_LOOP_PORTS];
+static Uint16 s_au16LoopAcc[BENCH_LOOP_PORTS][BENCH_FRAME_LEN];
+static Uint16 s_au16LoopBuf[BENCH_PARSE_BUF];
+static Uint16 s_u16LoopWasRun;
 
 /* GPIO33 打点模式。**不支持运行中切换**：只在两个 ISR 都退出的前台断点处
  * 修改，确认 GPIO33 为低后再恢复运行，并丢弃暂停前后的过渡样本。
@@ -95,13 +136,224 @@ void PortBenchMark(Uint16 u16Level)
     BenchMarkPin(u16Level);
 }
 
+static void BenchLoopReset(void)
+{
+    Uint16 i;
+    Uint16 k;
+
+    for (i = 0U; i < BENCH_LOOP_PORTS; ++i)
+    {
+        s_au16LoopSeq[i] = 0U;
+        s_au16LoopExp[i] = 0U;
+        s_au16LoopPos[i] = 0U;
+        g_u32LoopTxFrames[i] = 0UL;
+        g_u32LoopRxFrames[i] = 0UL;
+        g_u32LoopBytesTx[i] = 0UL;
+        g_u32LoopBytesRx[i] = 0UL;
+        g_u32LoopSeqErr[i] = 0UL;
+        g_u32LoopLenErr[i] = 0UL;
+        g_u32LoopChkErr[i] = 0UL;
+        g_u32LoopPayErr[i] = 0UL;
+        g_u32LoopHdrErr[i] = 0UL;
+        for (k = 0U; k < BENCH_FRAME_LEN; ++k)
+        {
+            s_au16LoopAcc[i][k] = 0U;
+        }
+    }
+}
+
+/* 校验一整帧并更新计数；只在完整收满 13 字节时调用。 */
+static void BenchLoopFinish(Uint16 u16Idx)
+{
+    Uint16 k;
+    Uint16 u16Chk = 0U;
+    Uint16 u16Seq;
+    Uint16 u16Len;
+
+    for (k = 0U; k < (Uint16)(BENCH_FRAME_LEN - 1U); ++k)
+    {
+        u16Chk = (Uint16)(u16Chk ^ s_au16LoopAcc[u16Idx][k]);
+    }
+
+    if (u16Chk != s_au16LoopAcc[u16Idx][BENCH_FRAME_LEN - 1U])
+    {
+        g_u32LoopChkErr[u16Idx]++;
+        return;
+    }
+
+    u16Seq = (Uint16)(s_au16LoopAcc[u16Idx][1] |
+                      (Uint16)(s_au16LoopAcc[u16Idx][2] << 8));
+    u16Len = s_au16LoopAcc[u16Idx][3];
+
+    if (u16Len != BENCH_FRAME_PAYLOAD)
+    {
+        g_u32LoopLenErr[u16Idx]++;
+        return;
+    }
+
+    if (u16Seq != s_au16LoopExp[u16Idx])
+    {
+        g_u32LoopSeqErr[u16Idx]++;
+    }
+    s_au16LoopExp[u16Idx] = (Uint16)(u16Seq + 1U);
+
+    for (k = 0U; k < BENCH_FRAME_PAYLOAD; ++k)
+    {
+        if (s_au16LoopAcc[u16Idx][4U + k] != (Uint16)((u16Seq + k) & 0xFFU))
+        {
+            g_u32LoopPayErr[u16Idx]++;
+            break;
+        }
+    }
+
+    g_u32LoopRxFrames[u16Idx]++;
+}
+
+static void BenchLoopParse(Uint16 u16Idx, const Uint16 *pu16Data, Uint16 u16Count)
+{
+    Uint16 i;
+    Uint16 u16Byte;
+
+    for (i = 0U; i < u16Count; ++i)
+    {
+        u16Byte = (Uint16)(pu16Data[i] & 0xFFU);
+
+        if (s_au16LoopPos[u16Idx] == 0U)
+        {
+            if (u16Byte == BENCH_FRAME_SOF)
+            {
+                s_au16LoopAcc[u16Idx][0] = u16Byte;
+                s_au16LoopPos[u16Idx] = 1U;
+            }
+            else
+            {
+                g_u32LoopHdrErr[u16Idx]++;
+            }
+        }
+        else
+        {
+            s_au16LoopAcc[u16Idx][s_au16LoopPos[u16Idx]] = u16Byte;
+            s_au16LoopPos[u16Idx]++;
+
+            if (s_au16LoopPos[u16Idx] >= BENCH_FRAME_LEN)
+            {
+                BenchLoopFinish(u16Idx);
+                s_au16LoopPos[u16Idx] = 0U;
+            }
+        }
+    }
+}
+
+static void BenchLoopSend(Uint16 u16Idx)
+{
+    Uint16 au16Frame[BENCH_FRAME_LEN];
+    Uint16 k;
+    Uint16 u16Seq = s_au16LoopSeq[u16Idx];
+    Uint16 u16Chk = 0U;
+
+    au16Frame[0] = BENCH_FRAME_SOF;
+    au16Frame[1] = (Uint16)(u16Seq & 0xFFU);
+    au16Frame[2] = (Uint16)((u16Seq >> 8) & 0xFFU);
+    au16Frame[3] = BENCH_FRAME_PAYLOAD;
+
+    for (k = 0U; k < BENCH_FRAME_PAYLOAD; ++k)
+    {
+        au16Frame[4U + k] = (Uint16)((u16Seq + k) & 0xFFU);
+    }
+
+    for (k = 0U; k < (Uint16)(BENCH_FRAME_LEN - 1U); ++k)
+    {
+        u16Chk = (Uint16)(u16Chk ^ au16Frame[k]);
+    }
+    au16Frame[BENCH_FRAME_LEN - 1U] = u16Chk;
+
+    if (SciPortWriteTx(s_au16LoopPort[u16Idx], au16Frame, BENCH_FRAME_LEN) ==
+        BENCH_FRAME_LEN)
+    {
+        s_au16LoopSeq[u16Idx] = (Uint16)(u16Seq + 1U);
+        g_u32LoopTxFrames[u16Idx]++;
+        g_u32LoopBytesTx[u16Idx] += (Uint32)BENCH_FRAME_LEN;
+    }
+}
+
+/* mode 2 主体：每路先补发、再不暂停地消费并解析。 */
+static void BenchLoopTask(void)
+{
+    Uint16 i;
+    Uint16 u16Got;
+    Uint16 u16Port;
+
+    if (g_u16LoopRun == 0U)
+    {
+        s_u16LoopWasRun = 0U;
+        return;
+    }
+
+    if (s_u16LoopWasRun == 0U)
+    {
+        BenchLoopReset();
+        s_u16LoopWasRun = 1U;
+    }
+
+    for (i = 0U; i < BENCH_LOOP_PORTS; ++i)
+    {
+        u16Port = s_au16LoopPort[i];
+
+        /* 强制复位之后 TX 会冻结：恢复回 IDLE 后由这里解冻（模拟协议层行为）。 */
+        if (SciPortIsTxSuspended(u16Port) != 0U)
+        {
+            if (SciPortRxState(u16Port) == SCI_RX_IDLE)
+            {
+                (void)SciPortTxResume(u16Port);
+                g_u32BenchResumeTries++;
+            }
+        }
+        else if (SciPortTxFree(u16Port) >= BENCH_FRAME_LEN)
+        {
+            BenchLoopSend(i);
+
+            if (g_u16LoopFlood != 0U)
+            {
+                while (SciPortTxFree(u16Port) >= BENCH_FRAME_LEN)
+                {
+                    BenchLoopSend(i);
+                }
+            }
+        }
+        else
+        {
+            /* TX 环暂时不满也不空：本拍不发，交给发送服务推进 */
+        }
+
+        if ((g_u16LoopPauseMask & (Uint16)(1U << i)) == 0U)
+        {
+            do
+            {
+                u16Got = SciPortPopBatch(u16Port, s_au16LoopBuf, BENCH_PARSE_BUF,
+                                         &s_stBenchSeg);
+                if (u16Got != 0U)
+                {
+                    g_u32LoopBytesRx[i] += (Uint32)u16Got;
+                    BenchLoopParse(i, s_au16LoopBuf, u16Got);
+                }
+            } while (u16Got == BENCH_PARSE_BUF);
+        }
+    }
+}
+
 /**
- * @brief 1 ms 回显/灌满任务。
+ * @brief 1 ms 回显/灌满/自环测试任务。
  */
 void BenchTask(void)
 {
     Uint16 u16Got;
     Uint16 u16Put;
+
+    if (g_u16BenchMode == 2U)                    /* 三路自环带序号验收 */
+    {
+        BenchLoopTask();
+        return;
+    }
 
     /* 强制复位后 TX 冻结，这里模拟协议层：恢复回 IDLE 后主动解冻 */
     if (SciPortIsTxSuspended(BENCH_SCI_PORT) != 0U)
