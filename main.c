@@ -73,12 +73,14 @@ Uint16 g_u16IsrMarkValid;
  *   g_u16LoopPauseMask bit0=A bit1=C bit2=D，置 1 表示"暂停消费该路 RX"，
  *                      用来把软件环灌满（验证拒收计数与不死锁）
  *   g_u16LoopFlood     0=每毫秒每路最多发 1 帧；1=能写就写满（压力模式）
+ *   g_u16LoopStopTx    1=停止灌入新帧，但继续解析已有数据（停发排空核对用）
  *
  * 判据看 g_u32LoopTxFrames/RxFrames 是否同步增长、SeqErr/LenErr/ChkErr/PayErr
  * 是否恒为 0，以及 g_u32LoopBytesTx/Rx 是否相等。 */
 volatile Uint16 g_u16LoopRun;
 volatile Uint16 g_u16LoopPauseMask;
 volatile Uint16 g_u16LoopFlood;
+volatile Uint16 g_u16LoopStopTx;
 
 volatile Uint32 g_u32LoopTxFrames[3];
 volatile Uint32 g_u32LoopRxFrames[3];
@@ -308,7 +310,8 @@ static void BenchLoopTask(void)
                 g_u32BenchResumeTries++;
             }
         }
-        else if (SciPortTxFree(u16Port) >= BENCH_FRAME_LEN)
+        else if ((g_u16LoopStopTx == 0U) &&
+                 (SciPortTxFree(u16Port) >= BENCH_FRAME_LEN))
         {
             BenchLoopSend(i);
 
@@ -322,7 +325,7 @@ static void BenchLoopTask(void)
         }
         else
         {
-            /* TX 环暂时不满也不空：本拍不发，交给发送服务推进 */
+            /* 已停发，或 TX 环暂时不满也不空：本拍不发，交给发送服务推进 */
         }
 
         if ((g_u16LoopPauseMask & (Uint16)(1U << i)) == 0U)

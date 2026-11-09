@@ -559,7 +559,7 @@ u16Active = SciPortServiceRx(&s_astSciPort[u16Port], u32RoundTick, u16TickValid)
 | 数据正确性 | 81,309 帧；`SeqErr/LenErr/ChkErr/PayErr/HdrErr` 全 `[0,0,0]`；三路 `u16RxRejected` 全 0 | 通过 |
 | 收发配对 | `TxFrames [8991,54311,18007]` 对 `RxFrames [8980,54302,17997]`，差 `[11,9,10]` | 判为在途积压**尚待排空核对**，暂不写"非丢帧" |
 | 前台节拍 | `PortTaskServiceCalls 755,413` + `RequestsMerged 11,225` = 766,638；`u32Tick100us` 766,076，**多 562（0.07%）** | 两数是先后两次快照，不构成逐拍闭合；规模与"每拍一次机会"相符，登记为近似值 |
-| 停发排空核对 | 未做 | 待补：停止供数并继续排空后再核对 Tx/Rx，确认差值全部是在途数据 |
+| 停发排空核对 | 未做（台架已加 `g_u16LoopStopTx`，镜像 `EP15K_05C_drain_bench.out`） | 待执行：置 1 停发、解析继续，静置 10 s 后比较 `TxFrames == RxFrames` 与 `BytesTx == BytesRx`；步骤见 `_deliver/board_runbook_05C_drain.md` |
 | 合并比例 | 11,225 / 766,638 = **1.46%**，等效 9,862 次/s（标称 10,000） | 主循环 98.5% 按时消费 |
 | 单元间隔 | 每单元平均 ≈**507 µs**（标称 500 µs） | 符合设计 |
 | 预算截断 | `u16TxBudgetStop = 0`（全程） | 100 µs 单元预算从未提前截断 |
@@ -578,6 +578,7 @@ u16Active = SciPortServiceRx(&s_astSciPort[u16Port], u32RoundTick, u16TickValid)
 | 上板生产镜像 | 786,736 B，sha256 `04e57b8ce8d8b1bd867d61b15e9105c4d99c33d1cb7ac8ad1348db9360ec388d`，`.text 0x45AF`，`RAMGS0` 余 `0x14E` |
 | 复审后重建（生产） | 786,740 B，sha256 `4242416e89063719a1687801886ce5660e7c3739ca42bbef42a707fc8f23a2b5`，`.text 0x45AF`，`RAMGS0` 余 `0x14E` |
 | 复审后重建（测量） | `EP15K_05C_fg_bench_r3.out`，804,864 B，sha256 `84f84affab69c71b5cc89d58d23e78713f202ee19e34bc65111e483c9cc37789`，`.text 0x492A`，`RAMGS0` 余 `0x1C` |
+| 停发排空核对（测量） | `EP15K_05C_drain_bench.out`，804,964 B，sha256 `0709f765b4041241ba8753496733e30373c4c5d8374e615e7410a34619fc01a9`，`.text 0x492E`，`RAMGS0` 余 `0x1A`；比上一版只多 `g_u16LoopStopTx`（1＝停发、继续解析） |
 | 台架修正 | `main.c` 排空循环由 `while (u16Got == BENCH_PARSE_BUF)` 改为 `while (u16Got != 0U)`。旧写法在段长小于 48 字时每毫秒只取一段，消费速度约 4 B/ms，追不上 11.5 B/ms 的线路速率，导致整批拒收（`SciPort.c:434`）与解析失步；旧版 54 帧/s 时该缺陷不显现 |
 | 未执行项 | 主机桩（本机无 cc/gcc）只改源码未运行，断言数与会话结果以审阅方执行为准 |
 | 可选补测 | 强制复位路径：RX 持续拉低 >8 ms 且 A 的 TX 长时间非空，应观察到 `u32ForceResets +1`、`u32TxResetDrop` 增加、状态经 `HW_RESET` 回 `IDLE` 或冻结 `PAUSED` |
