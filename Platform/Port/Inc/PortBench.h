@@ -8,7 +8,7 @@
 #ifndef PORT_BENCH_H
 #define PORT_BENCH_H
 
-#define PORT_BENCH_TEST (0U)
+#define PORT_BENCH_TEST (1U)
 
 #if (PORT_BENCH_TEST != 0U)
 
