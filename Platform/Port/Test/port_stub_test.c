@@ -51,6 +51,7 @@ static Uint16 s_bTickOk = 1U;
 static Uint32 s_u32TickStepTicks = 0UL;   /* 每次读取后自动递减（模拟读取耗时） */
 static Uint32 s_u32TickCalls = 0UL;       /* 本轮累计读取次数 */
 static Uint32 s_u32TickFailAtCall = 0UL;  /* 1 起算：仅第 N 次读取失败，随后恢复 */
+static Uint32 s_u32TicksRead = 0UL;       /* Hw_TimeBaseTicks() 实际被调用次数 */
 
 static Uint16 TestTick(Uint32 *pu32Tick)
 {
@@ -78,7 +79,7 @@ static Uint16 TestTick(Uint32 *pu32Tick)
 }
 
 Uint16 Hw_TimeBaseIsReady(void) { return s_bTickOk; }
-Uint32 Hw_TimeBaseTicks(void)   { return s_u32Tick; }
+Uint32 Hw_TimeBaseTicks(void)   { s_u32TicksRead++; return s_u32Tick; }
 Uint16 Hw_TimeBaseInit(Uint32 u32SysclkHz) { (void)u32SysclkHz; return 1U; }
 
 static void TicksAdvanceUs(Uint32 u32Us)
@@ -93,6 +94,7 @@ static void TickReset(void)
     s_u32TickStepTicks = 0UL;
     s_u32TickCalls = 0UL;
     s_u32TickFailAtCall = 0UL;
+    s_u32TicksRead = 0UL;
 }
 
 /* ================= SCI 桩 ================= */
@@ -560,11 +562,17 @@ static void TestGapBad(void)
     Check(SciPortPopBatch(HW_SCI_ID_A, au16Buf, 16U, &stSeg) == 1U, "S-05A-05 batch still published");
 }
 
-/* S-05B-31：O1 共享取时失败时的混合状态（A 待排空 / C 正常 / D 只有 RXFFOVF） */
+/* S-05B-31：O1 共享取时失败时的混合状态（A 待排空 / C 正常 / D 只有 RXFFOVF）
+ *
+ * 排空节拍（实现事实，不是断言假设）：
+ *   SciPortResync() 只做软件失效、不读 FIFO；
+ *   之后每轮心跳按 SCI_PORT_RX_QUOTA（8 次 pfTryRead）推进；
+ *   实际读到空的那一轮才结束排空状态。 */
 static void TestSharedTickFailure(void)
 {
     Uint16 au16Buf[16];
     ST_SCI_RX_SEG stSeg;
+    Uint16 i;
 
     Fixture();
 
@@ -573,26 +581,39 @@ static void TestSharedTickFailure(void)
     RxRound();
     Check(SciPortRxUsed(HW_SCI_ID_C) == 0U, "S-05B-31 C base round publishes nothing");
 
-    /* A 喂 40 字节后重同步：排空配额 32，剩 8 字节待丢。 */
+    /* A 喂 40 字节后重同步：重同步不读 FIFO，40 字节全部留给心跳。 */
     SciFeedRun(HW_SCI_ID_A, 0x40U, 40U);
     (void)SciPortResync(HW_SCI_ID_A);
-    Check(SciPortIsResyncDraining(HW_SCI_ID_A) != 0U, "S-05B-31 A has pending drain");
+    Check(SciPortIsResyncDraining(HW_SCI_ID_A) != 0U, "S-05B-31 A enters draining");
+    Check(s_au16FeedPos[HW_SCI_ID_A] == 0U, "S-05B-31 resync reads nothing");
 
     /* D 只有 FIFO 溢出。 */
     s_au16ErrFlag[HW_SCI_ID_D] = HW_SCI_RXSTS_RXFFOVF;
 
-    /* 本轮共享取时失败。 */
+    /* 第一轮：共享取时失败。排空按配额推进 8 字节，C 停止发布，D 锁存故障。 */
     s_bTickOk = 0U;
     (void)SciPortService100us();
 
-    Check(s_au16FeedPos[HW_SCI_ID_A] == s_au16FeedLen[HW_SCI_ID_A],
-          "S-05B-31 A keeps draining without tick");
-    Check(SciPortIsResyncDraining(HW_SCI_ID_A) == 0U, "S-05B-31 A drain finishes");
+    Check(s_au16FeedPos[HW_SCI_ID_A] == 8U, "S-05B-31 round 1 drops one quota");
+    Check(SciPortIsResyncDraining(HW_SCI_ID_A) != 0U, "S-05B-31 still draining after round 1");
     Check(SciPortRxUsed(HW_SCI_ID_C) == 0U, "S-05B-31 C publishes nothing without tick");
     Check(SciPortIsTimingBad(HW_SCI_ID_C) != 0U, "S-05B-31 C timing bad set");
     Check(SciPortIsStreamBreak(HW_SCI_ID_D) != 0U, "S-05B-31 D latches overflow fault");
     Check(SciPortRxErrEvents(HW_SCI_ID_D) != 0U, "S-05B-31 D counts hardware event");
     Check(SciPortPopBatch(HW_SCI_ID_C, au16Buf, 16U, &stSeg) == 0U, "S-05B-31 C ring empty");
+
+    /* 第 2~5 轮：时间源持续失败，排空仍按每轮 8 字节推进到 40。 */
+    for (i = 0U; i < 4U; i++)
+    {
+        (void)SciPortService100us();
+    }
+
+    Check(s_au16FeedPos[HW_SCI_ID_A] == 40U, "S-05B-31 rounds 2-5 drain the rest");
+    Check(SciPortIsResyncDraining(HW_SCI_ID_A) != 0U, "S-05B-31 drained but empty not seen");
+
+    /* 第 6 轮：真正读到空，排空结束。 */
+    (void)SciPortService100us();
+    Check(SciPortIsResyncDraining(HW_SCI_ID_A) == 0U, "S-05B-31 finishes only on empty read");
 
     /* 取时恢复：第一轮只重建基准，第二轮才发布。 */
     s_bTickOk = 1U;
@@ -603,6 +624,39 @@ static void TestSharedTickFailure(void)
     Check(SciPortPopBatch(HW_SCI_ID_C, au16Buf, 16U, &stSeg) == 1U,
           "S-05B-31 C publishes on the second round");
 }
+
+/* S-05B-32：每轮取时恰好一次 + 三路同轮发布共享同一时标 */
+static void TestSharedTickOncePerRound(void)
+{
+    Uint16 au16Buf[8];
+    ST_SCI_RX_SEG stSegA;
+    ST_SCI_RX_SEG stSegC;
+    ST_SCI_RX_SEG stSegD;
+    Uint32 u32Before;
+
+    Fixture();
+
+    /* 建基准轮：每轮只取一次。 */
+    u32Before = s_u32TicksRead;
+    RxRound();
+    Check((s_u32TicksRead - u32Before) == 1U, "S-05B-32 one tick read in base round");
+
+    /* 三路各留 1 字节，同轮发布。 */
+    SciFeed(HW_SCI_ID_A, 0xA1U);
+    SciFeed(HW_SCI_ID_C, 0xC1U);
+    SciFeed(HW_SCI_ID_D, 0xD1U);
+
+    u32Before = s_u32TicksRead;
+    RxRound();
+    Check((s_u32TicksRead - u32Before) == 1U, "S-05B-32 one tick read in publish round");
+
+    Check(SciPortPopBatch(HW_SCI_ID_A, au16Buf, 8U, &stSegA) == 1U, "S-05B-32 A publishes");
+    Check(SciPortPopBatch(HW_SCI_ID_C, au16Buf, 8U, &stSegC) == 1U, "S-05B-32 C publishes");
+    Check(SciPortPopBatch(HW_SCI_ID_D, au16Buf, 8U, &stSegD) == 1U, "S-05B-32 D publishes");
+    Check(stSegA.u32Tick == stSegC.u32Tick, "S-05B-32 A and C share the round tick");
+    Check(stSegC.u32Tick == stSegD.u32Tick, "S-05B-32 C and D share the round tick");
+}
+
 
 /* S-05B-30：O2 阈值边界（与原 floor 判据等价：500 µs 通过、501 µs 起超限） */
 static void TestGapBoundary(void)
@@ -2157,6 +2211,7 @@ int main(void)
     TestGapBad();
     TestGapBoundary();
     TestSharedTickFailure();
+    TestSharedTickOncePerRound();
     TestTxPartial();
     TestHwOverwriteLatch();
     TestPendingHead();
