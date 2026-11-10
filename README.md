@@ -13,3 +13,12 @@ The power PWM outputs remain locked by one-shot trip, and the gate enable remain
 ## Build
 
 Use CCS or the reproducible compiler script in `tools/build_minimal.py`. The exact local compiler path and pin-sheet verification command are documented in [docs/minimal-bringup.md](docs/minimal-bringup.md).
+
+Both routes produce the same `.out` and both run the bundled post-processing chain
+(`hex2bin/` → `tools/make_upgrade_bin.py`) that emits the upgrade image
+`<name>_UpgradeCRC32.bin` for APP (`0x086000`–`0x0A0000`) and BOOT (`0x080000`–`0x086000`).
+Commands, the 32-byte file header and the `ChipType`/`FirmwareType` parameters are in
+[docs/build-and-bin.md](docs/build-and-bin.md).
+
+Host tests, HAL doubles and the bench-measurement switch live outside this project in
+`../CCS-Project-tests`; no `Debug`/`Release` build compiles them.

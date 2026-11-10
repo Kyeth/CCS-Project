@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -69,9 +70,9 @@ INCLUDES = [
     "device/common/include",
     "device/headers/include", "device/driverlib", "device/driverlib/inc",
 ]
-# F021 Flash API 不在仓库里：头文件与库都直接从 C2000Ware 取。
-# 只带 f2837xs 的那一份（5.04 只带 f28003x）。
-F021_ROOT = Path(r"D:/ti/C2000Ware_5_00_00_00/libraries/flash_api/f2837xs")
+# F021 Flash API 随工程携带（libraries/flash_api/f2837xs），与 CCS 工程同一份，
+# 不再依赖 C2000Ware 的绝对安装路径。
+F021_ROOT = ROOT / "libraries" / "flash_api" / "f2837xs"
 F021_INCLUDES = [F021_ROOT / "include"]
 F021_LIBS = [F021_ROOT / "lib"]
 
@@ -97,6 +98,8 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--cgt", type=Path, default=Path(r"E:\CCS\ccs\tools\compiler\ti-cgt-c2000_22.6.2.LTS"))
     parser.add_argument("--out", type=Path, default=ROOT.parent / "CCS-Project-minimal-build")
+    parser.add_argument("--target", choices=("app", "boot"), default="app",
+                        help="升级 BIN 的分区与固件类型（app: 0x86000..0xA0000，boot: 0x80000..0x86000）")
     args = parser.parse_args()
     cgt = args.cgt.resolve()
     out = args.out.resolve()
@@ -137,6 +140,15 @@ def main() -> None:
     for artifact in (image, map_file):
         digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
         print(f"{artifact}: {artifact.stat().st_size} bytes sha256={digest}")
+
+    # 与 CCS 的 post-build 等价：.out --hex2000--> .hex --hex2bin--> .bin --> _UpgradeCRC32.bin
+    hex2000 = cgt / "bin" / "hex2000.exe"
+    hex_file = out / "EP15K_minimal.hex"
+    print("hex", flush=True)
+    run([str(hex2000), "-q", "-i", str(image), "-o", str(hex_file),
+         "-memwidth", "16", "-romwidth", "16"], out)
+    run([sys.executable, str(ROOT / "tools/make_upgrade_bin.py"),
+         "--hex", str(hex_file), "--target", args.target], out)
 
 
 if __name__ == "__main__":

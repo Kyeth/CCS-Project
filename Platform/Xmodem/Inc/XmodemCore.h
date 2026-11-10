@@ -23,7 +23,7 @@ extern "C" {
 #define XMODEM_TIME_OUT     2000     // 2000ms
 
 /* 芯片适配：首包文件头的校验口径（打包工具必须写同一组值）。
- * 机型字节沿用本工程既有约定 0x37（'7'，F2837x）；长度上限按真实分区：
+ * 机型字节与打包工具参数一致（下面 XMODEM_CHIP_TYPE 定义为 1）；长度上限按真实分区：
  * APP = 0x1A000 字 = 0x34000 字节，BOOT = 0x6000 字 = 0xC000 字节。 */
 #define XMODEM_FILE_HEAD_LEN      32U
 /* 必要修正：与打包命令保持一致。CalcUpgradeBinCrc.exe "1" "1" ...
