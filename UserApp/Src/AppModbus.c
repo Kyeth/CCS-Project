@@ -313,6 +313,15 @@ static Uint16 AppMbDrainRx(ST_APP_MB_PORT *pstPort, Uint16 u16SciId)
         if ((pstPort->u16RxLen != 0U) && (Hw_TimeBaseIsReady() != 0U) &&
             ((Uint32)(pstPort->u32RxTick - stSeg.u32Tick) >= u32GapTicks)) {
             AppMbDispatchFrame(pstPort);
+
+            /* 交出候选之后，这块数据空间里放的是上一条的回复，不再是收帧缓冲。
+             * 刚弹出来的批次已经没有第二块地方安放，只能丢弃并计数；等回复全部
+             * 进到端口环（服务流程第 2 步）之后才恢复收帧。若这一帧根本没产生
+             * 回复（广播、CRC 错、地址不符），缓冲仍归收帧所有，可以继续拼。 */
+            if (pstPort->u16TxLen != 0U) {
+                pstPort->u32RxDropped = pstPort->u32RxDropped + (Uint32)u16Got;
+                return 0U;
+            }
         }
 
         for (i = 0U; i < u16Got; i++) {

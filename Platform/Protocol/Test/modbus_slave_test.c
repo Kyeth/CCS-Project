@@ -626,7 +626,7 @@ static void TestFrames(void)
     u16Len = BuildFrame(au16Body, 11U, au16Frame);
     Check(Exchange(PORT_A, au16Frame, u16Len) == 1, "upgrade: 1080 落表外，仍要回异常帧");
     Check(s_u16TxGotLen[PORT_A] == 5U, "upgrade: 异常帧 5 字节");
-    Check(s_au16TxGot[PORT_A][1] == 0x83U, "upgrade: 异常帧第 2 字节 = 请求功能码 | 0x80");
+    Check(s_au16TxGot[PORT_A][1] == 0x90U, "upgrade: 异常帧第 2 字节 = 0x10 | 0x80 = 0x90");
     Check(s_au16TxGot[PORT_A][2] == 0x02U, "upgrade: 异常码 0x02 = ERROR_ADDRESS");
     Check(AppModbusUpgradeFlag(0U) == 0U, "upgrade: 写被拒时不得置升级标志");
 
@@ -713,7 +713,7 @@ static void TestFrames(void)
     u16Before = g_astAppRegSlaveItem[0].puRegVal->u16Val;
     Check(Exchange(PORT_A, au16Frame, u16Len) == 1, "short10: 要给异常应答");
     Check(s_u16TxGotLen[PORT_A] == 5U, "short10: 异常帧 5 字节");
-    Check(s_au16TxGot[PORT_A][1] == 0x83U, "short10: 第 2 字节 = 0x10 | 0x80");
+    Check(s_au16TxGot[PORT_A][1] == 0x90U, "short10: 第 2 字节 = 0x10 | 0x80 = 0x90");
     Check(s_au16TxGot[PORT_A][2] == 0x03U, "short10: 异常码 0x03 = ERROR_DATA");
     Check(g_astAppRegSlaveItem[0].puRegVal->u16Val == u16Before, "short10: 寄存器 0 没有被写");
 
@@ -728,7 +728,7 @@ static void TestFrames(void)
               "atomic: 用例前提是 3008 上限为 1");
 
         au16Body[0] = 0x01U; au16Body[1] = 0x10U;
-        au16Body[2] = 0x0BU; au16Body[3] = 0xB7U;   /* 3007 */
+        au16Body[2] = 0x0BU; au16Body[3] = 0xBFU;   /* 3007 = 0x0BBF */
         au16Body[4] = 0x00U; au16Body[5] = 0x02U;   /* 2 个寄存器 */
         au16Body[6] = 0x04U;
         au16Body[7] = 0x00U; au16Body[8] = 0x2AU;   /* 第一项 42，合法 */
@@ -859,7 +859,31 @@ static void TestFrames(void)
     Check(AppModbusTxDropped(0U) == (u32Dropped + 1UL), "reset: 未发完的回复被丢弃并计数");
     Check(s_u16TxLen[PORT_A] == 0U, "reset: 不续发旧帧尾部");
 
-    /* ---- 19. 六字节升级握手：01 10 04 38 00 02 → 9 字节应答 ---- */
+    /* ---- 19. 批次间隔拆帧后，新批次不得覆盖待发回复 ---- */
+    u32Dropped = AppModbusRxDropped(0U);
+    au16Body[0] = 0x01U; au16Body[1] = 0x03U;
+    au16Body[2] = 0x00U; au16Body[3] = g_astAppRegSlaveItem[0].u16RegAddr;
+    au16Body[4] = 0x00U; au16Body[5] = 0x02U;
+    u16Len = BuildFrame(au16Body, 6U, au16Frame);
+    StubTxClear(PORT_A);
+    PushBytes(PORT_A, au16Frame, u16Len);        /* 第一条完整请求 */
+    Advance(3000U);                              /* 超过 A 口 2006 us 门限，构成帧间隔 */
+    PushBytes(PORT_A, au16Frame, 4U);            /* 第二条只到了前 4 字节 */
+    ServiceOnce();                               /* 一轮里把两条批次都处理掉 */
+    Check(AppModbusRxDropped(0U) == (u32Dropped + 4UL),
+          "owner: 拆帧后的新批次被丢弃并计数");
+    ServiceOnce();                               /* 下一轮才把上一条的回复送出去 */
+    StubTxDrain(PORT_A);
+    Check(s_u16TxGotLen[PORT_A] == 9U, "owner: 回复仍是完整的 9 字节");
+    Check(s_au16TxGot[PORT_A][0] == 0x01U, "owner: 回复地址没被新请求覆盖");
+    Check(s_au16TxGot[PORT_A][1] == 0x03U, "owner: 回复功能码没被新请求覆盖");
+    Check(s_au16TxGot[PORT_A][2] == 4U, "owner: 回复字节数没被新请求覆盖");
+    u16Crc = TestCrcBitwise(&s_au16TxGot[PORT_A][0], 7U);
+    Check((s_au16TxGot[PORT_A][7] == (Uint16)(u16Crc & 0xFFU)) &&
+          (s_au16TxGot[PORT_A][8] == (Uint16)((u16Crc >> 8) & 0xFFU)),
+          "owner: 回复的 CRC 与正文自洽");
+
+    /* ---- 20. 六字节升级握手：01 10 04 38 00 02 → 9 字节应答 ---- */
     u16Callbacks = AppModbusCallBacks(0U);
     au16Body[0] = 0x01U; au16Body[1] = 0x10U;
     au16Body[2] = 0x04U; au16Body[3] = 0x38U;   /* 1080 */
