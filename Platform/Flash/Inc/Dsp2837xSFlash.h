@@ -31,6 +31,9 @@ extern "C" {
 #define FlashBackupStartAddress     0xA0000U
 #define FlashCfgStartAddress        0xBE000U
 
+/* 备份区容量（16 位字）：H/I/J 各 0x8000 + K 0x2000 */
+#define FlashBackupAreaWords        0x1A000U
+
 /*Sector length in number of 16bits*/
 #define SectorSmall_u16length       0x2000U    /* 8K 字节的扇区 */
 #define SectorLarge_u16length       0x8000U    /* 32K 字节的扇区 */
@@ -57,7 +60,11 @@ extern "C" {
 #define FLASH_HCLK_MHZ   200U
 
 
-extern void Dsp2837xSFlashInit(void);
+extern int16 Dsp2837xSFlashInit(void);
+
+/* RAM 内喂狗：擦写等待循环与 Fapi_serviceWatchdogTimer() 都调它，
+ * 因为 Hw_FeedWatchDog() 链接在 Flash。 */
+extern void FlashFeedWatchDog(void);
 
 extern int16 EraseSingleSector(Uint32 u32SectorAddr);
 

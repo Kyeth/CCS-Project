@@ -582,7 +582,18 @@ static volatile Uint16 s_u16UpgradeHold = 0U;
 static void AppUpgradePause(void)
 {
     s_u16UpgradeHold = 1U;
+
+    /* 升级期间要停的是"功率输出 + 控制调度链"：先停波，再断采样中断与
+     * CLA 任务触发，最后把使能位置低。时基、端口服务与看门狗保留，擦写期间靠它们维持。 */
     Hw_StopAllPWM();
+
+    Hw_AdcSetIntEnable(HW_ADC_ID0, 0U);
+    Hw_AdcClearIntFlag(HW_ADC_ID0);
+
+    EALLOW;
+    Cla1Regs.MIER.all = 0U;
+    EDIS;
+
     Hw_GpioWritePin(88U, 0U);
 }
 

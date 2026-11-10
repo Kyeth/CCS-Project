@@ -31,6 +31,9 @@ extern void AppUpgradeTask(void);
 
 extern Uint16 AppUpgradeIsActive(void);
 
+/* 中止次数（供诊断与上板确认） */
+extern Uint32 AppUpgradeAbortCount(void);
+
 /**
  * @brief 挂升级开始时的暂停钩子（停功率输出、压制采样/控制动作）
  * @note  升级以复位收尾，因此不设恢复钩子；按 05F 裁定不自动重开功率输出

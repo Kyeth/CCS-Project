@@ -17,7 +17,8 @@ typedef void (*FuncAppStart)(void);
 extern ST_UPGRADE_HANDLE stUpgradeHandle;
 
 
-extern void EraseBackUpBank(void);
+/* 返回 0 = 全部扇区擦除成功，其他 = 第一个失败码（上层必须停止推进） */
+extern int16 EraseBackUpBank(void);
 extern void UpgradeUserInit(void);
 
 
@@ -26,7 +27,8 @@ extern void CheckUpgrade(void);
 
 extern void TaskUpgradeHandle(void);
 
-extern void TaskUpgrade(void);
+/* 返回 0 = 进行中，1 = 已写入配置（函数内部已复位），2 = 中止（调用方负责收尾） */
+extern Uint16 TaskUpgrade(void);
 
 #ifdef __cplusplus
 }

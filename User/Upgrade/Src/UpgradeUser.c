@@ -23,13 +23,29 @@ void UpgradeUserInit(void)
     stUpgradeHandle.u32BootAreaAddr = 0x080000U;
 }
 
-void EraseBackUpBank(void)
+int16 EraseBackUpBank(void)
 {
-    /* 芯片适配：备份区 = H/I/J（各 32K 字节）+ K（8K 字节），按真实扇区起点擦除 */
-    (void)EraseSingleSector(SectorH_start);
-    (void)EraseSingleSector(SectorI_start);
-    (void)EraseSingleSector(SectorJ_start);
-    (void)EraseSingleSector(SectorK_start);
+    int16 i16Ret = 0;
+
+    /* 芯片适配：备份区 = H/I/J（各 32K 字节）+ K（8K 字节），按真实扇区起点擦除。
+     * 必要适配修正：参考实现丢弃了每次擦除的返回值，擦除失败后仍然继续收包。 */
+    i16Ret = EraseSingleSector(SectorH_start);
+    if (i16Ret != 0)
+    {
+        return i16Ret;
+    }
+    i16Ret = EraseSingleSector(SectorI_start);
+    if (i16Ret != 0)
+    {
+        return i16Ret;
+    }
+    i16Ret = EraseSingleSector(SectorJ_start);
+    if (i16Ret != 0)
+    {
+        return i16Ret;
+    }
+
+    return EraseSingleSector(SectorK_start);
 }
 
 void EraseAppBank(void)
@@ -145,76 +161,95 @@ void CheckUpgrade(void)
 /* 已收完、只等发送排空后写配置的标志（本工程发送由主循环推进，不能阻塞等） */
 static Uint16 s_u16UpgradeDone = 0;
 
-void TaskUpgrade(void)
+Uint16 TaskUpgrade(void)
 {
     Uint32 u32Sum = 0;
     E_XMODEM_ERROR eXmodemError = XMODEM_OK;
-    if ((ReadUpgradeCfg(&stUpgradeHandle) == 1) && (GetUpgradeFirmwareFlag(&stUpgradeHandle) == 0))
+    int16 i16Ret = 0;
+
+    if ((ReadUpgradeCfg(&stUpgradeHandle) != 1) || (GetUpgradeFirmwareFlag(&stUpgradeHandle) != 0))
     {
-        if (s_u16UpgradeDone == 0U)
-        {
-            eXmodemError = XmodemReceive(&ObjXmodemCtrl);
-            if ((eXmodemError == XMODEM_END) && (((GetFileWriteOver(&ObjXmodemCtrl) != 0) || (ObjXmodemCtrl.u32RecvLength >= ObjXmodemCtrl.stUpgradeFileHeader.u32FileSize))))
-            {
-                s_u16UpgradeDone = 1U;
-            }
-        }
-        else
-        {
-            eXmodemError = XMODEM_END;
-        }
+        return 0U;      /* 没有"进行中"配置：会话已经结束 */
+    }
 
-        // 只有当 Xmodem 状态机完整结束（收到EOT并回复ACK）后才处理
-        if (eXmodemError == XMODEM_END)
+    if (s_u16UpgradeDone == 0U)
+    {
+        eXmodemError = XmodemReceive(&ObjXmodemCtrl);
+        if ((eXmodemError == XMODEM_END) &&
+            ((GetFileWriteOver(&ObjXmodemCtrl) != 0) ||
+             (ObjXmodemCtrl.u32RecvLength >= ObjXmodemCtrl.stUpgradeFileHeader.u32FileSize)))
         {
-            // 确认文件接收完整
-            if (((GetFileWriteOver(&ObjXmodemCtrl) != 0) || (ObjXmodemCtrl.u32RecvLength >= ObjXmodemCtrl.stUpgradeFileHeader.u32FileSize)))
-            {
-                /* 端口适配：参考工程在这里阻塞等 SCI 移位寄存器排空。本工程的发送由
-                 * 主循环的 PortTaskService 推进，这里阻塞会把自己等死，所以改成
-                 * "没排空就下一拍再来"，最终一致。 */
-                if (SciPortIsTxIdle(HW_SCI_ID_A) == 0U)
-                {
-                    return;
-                }
-                stUpgradeHandle.stUpgradeCfg.bChipType = ObjXmodemCtrl.stUpgradeFileHeader.bChipType;
-                stUpgradeHandle.stUpgradeCfg.bFirmwareType = ObjXmodemCtrl.stUpgradeFileHeader.bFirmwareType;
-                stUpgradeHandle.stUpgradeCfg.u16FirmwareOver = 0xAAEE;
-                stUpgradeHandle.stUpgradeCfg.u32FileSize = ObjXmodemCtrl.stUpgradeFileHeader.u32FileSize;
-                stUpgradeHandle.stUpgradeCfg.u32FileCrc = ObjXmodemCtrl.stUpgradeFileHeader.u32FileCrc;
-
-                /* 必要缺陷修复：参考工程在这里直接写配置并复位，把长度/CRC 校验留给
-                 * 下次上电的 CheckUpgrade()。本工程的 APP 侧没有 CheckUpgrade，
-                 * 交接约定是备份区校验通过才写配置，所以先校验再写。
-                 * 参考位置：UpgradeUser.c TaskUpgrade() 的 XMODEM_END 分支。 */
-                if (VerifyFireware(&stUpgradeHandle) != 1)
-                {
-                    EraseSingleSector(stUpgradeHandle.u32UpgradeCfgAddr);
-                    Hw_EnableWatchDog();
-                    Hw_FeedWatchDog();
-                    SysCtl_resetDevice();
-                    return;
-                }
-
-                u32Sum = CalcUpgradeCfgSum(&stUpgradeHandle);
-                stUpgradeHandle.stUpgradeCfg.u32UpgradeCfgSum = u32Sum;
-                EraseSingleSector(stUpgradeHandle.u32UpgradeCfgAddr);
-                WriteFlashData(stUpgradeHandle.u32UpgradeCfgAddr, &stUpgradeHandle.stUpgradeCfg, sizeof(ST_UPGRADE_CFG));
-
-                // 写入配置信息后，重启
-                Hw_EnableWatchDog();
-                Hw_FeedWatchDog();
-                SysCtl_resetDevice();
-            }
-        }
-        // 如果到达了重试上限，则退出升级
-        if (eXmodemError == XMODEM_RETRY_ERROR)
-        {
-            EraseSingleSector(stUpgradeHandle.u32UpgradeCfgAddr);
-            // 写入配置信息后，重启
-            Hw_EnableWatchDog();
-            Hw_FeedWatchDog();
-            SysCtl_resetDevice();
+            s_u16UpgradeDone = 1U;
         }
     }
+    else
+    {
+        eXmodemError = XMODEM_END;
+    }
+
+    if (eXmodemError == XMODEM_END)
+    {
+        if ((GetFileWriteOver(&ObjXmodemCtrl) == 0) &&
+            (ObjXmodemCtrl.u32RecvLength < ObjXmodemCtrl.stUpgradeFileHeader.u32FileSize))
+        {
+            return 0U;
+        }
+
+        /* 端口适配：参考工程在这里阻塞等 SCI 移位寄存器排空。本工程的发送由
+         * 主循环的 PortTaskService 推进，这里阻塞会把自己等死，所以改成"没排空就下一拍再来"。 */
+        if (SciPortIsTxIdle(HW_SCI_ID_A) == 0U)
+        {
+            return 0U;
+        }
+
+        stUpgradeHandle.stUpgradeCfg.bChipType = ObjXmodemCtrl.stUpgradeFileHeader.bChipType;
+        stUpgradeHandle.stUpgradeCfg.bFirmwareType = ObjXmodemCtrl.stUpgradeFileHeader.bFirmwareType;
+        stUpgradeHandle.stUpgradeCfg.u16FirmwareOver = 0xAAEE;
+        stUpgradeHandle.stUpgradeCfg.u32FileSize = ObjXmodemCtrl.stUpgradeFileHeader.u32FileSize;
+        stUpgradeHandle.stUpgradeCfg.u32FileCrc = ObjXmodemCtrl.stUpgradeFileHeader.u32FileCrc;
+
+        /* 必要缺陷修复：参考工程在这里直接写配置并复位，把长度/CRC 校验留给
+         * 下次上电的 CheckUpgrade()。交接约定是备份区校验通过才写配置，所以先校验。 */
+        if (VerifyFireware(&stUpgradeHandle) != 1)
+        {
+            (void)EraseSingleSector(stUpgradeHandle.u32UpgradeCfgAddr);
+            return 2U;
+        }
+
+        u32Sum = CalcUpgradeCfgSum(&stUpgradeHandle);
+        stUpgradeHandle.stUpgradeCfg.u32UpgradeCfgSum = u32Sum;
+
+        /* 必要适配修正：配置区擦除/写入失败也要上报，不能“不管成不成都复位”。 */
+        i16Ret = EraseSingleSector(stUpgradeHandle.u32UpgradeCfgAddr);
+        if (i16Ret != 0)
+        {
+            return 2U;
+        }
+
+        i16Ret = WriteFlashData(stUpgradeHandle.u32UpgradeCfgAddr,
+                                &stUpgradeHandle.stUpgradeCfg,
+                                (Uint32)sizeof(ST_UPGRADE_CFG));
+        if (i16Ret != 0)
+        {
+            (void)EraseSingleSector(stUpgradeHandle.u32UpgradeCfgAddr);
+            return 2U;
+        }
+
+        /* 写入配置信息后，重启 */
+        Hw_EnableWatchDog();
+        Hw_FeedWatchDog();
+        SysCtl_resetDevice();
+
+        return 1U;
+    }
+
+    /* 中止类错误（两次 CAN、写 Flash 失败、文件头不合法、重试超限）：
+     * 清掉本次会话的"进行中"配置后交给上层收尾；不再直接复位。 */
+    if ((eXmodemError != XMODEM_OK) && (eXmodemError != XMODEM_TIMEOUT))
+    {
+        (void)EraseSingleSector(stUpgradeHandle.u32UpgradeCfgAddr);
+        return 2U;
+    }
+
+    return 0U;
 }

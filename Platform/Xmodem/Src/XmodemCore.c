@@ -200,29 +200,39 @@ E_XMODEM_ERROR XmodemSinglePacket(ST_XMODEM_PROTOCOL *pstProtocol)
             // 如果这里是新的一包数据才执行写操作，如何还是上一包数据就不执行写操作了
             if (pstProtocol->u16xBuff[1] == pstProtocol->bCurrentPackNo)
             {
-                // 只有接收的数据长度小于文件头记录的总长度，才允许写入
-                pstProtocol->u32RecvLength += u16DataLength;
-                if (pstProtocol->u32RecvLength <= pstProtocol->stUpgradeFileHeader.u32FileSize)
+                Uint16 u16Body = u16DataLength;
+                Uint32 u32Remain = 0;
+
+                /* 必要适配修正：末包按真实剩余长度裁剪，且先写后累计长度。
+                 * 参考位置：XmodemCore.c XmodemSinglePacket() 后续包分支。 */
+                if (pstProtocol->u32RecvLength >= pstProtocol->stUpgradeFileHeader.u32FileSize)
                 {
-                    // 调用存储介质写接口
-                     if (pstProtocol->stDataHandler.WriteBlock(pstProtocol->u32AddrOffset, &pstProtocol->u16xBuff[3], u16DataLength) < 0)
-                     {
-                         return XMODEM_IO_ERROR;
-                     }
-                     pstProtocol->u32AddrOffset = (pstProtocol->u32RecvLength >> 1);
+                    u16Body = 0U;
                 }
                 else
                 {
-                    // 这里需要处理最后一包实际写入大小
-                    u16DataLength = u16DataLength - (pstProtocol->u32RecvLength - pstProtocol->stUpgradeFileHeader.u32FileSize);
-                    if (pstProtocol->stDataHandler.WriteBlock(pstProtocol->u32AddrOffset, &pstProtocol->u16xBuff[3], u16DataLength) < 0)
+                    u32Remain = pstProtocol->stUpgradeFileHeader.u32FileSize - pstProtocol->u32RecvLength;
+                    if ((Uint32)u16Body > u32Remain)
                     {
-                        return XMODEM_IO_ERROR;
+                        u16Body = (Uint16)u32Remain;
                     }
+                }
+
+                if (u16Body > 0U)
+                {
+                    if (pstProtocol->stDataHandler.WriteBlock(pstProtocol->u32AddrOffset, &pstProtocol->u16xBuff[3], u16Body) < 0)
+                    {
+                        /* 写 Flash 失败：可能已经写了一部分，同一个 ECC 单元不能再写，
+                         * 不能 NAK 让主机重传，上报给状态机终止本次会话。 */
+                        return XMODEM_RETRY_ERROR;
+                    }
+                    pstProtocol->u32RecvLength += u16Body;
                     pstProtocol->u32AddrOffset = (pstProtocol->u32RecvLength >> 1);
-                    pstProtocol->bRecvOver = 1;
-                    // 不再return而是让状态机等待EOT
-                    //return XMODEM_END;
+                }
+
+                if (pstProtocol->u32RecvLength >= pstProtocol->stUpgradeFileHeader.u32FileSize)
+                {
+                    pstProtocol->bRecvOver = 1;      /* 正文已收完，等 EOT */
                 }
 
                 // 更新包序号
@@ -247,32 +257,43 @@ E_XMODEM_ERROR XmodemSinglePacket(ST_XMODEM_PROTOCOL *pstProtocol)
             pstProtocol->stUpgradeFileHeader.u32FileCrc = (Uint32)pstProtocol->u16xBuff[9] | ((Uint32)pstProtocol->u16xBuff[10] << 8) |
                                                             ((Uint32)pstProtocol->u16xBuff[11] << 16) | ((Uint32)pstProtocol->u16xBuff[12] << 24);
 
-            /* 必要缺陷修复：文件长度必须非零且为偶数。整条链路按 u32FileSize>>1
-             * 个字做校验与搬运，奇数长度会丢掉最后一个字节，导致 CRC 永远对不上。 */
-            if ((pstProtocol->stUpgradeFileHeader.u32FileSize == 0U) ||
-                ((pstProtocol->stUpgradeFileHeader.u32FileSize & 1U) != 0U))
+            /* 必要适配修正：文件头一到就把机型、固件类型与容量校验掉，
+             * 不合法就终止本次会话（不写任何正文、不回 ACK）。
+             * 参考位置：XmodemCore.c XmodemSinglePacket() 首包分支。 */
+            if ((pstProtocol->stUpgradeFileHeader.bChipType != XMODEM_CHIP_TYPE) ||
+                ((pstProtocol->stUpgradeFileHeader.bFirmwareType != XMODEM_FIRMWARE_APP) &&
+                 (pstProtocol->stUpgradeFileHeader.bFirmwareType != XMODEM_FIRMWARE_BOOT)) ||
+                (pstProtocol->stUpgradeFileHeader.u32FileSize == 0U) ||
+                ((pstProtocol->stUpgradeFileHeader.u32FileSize & 1U) != 0U) ||
+                (pstProtocol->stUpgradeFileHeader.u32FileSize >
+                 ((pstProtocol->stUpgradeFileHeader.bFirmwareType == XMODEM_FIRMWARE_APP)
+                  ? XMODEM_APP_MAX_BYTES : XMODEM_BOOT_MAX_BYTES)))
             {
-                return XMODEM_IO_ERROR;
+                return XMODEM_RETRY_ERROR;
             }
 
             pstProtocol->u32AddrOffset = 0;
-            // 调用存储介质写接口,这里减少了32个字节是减去了文件头的内容
-            // 只有接收的数据长度小于文件头记录的总长度，才允许写入
-            pstProtocol->u32RecvLength += (u16DataLength - 32);
+            pstProtocol->u32RecvLength = 0;
 
-            if (pstProtocol->u32RecvLength <= pstProtocol->stUpgradeFileHeader.u32FileSize)
+            /* 首包正文 = 去掉 32 字节文件头后的部分，并按文件真实长度裁剪。
+             * 参考实现在首包比文件长时直接 return XMODEM_END，导致短文件根本不写。 */
+            u16DataLength = (Uint16)(u16DataLength - XMODEM_FILE_HEAD_LEN);
+            if ((Uint32)u16DataLength > pstProtocol->stUpgradeFileHeader.u32FileSize)
             {
-                // 调用存储介质写接口
-                if (pstProtocol->stDataHandler.WriteBlock(pstProtocol->u32AddrOffset, &pstProtocol->u16xBuff[35], u16DataLength - 32) < 0)
-                {
-                    return XMODEM_IO_ERROR;
-                }
-
-                pstProtocol->u32AddrOffset = (pstProtocol->u32RecvLength >> 1);
+                u16DataLength = (Uint16)pstProtocol->stUpgradeFileHeader.u32FileSize;
             }
-            else
+
+            if (pstProtocol->stDataHandler.WriteBlock(pstProtocol->u32AddrOffset,
+                    &pstProtocol->u16xBuff[3 + XMODEM_FILE_HEAD_LEN], u16DataLength) < 0)
             {
-                return XMODEM_END;
+                return XMODEM_RETRY_ERROR;
+            }
+
+            pstProtocol->u32RecvLength += u16DataLength;
+            pstProtocol->u32AddrOffset = (pstProtocol->u32RecvLength >> 1);
+            if (pstProtocol->u32RecvLength >= pstProtocol->stUpgradeFileHeader.u32FileSize)
+            {
+                pstProtocol->bRecvOver = 1;          /* 已收完，等 EOT */
             }
 
             // 更新包序号
@@ -296,8 +317,7 @@ E_XMODEM_ERROR XmodemSinglePacket(ST_XMODEM_PROTOCOL *pstProtocol)
 
 E_XMODEM_ERROR XmodemReceive(ST_XMODEM_PROTOCOL *pstProtocol)
 {
-    Uint16 u16Retry = 0;
-
+    Uint16 u16SkipReply = 0;
     Uint16 u16TryChar = 'C';
     Uint16 u16DataLength = 0;
     int16 i16ReceiveNum = 0;
@@ -439,12 +459,22 @@ E_XMODEM_ERROR XmodemReceive(ST_XMODEM_PROTOCOL *pstProtocol)
                 pstProtocol->stXmodemStateMachine = STATE_RECEIVE_DATA;
             }
 
+            // 写 Flash 失败或文件头不合法：直接终止本次会话，不 NAK 重传
+            else if (pstProtocol->bError == XMODEM_RETRY_ERROR)
+            {
+                u16TryChar = CAN;
+                pstProtocol->stTransport.Write(&u16TryChar, 1);
+                pstProtocol->stTransport.Write(&u16TryChar, 1);
+                pstProtocol->stXmodemStateMachine = STATE_ERROR;
+                u16SkipReply = 1U;
+            }
+
             // 重试判断
-            if (pstProtocol->bRetryCount <= pstProtocol->stXmodemConfig.u16MaxRetries)
+            if ((u16SkipReply == 0U) && (pstProtocol->bRetryCount <= pstProtocol->stXmodemConfig.u16MaxRetries))
             {
                 pstProtocol->stTransport.Write(&u16TryChar, 1);
             }
-            else
+            else if (u16SkipReply == 0U)
             {
                 u16TryChar = CAN;
                 pstProtocol->stTransport.Write(&u16TryChar, 1);

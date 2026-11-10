@@ -22,6 +22,16 @@ extern "C" {
 #define XMODEM_BUFF_SIZE    1030    // 1030 = XModem 1k + 3 head chars + 2 CRC + NULL
 #define XMODEM_TIME_OUT     2000     // 2000ms
 
+/* 芯片适配：首包文件头的校验口径（打包工具必须写同一组值）。
+ * 机型字节沿用本工程既有约定 0x37（'7'，F2837x）；长度上限按真实分区：
+ * APP = 0x1A000 字 = 0x34000 字节，BOOT = 0x6000 字 = 0xC000 字节。 */
+#define XMODEM_FILE_HEAD_LEN      32U
+#define XMODEM_CHIP_TYPE          0x37U
+#define XMODEM_FIRMWARE_APP       1U
+#define XMODEM_FIRMWARE_BOOT      2U
+#define XMODEM_APP_MAX_BYTES      0x34000UL
+#define XMODEM_BOOT_MAX_BYTES     0xC000UL
+
 
 typedef enum
 {

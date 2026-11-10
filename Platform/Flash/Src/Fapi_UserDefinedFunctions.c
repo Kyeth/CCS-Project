@@ -8,7 +8,7 @@
 #define _F2837xS
 #endif
 #include "F021.h"
-#include "Hw_WatchDog.h"
+#include "Dsp2837xSFlash.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -16,13 +16,14 @@ extern "C" {
 
 /* F021 头文件在 DEBUG 构建里会用到 driverlib 的 ASSERT 宏，它引用 __error__。
  * 本工程没有别处定义它，这里补一个：升级路径走到非法参数就停下等看门狗。 */
+#pragma CODE_SECTION(__error__, ".flashfunc")
 void __error__(const char *filename, unsigned long line)
 {
     (void)filename;
     (void)line;
     while (1)
     {
-        Hw_FeedWatchDog();
+        FlashFeedWatchDog();
     }
 }
 
@@ -30,7 +31,7 @@ void __error__(const char *filename, unsigned long line)
 
 Fapi_StatusType Fapi_serviceWatchdogTimer(void)
 {
-    Hw_FeedWatchDog();
+    FlashFeedWatchDog();
     return (Fapi_Status_Success);
 }
 

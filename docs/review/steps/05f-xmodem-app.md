@@ -1,166 +1,186 @@
-# 05F 申请文档（r3）：XMODEM 接收按参考工程移植进 APP
+# 05F 申请文档（r4）：XMODEM 接收按参考工程移植进 APP
 
-| 项目 | 内容 |
+| 项 | 内容 |
 | --- | --- |
-| 版本 | r3（2026-11-10）——按裁决改为**忠实移植参考 BootLoader**，撤销 r2 的自造框架 |
-| 基准 | `test/board-bringup-20261031`，`1093060`（r2 文档提交） |
-| 移植依据 | `C:\Users\86130\Desktop\02_程序与代码\IB800系列\IB800_Boot1\IB800U_BootLoader`，HEAD `68701bd` "Initial import: IB800U_BootLoader (C2000 F28003x bootloader)"，工作区干净 |
-| 验收 | 以实际升级成功为准，不追加性能指标 |
-
-r2 按"先自造 Xmodem/Upgrade 框架、再往参考接口上靠"的方式实施，偏离裁决。r3 撤销 r2 全部新增实现（`git rm`），把参考工程的 20 个源文件逐字搬入，只做裁决允许的五类必要改动，并把确认的功能缺陷逐条修掉（§4.5，每项注明参考位置、触发条件、最小改法）。
+| 步骤 | 05F |
+| 状态 | r4（2026-11-10）——已按复核意见（m02255）修正六组必要适配错误，生产态编译通过；未上板 |
+| 基线 | 参考 BootLoader `IB800U_BootLoader`，HEAD `68701bd` |
+| 本工程 | `CCS-Project-minimal`（F28374S），分支 `test/board-bringup-20261031` |
+| 判据 | 上板实际升级成功；本步不新增性能指标 |
 
 ## 0. 结论先行
 
-1. **模块划分、函数接口、状态机、升级配置结构、处理流程全部保持参考工程原样**：`XmodemCore` / `XmodemDataHandle` / `XmodemTimeOut` / `XmodemTramsport` / `XmodemSlaveProcess` / `UpgradeCore` / `DspUpgradeCrc` / `UpgradeUser` / Flash 驱动的文件名、函数名、结构体字段一律不改。
-2. **必要改动只有五类**：芯片适配（设备头、F021、扇区、链接与 RAM 搬运）、端口适配（读写内部接 `SciPort`，在适配层累计完整包）、时基适配（`Hw_TimeBase`，保持 ms 单位）、工程接线（握手→接收→校验→写配置→复位）、必要缺陷修复（§4.5 共 7 条）。
-3. **APP 与 BOOT 共用同一套升级实现**：本步落地的 `Platform/Xmodem` + `Platform/Upgrade` + `Platform/Flash` + `User/XmodemSlaveProcess` + `User/Upgrade` 可整目录搬进 BOOT 工程，改的只有分区地址常量与 `jump_to_app()`。
-4. **握手仍按 05E 的约定**：Modbus 回 6+CRC 共 8 字节；`'C'` 由升级层在备份区擦完后由 `XmodemReceive()` 自己在 `STATE_IDLE` 发出（参考工程的行为）。交接时把握手同批多取的尾部字节交给升级层，不清环、不重初始化。
-5. **本轮没有主机测试**：参考模块与 SCI/F021/看门狗/复位强耦合，r2 的替身测试随自造框架一起撤销；验收以上板升级成功为准（§8 列出必须上板确认的点）。
+05F 的方向是**忠实移植**参考工程的 Xmodem / Upgrade 框架（模块划分、函数接口、状态机、升级配置结构、处理流程全部保留），只做五类必要改动：芯片适配、端口适配、时基适配、工程接线、必要缺陷修复。
+
+r3 已按这个方向落地并两态编译通过，但复核（m02255）列出六处**必要适配错误**，其中三处会导致实际收包失败或越界（超时判据反向、首包短正文不写入、余字节无界写数组）、一处会在擦写期间执行 Flash 代码、一处会让 32K 扇区的空片检查与编程按错误单位进行、一处让擦写失败无法上抛。r4 把这六组全部改完，未新增任何替代框架。
+
+本轮**没有主机测试**：参考模块与 SCI / F021 / 看门狗 / 复位强耦合，替身测试会掩盖真实时序问题，验收按 §8 的上板路径进行。生产态编译 0 错误、4 条 warning 全部来自参考 `XmodemCore.c` 原样代码（未引用局部变量、枚举混用），按忠实移植保留。
 
 ## 1. 范围与不做
 
-**做**：`Platform/Xmodem/*`、`Platform/Flash/*`、`Platform/Upgrade/*`、`User/XmodemSlaveProcess/*`、`User/Upgrade/*`（参考文件入库与五类适配）；`UserApp/{Inc,Src}/AppUpgrade.*`（薄接线）；`AppModbus.c` 的握手应答与端口交接；`main.c` 的初始化、任务注册、RAM 段搬运、暂停钩子；`CMD` 的新增段；`build_minimal.py` 的源列表、include 与 F021 库。
+**做**：Modbus 升级握手（8 字节应答）→ 端口交接 → 擦备份区 → 按参考状态机收包写备份区 → 两次 EOT → 校验 → 按参考格式写配置 → 复位。
 
-**不做**：BOOT 工程本体；`CheckUpgrade()` 的回拷与跳转（属 BOOT）；分区表调整；Modbus 功能变更（除握手应答长度与交接）。
+**不做**：BOOT 工程本身（回拷到 APP 区、`jump_to_app()`、启动时的恢复判定属 `HANDOVER_20261110.md` §8，后续单独开项目空间）；不重写参考的回调接口；不引入帧队列；不优化吞吐。
 
-### 1.1 升级期间的任务与中断（沿用裁定）
+### 1.1 升级期间的任务与中断（按 m01138 裁定）
 
-| 类别 | 处置 |
+| 类别 | 具体 |
 | --- | --- |
-| 功率输出（PWM 发波） | 停止，升级全程保持停止，中止后不自动恢复 |
-| 采样/控制动作 | `AdcSampleTaskGuarded()` 在保持期内直接返回 |
-| 端口服务 | **保留**：擦除期间 `'C'`/ACK 靠主循环 `PortTaskService()` 出环 |
-| 时基、看门狗 | 保留；F021 等待循环里 `Hw_FeedWatchDog()` |
-| Modbus（C/D 两口） | 未暂停（只把 SCI-A 这个端口交出去） |
+| 暂停 | PWM 输出 `Hw_StopAllPWM()`；ADC 中断 `Hw_AdcSetIntEnable(HW_ADC_ID0, 0U)` + `Hw_AdcClearIntFlag(HW_ADC_ID0)`；CLA 任务中断 `Cla1Regs.MIER.all = 0U`；前台采样任务（`s_u16UpgradeHold` 使 `AdcSampleTaskGuarded()` 直接返回）；数字输出 `Hw_GpioWritePin(88U, 0U)` |
+| 保留 | 时间基准 `Hw_TimeBase`（超时判据要用）；端口服务 `PortTaskService()`（`'C'`/ACK 全靠它出环，停掉会死锁）；看门狗（但擦写期间只能调 RAM 里的 `FlashFeedWatchDog()`） |
+| 中止后 | 功率输出保持关闭，不自动恢复（`AppUpgradeAbort()` 只清状态、交还端口） |
 
 ## 2. 参考实现（`68701bd`）关键点
 
-- 包解析：`XmodemSinglePacket()` 按 `u16xBuff[0]` 定长度（SOH 128 / STX 1024），序号反码校验 `u16xBuff[1] == ((~u16xBuff[2]) & 0xFF)`，CRC16-CCITT（poly 0x1021、初值 0、**高字节在前**）。
-- 首包：`u16xBuff[3]` 芯片类型、`[4]` 固件类型、`[5..8]` 长度（小端）、`[9..12]` CRC32（小端），正文从 `u16xBuff[35]` 起，共 96 或 992 字节。
-- 后续包：`u32RecvLength += len`；超过文件长度时截断并置 `bRecvOver`；每包后 `u32AddrOffset = u32RecvLength >> 1`（**字**偏移）。
-- 存储：`WriteBlock(u32BlockNum, buf, len)` 把两个字节拼成一个 16 位字，写入 `0x0A0000 + u32BlockNum`。
-- 结束：`EOT` 两次确认（首次 NAK、二次 ACK）→ `XMODEM_END`；`CAN` 两次 → `XMODEM_CANCEL`；重试用尽 → 连发三个 CAN。
-- 配置：`ST_UPGRADE_CFG` 12 个 16 位字，`u32UpgradeCfgSum = CalcUpgradeCfgSum()` 校验；`u16UpgradeFlag`/`u16FirmwareOver` = `0xAAEE`。
-- 状态机：`STATE_IDLE`（发 `'C'`）→ `STATE_WAIT_FOR_START` → `STATE_PROCESS_PACKET` → `STATE_RECEIVE_DATA` … → `STATE_COMPLETE` / `STATE_ERROR`。
+- `XmodemReceive()` 是 6 态机：`STATE_IDLE`（发 `'C'`、复位包号）→ `WAIT_FOR_START`（`TimeStart(2000)` + `Read`）→ `PROCESS_PACKET`（`XmodemSinglePacket()`）→ `RECEIVE_DATA`（等同 WAIT，超时更短）→ `COMPLETE` / `ERROR`。
+- 收包单位是 `Uint16` 数组，每个元素只放一个字节；`XMODEM_BUFF_SIZE 1030`（SOH 包 133、STX 包 1029）。
+- 首包正文前 32 字节是 `ST_UPGRADE_FILE_HEADER`（`bChipType:8`、`bFirmwareType:8`、`u32FileSize`、`u32FileCrc`、`u16Rsv[11]`），正文从 `u16xBuff[35]` 起；后续包正文从 `u16xBuff[3]` 起，`u32AddrOffset = u32RecvLength >> 1`——**Flash 地址按字推进**。
+- CRC16 查表（poly 0x1021、初值 0、**高字节在前**）；`XmodemCalculateCheckSum` 只在 `u16IsUseCrc=0` 时用。
+- `XmodemTimeOut` 是"开始计时 + 查超时"两个接口，单位毫秒；`XmodemTramsports` 是 `Read/Write` 两个函数指针；`XmodemDataHandle` 是 `ReadBlock/WriteBlock`。
+- 升级配置 `ST_UPGRADE_CFG`（含 `u16UpgradeFlag = 0xAAEE`、`u16FirmwareOver = 0xAAEE`、`u32UpgradeCfgSum`），`UpgradeCore` 负责读配置、CRC32 校验、回拷、算校验和。
+- `UpgradeUser.TaskUpgrade()` 是参考的升级任务体：守卫 → `XmodemReceive()` → 等发送排空 → 写配置 → 复位。
 
 ## 3. 移植对照表
 
-| 参考路径 | 本工程路径 | 参考行数 | 现行数 | 改动 |
+| 参考文件 | 行数 | 本工程文件 | 行数 | 改动 |
 | --- | --- | --- | --- | --- |
-| `Platform/Xmodem/Inc/XmodemCore.h` | 同名 | 152 | 152 | 无 |
-| `Platform/Xmodem/Inc/XmodemDataHandle.h` | 同名 | 32 | 32 | 无 |
-| `Platform/Xmodem/Inc/XmodemTimeOut.h` | 同名 | 45 | 45 | 无 |
-| `Platform/Xmodem/Inc/XmodemTramsports.h` | 同名 | 28 | 31 | `Write` 改 `const Uint16 *` |
-| `Platform/Xmodem/Src/XmodemCore.c` | 同名 | 524 | 543 | 设备头、两处缺陷 |
-| `Platform/Xmodem/Src/XmodemDataHandle.c` | 同名 | 51 | 57 | 基址、`.upybuf`、缺陷 |
-| `Platform/Xmodem/Src/XmodemTimeOut.c` | 同名 | 58 | 58 | 时基 |
-| `Platform/Xmodem/Src/XmodemTramsport.c` | 同名 | 32 | 161 | 端口适配（整包累计） |
-| `Platform/Flash/Inc/Dsp280039Flash.h` | `Platform/Flash/Inc/Dsp2837xSFlash.h` | 106 | 75 | 扇区表、F021 入口 |
-| `Platform/Flash/Src/Dsp280039Flash.c` | `Platform/Flash/Src/Dsp2837xSFlash.c` | 153 | 286 | `_F2837xS`、8 字编程、两处缺陷 |
-| — | `Platform/Flash/Src/Fapi_UserDefinedFunctions.c` | — | 39 | 新增（TI 库要求 + `__error__`） |
-| `Platform/Upgrade/Inc/UpgradeCore.h` | 同名 | 76 | 76 | 无 |
-| `Platform/Upgrade/Inc/DspUpgradeCrc.h` | 同名 | 20 | 20 | 无 |
-| `Platform/Upgrade/Src/UpgradeCore.c` | 同名 | 163 | 192 | `.upybuf`、按字数拷贝、补 return |
-| `Platform/Upgrade/Src/DspUpgradeCrc.c` | 同名 | 46 | 46 | 无 |
-| `User/XmodemSlaveProcess/Inc/XmodemSlaveProcess.h` | 同名 | 24 | 24 | 无 |
-| `User/XmodemSlaveProcess/Src/XmodemSlaveProcess.c` | 同名 | 42 | 40 | 设备头 |
-| `User/Upgrade/Inc/UpgradeUser.h` | 同名 | 32 | 36 | 加 `EraseBackUpBank`/`stUpgradeHandle` 声明 |
-| `User/Upgrade/Src/UpgradeUser.c` | 同名 | 211 | 220 | 地址、扇区、非阻塞发送、两处缺陷 |
-| — | `UserApp/{Inc,Src}/AppUpgrade.*` | — | 44 + 131 | 新增薄接线 |
-| — | `UserApp/Src/AppModbus.c` | — | — | 握手 8 字节 + 交接 |
+| `Platform/Xmodem/Inc/XmodemCore.h` | 152 | 同路径 | 162 | 设备头、新增 6 个常量（§4.4） |
+| `Platform/Xmodem/Src/XmodemCore.c` | 524 | 同路径 | 573 | 首包重写、写失败终止、跳过重复应答（§4.5、§4.6） |
+| `Platform/Xmodem/Inc/XmodemTramsports.h` | 28 | 同路径 | 31 | 参数改 `const Uint16 *`、加 `XmodemRxReset` 声明 |
+| `Platform/Xmodem/Src/XmodemTramsport.c` | 32 | 同路径 | 197 | 端口适配重写（§4.2） |
+| `Platform/Xmodem/Inc/XmodemTimeOut.h` | 45 | 同路径 | 45 | 未改 |
+| `Platform/Xmodem/Src/XmodemTimeOut.c` | 58 | 同路径 | 80 | 时间源换 `Hw_TimeBase`、判据改方向（§4.3） |
+| `Platform/Xmodem/Inc/XmodemDataHandle.h` | 32 | 同路径 | 32 | 未改 |
+| `Platform/Xmodem/Src/XmodemDataHandle.c` | 51 | 同路径 | 68 | 基址 0x0A0000、返回检查与范围检查（§4.5） |
+| `Platform/Flash/Inc/Dsp280039Flash.h` | 106 | `Platform/Flash/Inc/Dsp2837xSFlash.h` | 82 | 扇区表换 F2837xS（§4.1） |
+| `Platform/Flash/Src/Dsp280039Flash.c` | 153 | `Platform/Flash/Src/Dsp2837xSFlash.c` | 341 | F021 换 f2837xs、Bank、单位、断电保护（§4.1） |
+| — | — | `Platform/Flash/Src/Fapi_UserDefinedFunctions.c` | 40 | 新增：TI 库要求的用户回调 |
+| `Platform/Upgrade/Inc/UpgradeCore.h` | 76 | 同路径 | 76 | 未改 |
+| `Platform/Upgrade/Src/UpgradeCore.c` | 163 | 同路径 | 192 | 按字数回拷、补 return（§4.5） |
+| `Platform/Upgrade/Inc/DspUpgradeCrc.h` | 20 | 同路径 | 20 | 未改 |
+| `Platform/Upgrade/Src/DspUpgradeCrc.c` | 46 | 同路径 | 46 | 未改 |
+| `User/Upgrade/Inc/UpgradeUser.h` | 32 | 同路径 | 34 | 两个函数返回值类型（§4.6） |
+| `User/Upgrade/Src/UpgradeUser.c` | 211 | 同路径 | 255 | 地址、扇区循环、非阻塞排空、失败上抛（§4.5、§4.6） |
+| `User/XmodemSlaveProcess/*` | 24+42 | 同路径 | 40 | 只换设备头 |
+| — | — | `UserApp/{Inc,Src}/AppUpgrade.*` | 44+193 | 新增：APP 侧接线（§4.7） |
+| `UserApp/Src/AppModbus.c` | — | 同路径 | 714 | 握手 9→8 字节、交接（r3 已改，本轮未动） |
 
 ## 4. 五类必要改动
 
-### 4.1 芯片适配
+### 4.1 芯片适配（F280039C → F28374S）
 
-1. **设备头**：8 个文件 `#include "F28003x_device.h"` → `"F2837xS_device.h"`。
-2. **F021**：`Dsp2837xSFlash.c` 在包含 `F021.h` 前 `#define _F2837xS`（F2837xS 分支才提供 `F021_CPU0_W0_BASE_ADDRESS`），`Fapi_initializeAPI(F021_CPU0_W0_BASE_ADDRESS, 200)`。
-3. **扇区表**：A~D、K~N 为 8K 字（`SectorSmall_u16length 0x2000`），E~J 为 32K 字（`SectorLarge_u16length 0x8000`）；分区起点 `BOOT 0x80000 / APP 0x86000 / BACKUP 0xA0000 / CFG 0xBE000`；擦除按地址自动 `Fapi_setActiveFlashBank`。
-4. **链接**：`.upybuf` → `RAMGS2`（`u16XmodemDataBuff[1024]` + `u16AppBuff[1024]`）；`.flashfunc` GROUP 收 F021 库与本工程擦写函数，`LOAD = FLASH_APP`、`RUN = RAMGS3_RUN`（RAMGS3 在 PAGE 1，程序段要 PAGE 0 别名）。
-5. **RAM 搬运**：`main()` 第一行 `CopyRamSections()`，把 `.TI.ramfunc`（→RAMD0）与 `.flashfunc`（→RAMGS3）从 Flash 拷到 RAM。此前工程里完全没有搬运代码。
-6. **擦写全程在 RAM**：`Dsp2837xSFlashInit/EraseSingleSector/FlashProgramWords/WriteFourWord/WriteFlashData/ReadFlashData` 全部 `#pragma CODE_SECTION(..., ".flashfunc")`，`Fapi_issueProgrammingCommand()` 之后**在同一 RAM 函数里等到 FSM 就绪、检查状态、回读校验**才返回调度器。
+- **设备头**：8 个参考源 `#include "F28003x_device.h"` → `"F2837xS_device.h"`。
+- **Flash API**：`Platform/Flash/Src/Dsp2837xSFlash.c` 在 include F021 前 `#define _F2837xS`（`Constants.h` 只有在这个分支里定义 `F021_CPU0_W0_BASE_ADDRESS`），`Fapi_initializeAPI(F021_CPU0_W0_BASE_ADDRESS, 200)`；库用 `D:/ti/C2000Ware_5_00_00_00/libraries/flash_api/f2837xs/lib/F021_API_F2837xS_FPU32_EABI.lib`。
+- **只有一个 Bank**：删除参考按地址选 Bank 的逻辑，`Dsp2837xSFlashInit()` 固定 `Fapi_setActiveFlashBank(Fapi_FlashBank0)` 并检查返回值（-1 = 设 Bank 失败，-2 = `Fapi_ClearMore` 失败）。BOOT（0x080000）、APP（0x086000）、BACKUP（0x0A0000）、CFG（0x0BE000）在本器件全部位于 Bank0。
+- **扇区表**：A~D / K~N 为 8K 字，E~J 为 32K 字；`FlashSectorWords()` 按地址给长度。
+- **空片检查单位**：`Fapi_doBlankCheck()` 的长度参数单位是 **32 位字**，传 `FlashSectorWords(addr) / 2UL`（原来传 16 位字数，检查范围扩大一倍：擦 H 会连 I 一起查，擦 N 甚至查到器件外）。
+- **RAM 执行**：`Fapi_*` 库与 `Dsp2837xSFlash.c` 的四个函数全部收进 `.flashfunc`（链接脚本 `GROUP`，`LOAD = FLASH_APP`、`RUN = RAMGS3_RUN`）；`main()` 首行 `CopyRamSections()` 搬 `.TI.ramfunc` 与 `.flashfunc`（本工程此前完全没有搬运代码，`.TI.ramfunc` 里的函数会跳到未初始化 RAM）。
+- **擦写期间不执行 Flash 代码**：`FlashSaveInt()`/`FlashRestoreInt()` 保存并屏蔽 `IER`，每条返回路径都恢复；等待循环里的喂狗换成 RAM 内的 `FlashFeedWatchDog()`（直接写 `WdRegs.WDKEY`，绕开链接在 Flash 的 `ServiceDog()`，map 实测在 0x8C1FC）；`__error__()` 与 `Fapi_serviceWatchdogTimer()` 同样落 `.flashfunc`。
+- **等待超时**不返回 Flash 调用者：`FlashForceReset()` 直接配置看门狗（`WDCR = 0x0028`、`WDCNTR = 0`）并死等复位。
 
 ### 4.2 端口适配（`XmodemTramsport.c`）
 
-参考工程依赖"驱动层已按包断帧"（`XmodemRead` 直接读一整包）。本工程 `SciPortPopBatch()` 一次最多 8 字节，所以在适配层累计整包：
+参考的 `Read` 是"一次读一包"，而本工程端口层按 ≤8 字节的批次交付，所以适配层负责累计：
 
-- `XmodemFrameLength(首字节)`：SOH → 133、STX → 1029、CAN → 2、其它 → 1。
-- 循环 `SciPortPopBatch(HW_SCI_ID_A, au16Batch, 8, &stSeg)` 拼到 `s_u16FrameFill` 达到整包长度才返回。
-- 半包静默超过 100 ms 丢弃，等主机重发（`Hw_TimeBaseElapsed` 用批次自带的 `stSeg.u32Tick`）。
-- 一条批次跨两包时，把本包之后多出来的字节留到下一次读，避免下一包缺头。
-- `XmodemRxPreload(tail, len)`：握手同批多取的字节先还给读路径。
-- `XmodemWrite` → `SciPortWriteTx(HW_SCI_ID_A, ...)`，返回 0 表示环满，协议层当"没发出去"处理。
+- `XmodemRead()` 先倒出上次的余字节，再按首字节算本包长度（SOH 133 / STX 1029 / CAN 2 / 其它 1），循环 `SciPortPopBatch()` 直到收满；**收满就停止取批**，一批里多出来的字节只进 `s_au16Preload`（限 `sizeof/sizeof[0]`），留到下次读。
+- 半包静默 100 ms 丢弃（`XmodemRxReset()`）；`XmodemRxPreload()` 在会话开始时先清状态再装入握手尾部，避免上次的半包混进新会话。
+- `XmodemWrite()` → `SciPortWriteTx(HW_SCI_ID_A, ...)`，返回 0 表示端口忙，参考层据此重试下一轮。
+- 余字节缓存放 `.upybuf`（RAMGS2），不再占已满的 RAMGS0。
 
 ### 4.3 时基适配（`XmodemTimeOut.c`）
 
-`TimeStart()` 记 `Hw_TimeBaseTicks()`、`u32TimeOut = Hw_TimeBaseUsToTicks(u32Ms * 1000)`；`IsTimeOut()` 用 `Hw_TimeBaseTicks() - u32StartTick > u32TimeOut`。接口名、参数单位（ms）、`u16IsActive` 语义全部保持参考工程原样。
+`Hw_TimeBase` 是**向下计数**的自由计数器，经过时间 = 起始值 − 当前值，所以超时判据是 `(Uint32)(u32StartTick - u32NowTick) > u32TimeOut`（r3 写成 `u32NowTick - u32StartTick`，时间源一读出来就远大于超时，等待立即判超时——复核探针复现了这一点）。两侧都加了 `Hw_TimeBaseIsReady()` 与空指针检查；接口与毫秒单位保持参考原样。
 
 ### 4.4 工程接线
 
-`AppModbus`（05E 层）：握手应答 9→**8** 字节（6 字节回显 + CRC），判据改前缀匹配（`u16Len >= 6`），把 `pu16Data[6..]` 存进 `s_au16HandshakeTail`；应答真正发完后（`bArmPending` 清）调 `AppUpgradeStart(HW_SCI_ID_A, tail, len)` 并停止收帧；`AppModbusReleasePort()` 在会话结束时清候选、清回复、`SciPortResync()`。
+- Modbus 握手：`01 10 04 38 00 02`（6 字节）→ 回 8 字节（6 字节回显 + CRC，低字节在前）；判据是前缀匹配，多出来的字节存进 `s_au16HandshakeTail`。应答真正发完之后才 `AppUpgradeStart()`，并把尾部字节交给升级层。
+- `AppUpgrade` 三态：`WAIT_TX`（等应答发完）→ `ERASE`（逐扇区擦 H/I/J/K，再写一份"进行中"配置——参考工程由 Modbus 侧写这份配置，本工程在交接时写，否则 `TaskUpgrade()` 的守卫不通过）→ `RECEIVE`（`TaskUpgrade()`）。任务周期 10 ms，与参考一致。
+- 新增常量：`XMODEM_FILE_HEAD_LEN 32`、`XMODEM_CHIP_TYPE 0x37`、`XMODEM_FIRMWARE_APP 1`、`XMODEM_FIRMWARE_BOOT 2`、`XMODEM_APP_MAX_BYTES 0x34000`、`XMODEM_BOOT_MAX_BYTES 0xC000`。
 
-`AppUpgrade`（薄接线，三态）：
-
-| 阶段 | 动作 |
-| --- | --- |
-| `WAIT_TX` | 等 8 字节握手应答出环（`SciPortIsTxIdle`），期间不擦除 |
-| `ERASE` | `EraseBackUpBank()`（H/I/J/K 四个真实扇区）+ 写"进行中"配置（`u16UpgradeFlag = 0xAAEE`、`u16FirmwareOver = 0`、校验和） |
-| `RECEIVE` | 直接调参考工程的 `TaskUpgrade()`，由它跑 `XmodemReceive()`、收完写配置并复位 |
-
-"进行中"配置必须在交接时写：参考工程的 `TaskUpgrade()` 守卫是 `ReadUpgradeCfg() == 1 && GetUpgradeFirmwareFlag() == 0`，而参考工程是由 Modbus 侧写这份配置的。
-
-`main.c`：`ApplicationInit()` 末尾 `AppUpgradeInit()` + `AppUpgradeSetPauseHook(AppUpgradePause)`；`TaskCreate()` 里 `Task_Start(AppUpgradeTask, 10U, 0U)`（与参考工程同周期）。
-
-### 4.5 必要缺陷修复清单（7 条）
+### 4.5 必要缺陷修复清单（11 条，含本轮六组）
 
 | # | 参考位置 | 触发条件 | 最小改法 |
 | --- | --- | --- | --- |
-| 1 | `Dsp280039Flash.c` `ReadFlashData()`：`memcpy(pu16DataBuff, u32TagAddr, u32DataLen)` | 任何回拷/配置回读 | 把字地址当指针、长度按字节，实际只拷一半字数 → 改为按字地址逐字读 |
-| 2 | `Dsp280039Flash.c` `WriteFlashData()`、`UpgradeCore.c` `CopyAppFirmware()/CopyBootFirmware()`、`XmodemCore.c` `XmodemTransmit()` | 调用即触发 | 声明为 `int16`/`int` 却无 `return`，返回值不确定 → 补 `return` |
-| 3 | `Dsp280039Flash.c` `WriteFourWord()` + `WriteFlashData()` 步进 4 字 | 每次写 Flash | 同一 64 位编程单元被写两次（ECC 也写两次），F2837xS 上会编程出错 → 改为 8 字（64 位单元）整块写，末块补 `0xFFFF`，`WriteFourWord` 保留为兼容壳 |
-| 4 | `Dsp280039Flash.c` `EraseSingleSector()`：`Fapi_doBlankCheck(addr, 0x1000, ...)` | 擦 32K 扇区 | 固定检查 0x1000 字，只覆盖八分之一 → 按该地址所在扇区的真实长度检查 |
-| 5 | `XmodemDataHandle.c` `WriteBlock()` | Flash 编程失败 | 忽略 `WriteFlashData()` 返回值，失败也返回字节数，协议层照样回 ACK（数据丢了却当成功） → 失败返回 -1 |
-| 6 | `XmodemCore.c` `XmodemSinglePacket()` 两处 `WriteBlock()` 调用 | `WriteBlock()` 返回 -1 | 返回值未检查 → `< 0` 时返回 `XMODEM_IO_ERROR`，让主机重传 |
-| 7 | `UpgradeUser.c` `TaskUpgrade()` 的 `XMODEM_END` 分支 | ①文件长度恰好是包正文长度的整数倍；②备份区校验不过 | ①完成判据是 `GetFileWriteOver()`，该位只在"收到的字节数超过文件长度"时才置，长度刚好整除时永远不置位，会重发 `'C'` 直到重试用尽 → 增加 `u32RecvLength >= u32FileSize` 判据；②参考工程直接写配置并复位，把校验留给 BOOT 的 `CheckUpgrade()`，本工程 APP 侧没有该函数，坏包会被登记成"已收完" → 写配置前先 `VerifyFireware()`，不过就清配置并复位 |
+| 1 | `Dsp280039Flash.c` `ReadFlashData` | 回拷、配置回读 | 逐字 volatile 读（不再依赖 `memcpy` 的长度单位） |
+| 2 | `Dsp280039Flash.c` `WriteFlashData`/`CopyAppFirmware`/`CopyBootFirmware`/`XmodemTransmit` 声明非 void 却无 return | 任何调用 | 补 `return` |
+| 3 | `XmodemDataHandle.c` `WriteBlock` | 编程失败 | 检查 `WriteFlashData()` 返回值并返回 -1 |
+| 4 | `XmodemCore.c` 三处 `WriteBlock` 调用 | 上一条触发 | 返回负值即终止会话（`XMODEM_RETRY_ERROR`），不再写同一 ECC 单元 |
+| 5 | `XmodemCore.c` 首包分支 | 首包正文短于整包、文件小于 128 字节 | 按 `u32FileSize` 裁剪首包正文后再写；写成功才累加长度（原来直接 `return XMODEM_END`，一个字都不写） |
+| 6 | `XmodemCore.c` 首包解析 | 机型/类型/长度非法 | 校验 ChipType、FirmwareType∈{1,2}、长度非零且偶数、≤ 0x34000/0xC000，非法直接终止 |
+| 7 | `UpgradeUser.c` `TaskUpgrade` 完成判据 | 文件长度正好整除包长 | 补 `u32RecvLength >= u32FileSize`（原来只看 `bRecvOver`，永不置位） |
+| 8 | `UpgradeUser.c` `TaskUpgrade` 写配置前 | 备份区校验不过 | 先 `VerifyFireware()`，不过就擦配置并返回中止（原来不校验直接写配置复位） |
+| 9 | `XmodemCore.c` 状态机 | 写失败后 | 已发 CAN 并终止，跳过本轮应答与重试计数（原来还会再写一个 NAK） |
+| 10 | `EraseSingleSector` 空片检查 | 32K 扇区、末扇区 | 长度按 `FlashSectorWords(addr)/2` |
+| 11 | `XmodemTramsport.c` 余字节 | 一条批次跨两包 / 短控制帧后仍有积压 | 收满即停，余字节入限长缓存（原来无界写 64 字数组，主机 UBSan 报下标 64 越界） |
 
-另有一条**约束而非缺陷**：整条链路按 `u32FileSize >> 1` 个字做校验与搬运，奇数长度会丢最后一个字节。已在首包解析处加保护：长度为 0 或奇数直接返回 `XMODEM_IO_ERROR`（`XmodemCore.c` 首包分支），并要求打包工具按偶数长度补齐。
+### 4.6 本轮（r4）按复核意见的六组修正
+
+| 组 | 复核位置 | 改法 |
+| --- | --- | --- |
+| 1 | `FlashSelectBank()` + `Fapi_doBlankCheck()` | 删掉 Bank1/2 选择，固定 Bank0 并检查返回值；空片检查长度改 32 位字 |
+| 2 | 擦写期间仍可能执行 Flash 代码 | 保存并屏蔽 `IER`、每条返回路径恢复；等待循环与 `__error__`/`Fapi_serviceWatchdogTimer` 全改 RAM 内 `FlashFeedWatchDog()`；超时未就绪走 `FlashForceReset()` 不返回；暂停钩子补停 ADC 中断与 CLA |
+| 3 | `XmodemTimeOut.c` 差值方向 | 改 `(Uint32)(u32StartTick - u32NowTick)`，并检查时间源有效性 |
+| 4 | 首包短正文、文件范围、写失败 | 首包按文件剩余裁剪并写入；补 ChipType/FirmwareType/上限校验；`WriteBlock` 检查备份区范围；写成功后才累计长度；已部分编程则终止会话 |
+| 5 | 余字节无界写 | 收满即停、只保存最后一批的余字节；`sizeof/sizeof[0]` 代替 `/2U`；会话开始/取消清状态 |
+| 6 | 擦写失败与中止收尾 | `EraseBackUpBank()`/`AppUpWriteProgressCfg()`/最终配置擦写逐级返回失败；`TaskUpgrade()` 返回 2 交给 `AppUpgradeAbort()`：清状态、重新初始化 Xmodem、`AppModbusReleasePort()`、功率保持关闭 |
+
+**两处理由更正**（r3 文档写错，此处更正，避免后续移植继续用错单位）：
+
+1. 4 个 16 位字就是 64 位、8 个是 128 位。参考的"每次编程 4 字"本身**就是**一次完整的 64 位编程单元，不存在"必然重复写同一单元"。仍按 8 字（128 位）分块，理由是让块边界与扇区尾部补齐规则统一，不是因为 4 字有缺陷。
+2. C28x 上 `sizeof(Uint16) == 1`（字节 = 16 位），`memcpy` 的长度按本机字节计，所以参考的 `memcpy(pu16DataBuff, addr, len)` 与原意等价，不能笼统称"只拷一半"。改为逐字 `volatile` 读的理由只是"不依赖库实现细节"。
+
+### 4.7 APP 侧接线（`UserApp/AppUpgrade.*`）
+
+只做三件事：初始化（`XmodemProcessInit()` + `Dsp2837xSFlashInit()` + `UpgradeUserInit()`，并记录 Flash API 是否可用）、会话管理（`AppUpgradeStart()` 移交尾部字节并置 `WAIT_TX`）、三态任务（§4.4）。`AppUpgradeAbort()` 是唯一的中止出口，`AppUpgradeAbortCount()` 供观测。
 
 ## 5. 升级时序
 
-1. 主站发 `01 10 04 38 00 02`（6 字节，无 CRC）到 SCI-A。
-2. APP 的 Modbus 桥接识别前缀 → 回 8 字节（`01 10 04 38 00 02 CRClo CRChi`）→ 应答出环后把端口交给升级层。
-3. 升级层擦 H/I/J/K 四扇区 + 写"进行中"配置 → `XmodemReceive()` 在 `STATE_IDLE` 发 `'C'`。
-4. 主机发首包（SOH 或 STX，含 32 字节头）与后续包；每包合法则 ACK，非法则 NAK。
-5. 主机发两次 EOT → 二次 ACK → `XMODEM_END`。
-6. 结束判据满足 → `VerifyFireware()`（CRC32 over 备份区前 `FileSize>>1` 字）→ 写 `ST_UPGRADE_CFG`（`u16FirmwareOver = 0xAAEE`）→ 使能看门狗并 `SysCtl_resetDevice()`。
-7. 下一次上电由 BOOT 的 `CheckUpgrade()` 按 `bFirmwareType` 回拷到 APP/BOOT 区再跳转（不在本步）。
+1. 主站发 `01 10 04 38 00 02`（6 字节，无数据段、无 CRC）。
+2. `AppModbus` 回 8 字节（回显 + CRC）；应答**发完**后调用 `AppUpgradeStart()`，把同批多出的字节作为预置数据交给升级层，Modbus 停止收帧。
+3. `WAIT_TX` → `ERASE`：逐扇区擦 H (`0x0A0000`, 0x8000)、I (`0x0A8000`, 0x8000)、J (`0x0B0000`, 0x8000)、K (`0x0B8000`, 0x2000)，任一失败即中止；随后擦配置扇区 N (`0x0BE000`) 并写"进行中"配置（`u16UpgradeFlag = 0xAAEE`、`u16FirmwareOver = 0`）。
+4. `RECEIVE`：`XmodemReceive()` 在 `STATE_IDLE` 发 `'C'`，逐包收；每包写备份区，写成功才回 ACK。
+5. 主站发两次 EOT → 协议层回 NAK/ACK 并置 `XMODEM_END`（正文此时只是收完，尚未校验）。
+6. `TaskUpgrade()`：等 `SciPortIsTxIdle(HW_SCI_ID_A)` → `VerifyFireware()`（CRC32 覆盖备份区正文）→ 填 `ST_UPGRADE_CFG` → 擦 N → 写配置 → 校验返回值。
+7. 全部成功才回最终 ACK，然后 `SysCtl_resetDevice()`。任一步失败走 `AppUpgradeAbort()`：擦配置、交还端口、功率保持关闭、不回成功。
 
 ## 6. 构建与内存（生产态 `PORT_BENCH_TEST=0U`）
 
-- `.out` 1,022,792 B，sha256 `1981da32e13cf0f6acfb7bedd08718eca843ae32660fb4147a9517e7ae9b1e49`（两次构建一致）；`.map` 127,630 B。
-- 5 条 warning 全部在参考 `XmodemCore.c`（未引用局部变量 3 条、`#190-D` 2 条），按"忠实移植"保留原样。
-- 段占用：`.text` `0x625E`、`.const` `0x14B9`、`.flashfunc` `0x8FB`（RUN `0xF000`，余 `0x705`）、`.TI.ramfunc` `0xC3`（RUN `0xB000`，余 `0x73D`）、`.upybuf` `0x800`（RAMGS2 余 `0x800`）、`.mbregs` `0x670`。
-- 内存余量：`FLASH_APP` 用 `0x82D1` 余 `0x11D2D`；`RAMGS0` 用 `0xFFD` **余 3 字**；`RAMGS1`（0xC00）用 `0xB0A` 余 `0xF6`。
+55 个编译单元、0 错误、4 条 warning（全在参考 `XmodemCore.c`：`u32Sum`、`u16DataLength` 未引用，`:540/:549` 枚举混用）。
+
+| 段 | 用 | 余 |
+| --- | --- | --- |
+| `FLASH_APP`（0x86002） | `0x83E5` | `0x11C19` |
+| `RAMGS0`（0x1000 字） | 满 | **0**（`.bss` 从 RAMGS0 起连续分配，恰好填满） |
+| `RAMGS1`（0xC00） | `0xACC` | `0x134` |
+| `RAMGS2`（0x1000） | `0x840` | `0x7C0` |
+| `RAMGS3_RUN`（0x1000） | `0x933` | `0x6CD` |
+| `RAMD0`（0x800） | `0xC3` | `0x73D` |
+
+`.upybuf` 0x840（`u16XmodemDataBuff[1024]` + `u16AppBuff[1024]` + 64 字余字节缓存 = 2112 字）；`.mbregs` 0x670；`.portbuf` 0x180。`RAMGS0` 已满属分配顺序问题，全 RAM 合计仍余 `0x134 + 0x7C0 + 0x6CD + 0x73D`；若后续再加静态变量，先放进 `.upybuf` 或 RAMGS3。
 
 ## 7. 两态构建台账
 
-| 状态 | `.out` 大小 / sha256 | `.map` | `FLASH_APP` 用/余 | `RAMGS0` 余 | `RAMGS1` 余 | `RAMGS2` 余 |
-| --- | --- | --- | --- | --- | --- | --- |
-| 生产 `PORT_BENCH_TEST=0U` | 1,022,792 B / `1981da32e13cf0f6acfb7bedd08718eca843ae32660fb4147a9517e7ae9b1e49` | 127,630 B | `0x82D1` / `0x11D2D` | 3 | `0xF6` | `0x800` |
-| 测量 `PORT_BENCH_TEST=1U` | 1,040,780 B / `7310e8458dc4f39623a6f4b93099e64f3eb1104eebe305e768502cc91e4973ab` | 132,545 B | `0x8653` / `0x119AB` | 0 | 1 | `0x7C7` |
+| 状态 | `.out` 大小 | sha256 | `.map` | `.text` | `FLASH_APP` 用/余 | `RAMGS0` 余 | `RAMGS1` 余 | `RAMGS2` 余 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 生产 `0U` | 1,025,364 B | `2641c89cba9a54c4bb3941e9b024da399b6295663217c034bd9968ce02d7f3e9` | 128,029 B | `0x6341` | `0x83E5` / `0x11C19` | 0 | `0x134` | `0x7C0` |
+| 测量 `1U` | 1,043,416 B | `52f4e55705589f3afff285ecf7fd2a733b572cc1179347f243ec9cd1b9f1ab39` | 132,986 B | `0x66C0` | `0x8766` / `0x11898` | 0 | 1 | `0x7C0` |
 
-两态各 55 个编译单元、0 错误；`.out` 可复现（生产态两次构建一致），`.map` 每次构建的 sha 都变，只作信息项。工作树已切回生产态。
+生产态两次构建得到同一个 `.out` sha（可复现）；`.map` 内含时间戳，每次不同。与 r3 对比：生产态 `.out` 1,022,792 → 1,025,364 B（+2,572）、`.text` `0x625E` → `0x6341`（+227 字）、`FLASH_APP` `0x82D1` → `0x83E5`（+276 字）、`RAMGS1` 余 `0xF6` → `0x134`（余字节缓存移出 `.bss`）。工作树已切回生产态。
 
-## 8. 必须上板确认的点
+## 8. 上板验证路径
 
-1. `CopyRamSections()` 是否把 `.flashfunc` 正确搬到 `0xF000`（`_FlashfuncLoadStart`/`_FlashfuncRunStart` 链接符号）。
-2. F021 在 200 MHz 下的擦写是否成功：`EraseSingleSector()` 返 0、`Fapi_doBlankCheck()` 通过、编程后 `Fapi_doVerify()` 通过。
-3. 主站发两次 EOT 后是否收到第二次 ACK、然后板子复位、配置区被写成 `u16FirmwareOver = 0xAAEE`。
-4. `RAMGS0` 只剩 3 字（测量态为 0），上板前不要再往 `.bss` 加静态变量；若需加，先移到 `.upybuf`/RAMGS3。
-5. 升级中止（CAN、CRC 反复错）后端口能否交还 Modbus（`AppModbusReleasePort()`）。
+按复核要求，先只验一条主路径：
+
+1. **擦除成功**：握手后 `AppModbus` 回 8 字节、`'C'` 到来、备份区四个扇区擦除无错（`AppUpgradeAbortCount()` 保持 0）。
+2. **收到首包**：主站发首包后板子回 ACK（不是 NAK/超时）。
+3. **写入成功才 ACK**：正常包逐包 ACK；制造一次写失败（可临时把 `WriteBlock` 返回 -1）应看到不发 ACK、发两个 CAN、端口交还 Modbus、功率保持关闭。
+4. **完整校验**：两次 EOT 后 `VerifyFireware()` 通过，备份区 CRC 与文件头一致。
+5. **配置写入 + 复位**：配置扇区被写成 `u16FirmwareOver = 0xAAEE`，随后复位。
+
+其余四条仍需确认：`CopyRamSections()` 是否把 `.flashfunc` 搬到 `0xF000`；F021 在 200 MHz 下擦写与 `Fapi_doVerify` 是否通过；`RAMGS0` 已满（不要再加静态变量）；取消（CAN）与重试超限后端口能否回到 Modbus。
 
 ## 9. 复核要点
 
-1. **是否忠实移植**：§3 对照表逐文件；除表中列出的改动，参考代码未做其他修改（`XmodemCore.c` 的两处缺陷修复见 §4.5 第 6、7 条与奇数长度保护）。
-2. **必要适配是否正确**：§4.1~§4.4 每类一条；端口适配的"整包累计"是唯一一处新增逻辑（约 110 行），改动集中在 `XmodemTramsport.c`。
-3. **升级能否完成**：按 §5 时序上板跑一遍，判据是配置区被写成 `0xAAEE` 且 BOOT 回拷后 APP 能正常启动。
+1. **是否忠实移植**：§3 对照表逐文件；除表中列出的改动，参考代码未做其他修改。
+2. **必要适配是否正确**：§4.1~§4.4 逐类说明，§4.6 逐条对应复核意见；新增逻辑只有端口适配的整包累计（约 165 行）与 APP 侧接线（193 行）。
+3. **升级能否完成**：按 §8 五步上板跑通即视为本步完成；取消与重传属于第二步。
