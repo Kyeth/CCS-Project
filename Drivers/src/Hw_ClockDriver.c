@@ -29,11 +29,3 @@ Uint16 Hw_ClockInit(const ST_CLOCK_CFG *cfg)
     }
     return 1U;
 }
-
-void Hw_WatchdogEnable(void)
-{
-    ServiceDog();
-    EALLOW;
-    WdRegs.WDCR.all = 0x0028U | (WdRegs.WDCR.all & 0x0007U);
-    EDIS;
-}

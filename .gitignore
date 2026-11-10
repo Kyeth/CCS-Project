@@ -10,3 +10,7 @@
 *.d_raw
 *.pyc
 __pycache__/
+
+# 已发布的 BOOT 产物（其余构建输出仍然忽略）
+!/artifacts/
+!/artifacts/**

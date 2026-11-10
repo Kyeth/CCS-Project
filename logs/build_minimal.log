@@ -1,0 +1,35 @@
+"D:\MinMain\CCS-Project-boot\Platform\Xmodem\Src\XmodemCore.c", line 151: warning #179-D: variable "u32Sum" was declared but never referenced
+"D:\MinMain\CCS-Project-boot\Platform\Xmodem\Src\XmodemCore.c", line 540: warning #190-D: enumerated type mixed with another type
+"D:\MinMain\CCS-Project-boot\Platform\Xmodem\Src\XmodemCore.c", line 549: warning #190-D: enumerated type mixed with another type
+"D:\MinMain\CCS-Project-boot\Platform\Xmodem\Src\XmodemCore.c", line 322: warning #179-D: variable "u16DataLength" was declared but never referenced
+<Linking>
+
+D:\MinMain\EP15K_BOOT-build\EP15K_BOOT.out: 668396 bytes sha256=b27253e3817d7c620065f42f400d24b48325739a9fce43238a56a3591015e05a
+D:\MinMain\EP15K_BOOT-build\EP15K_BOOT.map: 81690 bytes sha256=37446953ffffa983e27066bc124efd8e1e97e3b0c596e6d223919f8e6f08e82f
+hex
+hex    : D:\MinMain\EP15K_BOOT-build\EP15K_BOOT.hex
+target : boot  0x080000..0x086000  firmware-type 2
+=== HEX File address analysis results ===
+Global address range:
+  Minnimum address: 0x00080000
+  Maximum address: 0x00083CF4
+  Total size: 31208 Bytes
+
+Specify address range [0x00080000 - 0x00086000] analysis:
+  The minimum address within the range: 0x00080000
+  The maximum address within the range: 0x00083CF4
+  Actual size within the range: 31208 Bytes
+  Scope utilization rate: 63.49%
+Converting...
+
+Hex2BinFile conversion completed
+
+Please check if a. bin file with the same name exists, with a file size of: 31208 Bytes
+Current file size: 31208 bytes
+
+File EP15K_BOOT_UpgradeCRC32.bin CRC32: 0x183306FC
+File EP15K_BOOT_UpgradeCRC32.bin ChipType: 0x0001(1)
+File EP15K_BOOT_UpgradeCRC32.bin FirmwareType: 0x0002(2)
+File EP15K_BOOT_UpgradeCRC32.bin FileSize: 0x7A08(31240) bytes
+D:\MinMain\EP15K_BOOT-build\EP15K_BOOT.bin: 31208 bytes sha256=31bc8a0e022f40e2b616694ef4d1614c652a1d58556c9a3f507bf43154bf0dab
+D:\MinMain\EP15K_BOOT-build\EP15K_BOOT_UpgradeCRC32.bin: 31240 bytes sha256=54255a5e25f49811a61e555b9c11afd8717d74885eff191eb971b15c21667f6e

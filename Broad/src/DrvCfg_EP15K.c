@@ -1,114 +1,35 @@
-/* Minimal F28374S board configuration. All peripheral requirements live here.
- * Pin source: 15KW软件管脚整理文档.xlsx, Sheet1 (provided 2026-10-30).
- * Power PWM outputs remain OST latched during this bring-up build. */
+/**
+ * @file DrvCfg_EP15K.c
+ * @brief EP15K_BOOT 板级配置表（时钟 / GPIO / SCI / CPU Timer1）
+ * @version 1.0
+ * @date 2026-11-10
+ *
+ * @note 取值与 APP 工程 Broad/src/DrvCfg_EP15K.c 完全一致，只删掉 BOOT 不使用的
+ *       PWM / ADC / CLA / CAN / Xbar 配置表。BOOT 只接管：驱动使能、SCI-A 收发、
+ *       LED 与心跳定时器，其余引脚保持上电默认（不驱动功率级）。
+ */
 #include "DrvCfg_EP15K.h"
-#include "F2837xS_Examples.h"
-#include "Hw_ClaTask.h"
+#include "F2837xS_Examples.h"   /* 时钟/定时器枚举：XTAL_OSC、IMULT_40 … */
 
-/* Board crystal and all software-selected clock dividers. */
+/* 时钟：10 MHz 晶振，IMULT_40 / FMULT_0 / PLLCLK_BY_2 → 200 MHz */
 const ST_CLOCK_CFG stClockCfg =
 {
     XTAL_OSC, IMULT_40, FMULT_0, PLLCLK_BY_2,
     1U, 2U, 10000000UL, 200000000UL, 100000000UL, 50000000UL
 };
 
-/* MUX addresses 0..4 and 6..7 are wired; address 5 is skipped. */
-const Uint16 stClaMuxNext[8] = {1U, 2U, 3U, 4U, 6U, 6U, 7U, 0U};
-const float fClaMuxAlpha = 0.20f;
-
-/* stGpioCfgItem */
+/* stGpioCfgItem：只保留 BOOT 需要的引脚
+ *   88  芯片驱动使能（上电即低，功率级不使能）
+ *   75  LED
+ *   48/49 SCI-A TX/RX（升级通道）
+ */
 ST_GPIO_CFG_ITEM stGpioCfgItem[] =
 {
     /* 配置格式：{GPIO编号, 复用功能, 方向, 初始电平, 内部上拉, 开漏, 输入限定模式} */
-    /* Gate enable is configured first so it is low before ePWM pins are muxed. */
     {88, HW_GPIO_MUX_GPIO, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_SYNC},  // 芯片驱动使能（1:开 0:关）。
-    /* ========== 硬件故障及保护输入 ========== */
-    {11, HW_GPIO_MUX_GPIO, HW_DIR_DI, HW_GPIO_LOW, HW_GPIO_PUD_ENABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_SYNC},  // 内置风扇硬件故障输入。
-    {13, HW_GPIO_MUX_GPIO, HW_DIR_DI, HW_GPIO_LOW, HW_GPIO_PUD_ENABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_ASYNC},  // PV1硬件过流输入。
-    {17, HW_GPIO_MUX_GPIO, HW_DIR_DI, HW_GPIO_LOW, HW_GPIO_PUD_ENABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_ASYNC},  // PV2硬件过流输入。
-    {35, HW_GPIO_MUX_GPIO, HW_DIR_DI, HW_GPIO_LOW, HW_GPIO_PUD_ENABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_SYNC},  // GFCI硬件检测输入。
-    {40, HW_GPIO_MUX_GPIO, HW_DIR_DI, HW_GPIO_LOW, HW_GPIO_PUD_ENABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_ASYNC},  // PV4硬件过流输入。
-    {41, HW_GPIO_MUX_GPIO, HW_DIR_DI, HW_GPIO_LOW, HW_GPIO_PUD_ENABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_ASYNC},  // PV3硬件过流输入。
-    {53, HW_GPIO_MUX_GPIO, HW_DIR_DI, HW_GPIO_LOW, HW_GPIO_PUD_ENABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_SYNC},  // 外置ATS标志输入。
-    {43, HW_GPIO_MUX_GPIO, HW_DIR_DI, HW_GPIO_LOW, HW_GPIO_PUD_ENABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_SYNC},  // PV1反灌电流检测输入。
-    {68, HW_GPIO_MUX_GPIO, HW_DIR_DI, HW_GPIO_LOW, HW_GPIO_PUD_ENABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_SYNC},  // PV2反灌电流检测输入。
-    {69, HW_GPIO_MUX_GPIO, HW_DIR_DI, HW_GPIO_LOW, HW_GPIO_PUD_ENABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_SYNC},  // PV3反灌电流检测输入。
-    {70, HW_GPIO_MUX_GPIO, HW_DIR_DI, HW_GPIO_LOW, HW_GPIO_PUD_ENABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_SYNC},  // PV4反灌电流检测输入。
-    {77, HW_GPIO_MUX_GPIO, HW_DIR_DI, HW_GPIO_LOW, HW_GPIO_PUD_ENABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_ASYNC},  // 平衡电路过流输入。
-    {78, HW_GPIO_MUX_GPIO, HW_DIR_DI, HW_GPIO_LOW, HW_GPIO_PUD_ENABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_SYNC},  // 外置风扇硬件故障输入。
-    {80, HW_GPIO_MUX_GPIO, HW_DIR_DI, HW_GPIO_LOW, HW_GPIO_PUD_ENABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_ASYNC},  // BUS硬件过压输入。
-    {81, HW_GPIO_MUX_GPIO, HW_DIR_DI, HW_GPIO_LOW, HW_GPIO_PUD_ENABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_ASYNC},  // 硬件逆变过流输入。
-    {82, HW_GPIO_MUX_GPIO, HW_DIR_DI, HW_GPIO_LOW, HW_GPIO_PUD_ENABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_ASYNC},  // 硬件短路过流输入。
-    {86, HW_GPIO_MUX_GPIO, HW_DIR_DI, HW_GPIO_LOW, HW_GPIO_PUD_ENABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_SYNC},  // 12V辅源欠压输入（欠压保护点10.8V）。
-    /* ========== 普通GPIO输出 ========== */
-    {22, HW_GPIO_MUX_GPIO, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_SYNC},  // 内部风扇电平控制开关（1:开 0:关）。
-    {33, HW_GPIO_MUX_GPIO, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_SYNC},  // 测试引脚（1:高 0:低）。
-    {50, HW_GPIO_MUX_GPIO, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_SYNC},  // PV绝缘检测继电器1（1:闭合 0:断开）。
-    {51, HW_GPIO_MUX_GPIO, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_SYNC},  // PV绝缘检测继电器2（1:闭合 0:断开）。
-    {52, HW_GPIO_MUX_GPIO, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_SYNC},  // 外置ATS申请（1:闭合 0:断开）。
-    {58, HW_GPIO_MUX_GPIO, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_SYNC},  // R相逆变端继电器（1:闭合 0:断开）。
-    {61, HW_GPIO_MUX_GPIO, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_SYNC},  // S相逆变端继电器（1:闭合 0:断开）。
-    {62, HW_GPIO_MUX_GPIO, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_SYNC},  // N相逆变端继电器（1:闭合 0:断开）。
-    {63, HW_GPIO_MUX_GPIO, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_SYNC},  // T相逆变端继电器（1:闭合 0:断开）。
-    {66, HW_GPIO_MUX_GPIO, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_SYNC},  // 接地继电器（1:闭合 0:断开）。
-    {46, HW_GPIO_MUX_GPIO, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_SYNC},  // 多路选择器地址线A（1:高 0:低）。
-    {47, HW_GPIO_MUX_GPIO, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_SYNC},  // 多路选择器地址线B（1:高 0:低）。
-    {42, HW_GPIO_MUX_GPIO, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_SYNC},  // 多路选择器地址线C（1:高 0:低）。
-    {71, HW_GPIO_MUX_GPIO, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_SYNC},  // 漏电流检测开关（1:闭合 0:断开）。
-    {73, HW_GPIO_MUX_GPIO, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_SYNC},  // 预充继电器（1:闭合 0:断开）。
-    {74, HW_GPIO_MUX_GPIO, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_SYNC},  // 市电辅源继电器（1:闭合 0:断开）。
     {75, HW_GPIO_MUX_GPIO, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_SYNC},  // LED灯（1:开 0:关）。
-    {87, HW_GPIO_MUX_GPIO, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_SYNC},  // 电池激活信号（1:高 0:低）。
-    /* ========== ECAP / InputXbar 输入 ========== */
-    {25, HW_GPIO_MUX_GPIO, HW_DIR_DI, HW_GPIO_LOW, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_ASYNC},  // eCAP1 — R相电网过零信号（INPUT7）。
-    {27, HW_GPIO_MUX_GPIO, HW_DIR_DI, HW_GPIO_LOW, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_ASYNC},  // eCAP2 — S相电网过零信号（INPUT8）。
-    {29, HW_GPIO_MUX_GPIO, HW_DIR_DI, HW_GPIO_LOW, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_ASYNC},  // eCAP3 — T相电网过零信号（INPUT9）。
-    {30, HW_GPIO_MUX_GPIO, HW_DIR_DI, HW_GPIO_LOW, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_ASYNC},  // eCAP4 — R相电网频率信号（INPUT10）。
-    {31, HW_GPIO_MUX_GPIO, HW_DIR_DI, HW_GPIO_LOW, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_ASYNC},  // eCAP5 — S相电网频率信号（INPUT11）。
-    {32, HW_GPIO_MUX_GPIO, HW_DIR_DI, HW_GPIO_LOW, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_ASYNC},  // eCAP6 — T相电网频率信号（INPUT12）。
-    /* ========== ePWM输出引脚 ========== */
-    /* 复用列号规则（按 F2837x TRM GPIO Mux Selection 表逐脚核对）：
-     *   GPIO0~GPIO15  : 列1(GMUX=00,MUX=01) = EPWM1A..EPWM8B  -> HW_GPIO_MUX_PWM
-     *   GPIO16~GPIO23 : 列5(GMUX=01,MUX=01) = EPWM9A..EPWM12B -> HW_GPIO_FUNC_PERIPH5
-     * 原因：GPIO16~23 的列1 被 SPI-A(16/17/18/19)、EQEP1(20/21/22/23) 占满，
-     *       选列1 时引脚只是静态电平，表现为「这一路 PWM 完全没有驱动」。
-     * 新增任何 ePWM 脚之前，先查表确认它落在哪一列，不要照抄邻居的宏。 */
-    {0,  HW_GPIO_MUX_PWM, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_SYNC},  // EPWM1A — R竖管S1，INV主同步源。
-    {1,  HW_GPIO_MUX_PWM, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_SYNC},  // EPWM1B — R横管S3，互补于EPWM1A。
-    {2,  HW_GPIO_MUX_PWM, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_SYNC},  // EPWM2A — S竖管S1，同步于EPWM1A。
-    {3,  HW_GPIO_MUX_PWM, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_SYNC},  // EPWM2B — S横管S3，互补于EPWM2A。
-    {4,  HW_GPIO_MUX_PWM, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_SYNC},  // EPWM3A — T竖管S1，同步于EPWM1A。
-    {5,  HW_GPIO_MUX_PWM, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_SYNC},  // EPWM3B — T横管S3，互补于EPWM3A。
-    {6,  HW_GPIO_MUX_PWM, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_SYNC},  // EPWM4A — R竖管S4，同步于EPWM1A。
-    {7,  HW_GPIO_MUX_PWM, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_SYNC},  // EPWM4B — R横管S2，互补于EPWM4A。
-    {8,  HW_GPIO_MUX_PWM, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_SYNC},  // EPWM5A — PV3 Boost，错相180°。
-    {10, HW_GPIO_MUX_PWM, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_SYNC},  // EPWM6A — PV4 Boost，错相270°。
-    {12, HW_GPIO_MUX_PWM, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_SYNC},  // EPWM7A — PV1 Boost，PV主同步源。
-    {14, HW_GPIO_MUX_PWM, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_SYNC},  // EPWM8A — BUSH，平衡电路上半母线。
-    {15, HW_GPIO_MUX_PWM, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_SYNC},  // EPWM8B — BUSL，平衡电路下半母线。
-    /* GPIO16 这一脚不能跟全表统一的 HW_GPIO_MUX_PWM(PERIPH1)：
-     * 列1 在 GPIO16 上是 SPISIMOA（本最小镜像不使用 SPI-A），
-     * EPWM9A 落在第 5 列 (GMUX=01,MUX=01) = HW_GPIO_FUNC_PERIPH5，
-     * 选错列时该脚输出的是静态电平，表现为"这一路 PWM 完全没有驱动"。
-     * 复用码与 TI pin_map.h 的 GPIO_16_EPWM9A=0x00080005 核对。 */
-    {16, HW_GPIO_FUNC_PERIPH5, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_SYNC},  // EPWM9A — PV2 Boost，错相90°（第5列复用）。
-    {18, HW_GPIO_FUNC_PERIPH5, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_SYNC},  // EPWM10A — S竖管S4，同步于EPWM1A。
-    {19, HW_GPIO_FUNC_PERIPH5, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_SYNC},  // EPWM10B — S横管S2，互补于EPWM10A。
-    {20, HW_GPIO_FUNC_PERIPH5, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_SYNC},  // EPWM11A — T竖管S4，同步于EPWM1A。
-    {21, HW_GPIO_FUNC_PERIPH5, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_SYNC},  // EPWM11B — T横管S2，互补于EPWM11A。
-    {23, HW_GPIO_FUNC_PERIPH5, HW_DIR_DO, HW_GPIO_LOW, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_SYNC},  // EPWM12B — 外置风扇PWM，四档风速。
-    /* ========== CAN模块 ========== */
-    {36, HW_GPIO_MUX_CAN, HW_DIR_DI, HW_GPIO_LOW,  HW_GPIO_PUD_ENABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_ASYNC},  // CAN-A接收信号CANRXA。
-    {37, HW_GPIO_MUX_CAN, HW_DIR_DO, HW_GPIO_HIGH, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_ASYNC},  // CAN-A发送信号CANTXA。
-    {38, HW_GPIO_MUX_CAN, HW_DIR_DO, HW_GPIO_HIGH, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_ASYNC},  // CAN-B发送信号CANTXB。
-    {39, HW_GPIO_MUX_CAN, HW_DIR_DI, HW_GPIO_LOW,  HW_GPIO_PUD_ENABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_ASYNC},  // CAN-B接收信号CANRXB。
-    /* ========== SCI模块 ========== */
-    {48, HW_GPIO_MUX_SCI, HW_DIR_DO, HW_GPIO_HIGH, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_ASYNC},  // SCI-A发送信号SCITXDA。
-    {49, HW_GPIO_MUX_SCI, HW_DIR_DI, HW_GPIO_LOW,  HW_GPIO_PUD_ENABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_ASYNC},  // SCI-A接收信号SCIRXDA。
-    {89, HW_GPIO_MUX_SCI, HW_DIR_DO, HW_GPIO_HIGH, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_ASYNC},  // SCI-C发送信号SCITXDC。
-    {90, HW_GPIO_MUX_SCI, HW_DIR_DI, HW_GPIO_LOW,  HW_GPIO_PUD_ENABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_ASYNC},  // SCI-C接收信号SCIRXDC。
-    {93, HW_GPIO_MUX_SCI, HW_DIR_DO, HW_GPIO_HIGH, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_ASYNC},  // SCI-D发送信号SCITXDD。
-    {94, HW_GPIO_MUX_SCI, HW_DIR_DI, HW_GPIO_LOW,  HW_GPIO_PUD_ENABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_ASYNC},  // SCI-D接收信号SCIRXDD。
+    {48, HW_GPIO_MUX_SCI,  HW_DIR_DO, HW_GPIO_HIGH, HW_GPIO_PUD_DISABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_ASYNC}, // SCI-A发送信号SCITXDA。
+    {49, HW_GPIO_MUX_SCI,  HW_DIR_DI, HW_GPIO_LOW, HW_GPIO_PUD_ENABLE, HW_GPIO_OD_DISABLE, HW_GPIO_QUAL_ASYNC},  // SCI-A接收信号SCIRXDA。
 };
 
 /* stGpioCfg */
@@ -118,232 +39,13 @@ ST_GPIO_CFG stGpioCfg =
     sizeof(stGpioCfgItem) / sizeof(stGpioCfgItem[0])
 };
 
-/* stPwmCfgItem */
-ST_PWM_CFG_ITEM stPwmCfgItem[] =
-{
-    /* ==================== 逆变器组 (20kHz UPDOWN, 以 EPWM1 为主同步源) ==================== */
-
-    /* EPWM1: A通道产生逆变R相竖管S1主波形  */
-    {
-        HW_PWM_ID0, HW_PWM_TYPE_INV, 2500U, 2500U, 0U, 0U, TB_COUNT_UPDOWN,
-        HW_PWM_MASTER, 1U, HW_EPWM_SYNC_IN_FROM_DISABLE, HW_EPWM_SYNC_OUT_FROM_CNTR_ZERO,
-        80U,
-        HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_FORCE_LOW, HW_PWM_FORCE_LOW, HW_PWM_FORCE_LOW,
-        {AQ_NO_ACTION, AQ_NO_ACTION, AQ_SET, AQ_CLEAR, AQ_NO_ACTION, AQ_NO_ACTION}, // CAU=SET, CAD=CLEAR
-        {AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION},
-        {1U, ET_CTR_ZERO, 1U, 0U, 1U} // SOCA 在 CTR=ZERO 触发 ADC
-    },
-
-    /* EPWM2: S相竖管S1主波形 */
-    {
-        HW_PWM_ID1, HW_PWM_TYPE_INV, 2500U, 2500U, 0U, 0U, TB_COUNT_UPDOWN,
-        HW_PWM_SLAVE, 1U, HW_EPWM_SYNC_IN_FROM_SYNCOUT_EPWM1, HW_EPWM_SYNC_OUT_FROM_SYNCIN,
-        80U,
-        HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_FORCE_LOW, HW_PWM_FORCE_LOW, HW_PWM_FORCE_LOW,
-        {AQ_NO_ACTION, AQ_NO_ACTION, AQ_SET, AQ_CLEAR, AQ_NO_ACTION, AQ_NO_ACTION},
-        {AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION},
-        {0U, ET_CTR_ZERO, 1U, 0U, 1U}
-    },
-
-    /* EPWM3: T相竖管S1主波形 */
-    {
-        HW_PWM_ID2, HW_PWM_TYPE_INV, 2500U, 2500U, 0U, 0U, TB_COUNT_UPDOWN,
-        HW_PWM_SLAVE, 1U, HW_EPWM_SYNC_IN_FROM_SYNCOUT_EPWM1, HW_EPWM_SYNC_OUT_FROM_DISABLE,
-        80U,
-        HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_FORCE_LOW, HW_PWM_FORCE_LOW, HW_PWM_FORCE_LOW,
-        {AQ_NO_ACTION, AQ_NO_ACTION, AQ_SET, AQ_CLEAR, AQ_NO_ACTION, AQ_NO_ACTION},
-        {AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION},
-        {0U, ET_CTR_ZERO, 1U, 0U, 1U}
-    },
-
-    /* EPWM4: R相竖管S4主波形 */
-    {
-        HW_PWM_ID3, HW_PWM_TYPE_INV, 2500U, 2500U, 0U, 0U, TB_COUNT_UPDOWN,
-        HW_PWM_SLAVE, 1U, HW_EPWM_SYNC_IN_FROM_SYNCOUT_EPWM1, HW_EPWM_SYNC_OUT_FROM_SYNCIN,
-        80U,
-        HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_FORCE_LOW, HW_PWM_FORCE_LOW, HW_PWM_FORCE_LOW,
-        {AQ_NO_ACTION, AQ_NO_ACTION, AQ_SET, AQ_CLEAR, AQ_NO_ACTION, AQ_NO_ACTION},
-        {AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION},
-        {0U, ET_CTR_ZERO, 1U, 0U, 1U}
-    },
-
-    /* EPWM10: S相竖管S4主波形 */
-    {
-        HW_PWM_ID9, HW_PWM_TYPE_INV, 2500U, 2500U, 0U, 0U, TB_COUNT_UPDOWN,
-        HW_PWM_SLAVE, 1U, HW_EPWM_SYNC_IN_FROM_SYNCOUT_EPWM1, HW_EPWM_SYNC_OUT_FROM_SYNCIN,
-        80U,
-        HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_FORCE_LOW, HW_PWM_FORCE_LOW, HW_PWM_FORCE_LOW,
-        {AQ_NO_ACTION, AQ_NO_ACTION, AQ_SET, AQ_CLEAR, AQ_NO_ACTION, AQ_NO_ACTION},
-        {AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION},
-        {0U, ET_CTR_ZERO, 1U, 0U, 1U}
-    },
-
-    /* EPWM11: T相竖管S4主波形 */
-    {
-        HW_PWM_ID10, HW_PWM_TYPE_INV, 2500U, 2500U, 0U, 0U, TB_COUNT_UPDOWN,
-        HW_PWM_SLAVE, 1U, HW_EPWM_SYNC_IN_FROM_SYNCOUT_EPWM1, HW_EPWM_SYNC_OUT_FROM_DISABLE,
-        80U,
-        HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_FORCE_LOW, HW_PWM_FORCE_LOW, HW_PWM_FORCE_LOW,
-        {AQ_NO_ACTION, AQ_NO_ACTION, AQ_SET, AQ_CLEAR, AQ_NO_ACTION, AQ_NO_ACTION},
-        {AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION},
-        {0U, ET_CTR_ZERO, 1U, 0U, 1U}
-    },
-
-    /* ==================== PV Boost组 (20kHz UP, 以 EPWM7 为主同步源) ==================== */
-
-    /* EPWM7: PV1 Boost, 主同步源，相位 0°，ZRO置高, CAU置低 */
-    {
-        HW_PWM_ID6, HW_PWM_TYPE_PV, 4999U, 0U, 0U, 0U, TB_COUNT_UP,
-        HW_PWM_MASTER, 1U, HW_EPWM_SYNC_IN_FROM_SYNCOUT_EPWM1, HW_EPWM_SYNC_OUT_FROM_CNTR_ZERO,
-        0U,
-        HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_FORCE_LOW, HW_PWM_FORCE_LOW, HW_PWM_FORCE_LOW,
-        {AQ_SET, AQ_NO_ACTION, AQ_CLEAR, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION}, // ZRO=SET, CAU=CLEAR
-        {AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION},
-        {0U, ET_CTR_ZERO, 1U, 0U, 1U}
-    },
-
-    /* EPWM9: PV2 Boost, 错相 90° (5000 * 90/360 = 1250) */
-    {
-        HW_PWM_ID8, HW_PWM_TYPE_PV, 4999U, 0U, 0U, 1250U, TB_COUNT_UP,
-        HW_PWM_SLAVE, 1U, HW_EPWM_SYNC_IN_FROM_SYNCOUT_EPWM7, HW_EPWM_SYNC_OUT_FROM_DISABLE,
-        0U,
-        HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_FORCE_LOW, HW_PWM_FORCE_LOW, HW_PWM_FORCE_LOW,
-        {AQ_SET, AQ_NO_ACTION, AQ_CLEAR, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION},
-        {AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION},
-        {0U, ET_CTR_ZERO, 1U, 0U, 1U}
-    },
-
-    /* EPWM5: PV3 Boost, 错相 180° (5000 * 180/360 = 2500) */
-    {
-        HW_PWM_ID4, HW_PWM_TYPE_PV, 4999U, 0U, 0U, 2500U, TB_COUNT_UP,
-        HW_PWM_SLAVE, 1U, HW_EPWM_SYNC_IN_FROM_SYNCOUT_EPWM1, HW_EPWM_SYNC_OUT_FROM_SYNCIN,
-        0U,
-        HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_FORCE_LOW, HW_PWM_FORCE_LOW, HW_PWM_FORCE_LOW,
-        {AQ_SET, AQ_NO_ACTION, AQ_CLEAR, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION},
-        {AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION},
-        {0U, ET_CTR_ZERO, 1U, 0U, 1U}
-    },
-
-    /* EPWM6: PV4 Boost, 错相 270° (5000 * 270/360 = 3750) */
-    {
-        HW_PWM_ID5, HW_PWM_TYPE_PV, 4999U, 0U, 0U, 3750U, TB_COUNT_UP,
-        HW_PWM_SLAVE, 1U, HW_EPWM_SYNC_IN_FROM_SYNCOUT_EPWM1, HW_EPWM_SYNC_OUT_FROM_DISABLE,
-        0U,
-        HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_FORCE_LOW, HW_PWM_FORCE_LOW, HW_PWM_FORCE_LOW,
-        {AQ_SET, AQ_NO_ACTION, AQ_CLEAR, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION},
-        {AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION},
-        {0U, ET_CTR_ZERO, 1U, 0U, 1U}
-    },
-
-    /* ==================== BUS 与 FAN ==================== */
-
-    /* EPWM8: BUS 平衡电路，20kHz 上下计数，死区 0.8us */
-    {
-        HW_PWM_ID7, HW_PWM_TYPE_BUS, 2500U, 1250U, 0U, 0U, TB_COUNT_UPDOWN,
-        HW_PWM_FREE, 1U, HW_EPWM_SYNC_IN_FROM_DISABLE, HW_EPWM_SYNC_OUT_FROM_SYNCIN,
-        80U,
-        HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_FORCE_LOW, HW_PWM_FORCE_LOW, HW_PWM_FORCE_LOW,
-        {AQ_NO_ACTION, AQ_NO_ACTION, AQ_CLEAR, AQ_SET, AQ_NO_ACTION, AQ_NO_ACTION}, // 参考旧代码 CAU=CLEAR, CAD=SET
-        {AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION},
-        {0U, ET_CTR_ZERO, 1U, 0U, 1U}
-    },
-
-    /* EPWM12: FAN 风扇，10kHz 上下计数，无死区 */
-    {
-        HW_PWM_ID11, HW_PWM_TYPE_FAN, 5000U, 2500U, 0U, 0U, TB_COUNT_UPDOWN,
-        HW_PWM_FREE, 1U, HW_EPWM_SYNC_IN_FROM_DISABLE, HW_EPWM_SYNC_OUT_FROM_DISABLE,
-        0U,
-        HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_FORCE_LOW, HW_PWM_FORCE_LOW, HW_PWM_FORCE_LOW,
-        {AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION, AQ_NO_ACTION},
-        {AQ_NO_ACTION, AQ_NO_ACTION, AQ_SET, AQ_CLEAR, AQ_NO_ACTION, AQ_NO_ACTION},
-        {0U, ET_CTR_ZERO, 1U, 0U, 1U}
-    }
-};
-
-/* stPwmCfg */
-ST_PWM_CFG stPwmCfg =
-{
-    stPwmCfgItem,
-    sizeof(stPwmCfgItem) / sizeof(stPwmCfgItem[0])
-};
-
-/* stSysCpuTimer1 */
-volatile ST_SYS_TIMER stSysCpuTimer1 =
-{
-    (Uint16)HW_CPUTIMER_ID1,        /* u16TimerId     */
-    0U,                             /* u16Prescaler   */
-    1U,                             /* bEnableInt     */
-    1U,                             /* bEmuStop       */
-    199999UL,      /* u32Period      */
-    0UL,                            /* u32Tick        */
-    0U,                             /* u16TickDivCnt  */
-    1U                              /* u16TickDivCoef */
-};
-
-/* stAdcChCfgItem */
-const ST_ADC_CH_CFG_ITEM stAdcChCfgItem[] =
-{
- /* ADC-A              ADC-B              ADC-C              ADC-D  */
-    {5, 30,  2}, {5, 60,  2}, {0, 0,  0}, {5, 30,  2},   /* SOC0  : A2 T相逆变电流   B2 T相直流分量   D2 S相逆变电流 */
-    {0, 0,  0}, {5, 60,  0}, {0, 0,  0}, {5, 30, 14},   /* SOC1  :                        B0 R相直流分量   D14 R相逆变电流 */
-    {0, 0,  0}, {5, 60,  1}, {5, 30,  2}, {5, 60,  1},   /* SOC2  :                        B1 S相直流分量   C2 PV2电流   D1 GFCI电流 */
-    {5, 60,  3}, {5, 120, 3}, {5, 60,  3}, {5, 120, 3},   /* SOC3  : A3 T相电网电压   B3 MUX2   C3 S相逆变电压   D3 MUX1 */
-    {5, 30,  4}, {0, 0,  0}, {5, 60,  4}, {5, 30,  0},   /* SOC4  : A4 PV1电流                    C4 R相逆变电压   D0 PV3电流 */
-    {5, 60,  5}, {0, 0,  0}, {0, 0,  0}, {5, 30,  4},   /* SOC5  : A5 R相电网电压                                  D4 平衡电路电流 */
-    {5, 60,  0}, {0, 0,  0}, {0, 0,  0}, {5, 30, 15},   /* SOC6  : A0 T相逆变电压                                  D15 PV4电流 */
-    {5, 60,  1}, {0, 0,  0}, {0, 0,  0}, {0, 0,  0},   /* SOC7  : A1 S相电网电压 */
-    {0, 0, 0}, {0, 0,  0}, {0, 0,  0}, {0, 0, 0},   /* SOC8  : unused */
-    {0, 0, 0}, {0, 0,  0}, {0, 0,  0}, {0, 0, 0},   /* SOC9  : unused */
-    {0, 0,  0}, {0, 0,  0}, {0, 0,  0}, {0, 0,  0},   /* SOC10 */
-    {0, 0,  0}, {0, 0,  0}, {0, 0,  0}, {0, 0,  0},   /* SOC11 */
-    {0, 0,  0}, {0, 0,  0}, {0, 0,  0}, {0, 0,  0},   /* SOC12 */
-    {0, 0,  0}, {0, 0,  0}, {0, 0,  0}, {0, 0,  0},   /* SOC13 */
-    {0, 0,  0}, {0, 0,  0}, {0, 0,  0}, {0, 0,  0},   /* SOC14 */
-    {5, 120, 0}, {0, 0,  0}, {0, 0,  0}, {0, 0,  0},   /* SOC15 : ADC-A序列末位锚点，转换完成产生ADCINT1触发CLA Task1 */
-};
-
-/* stAdcCfgItem */
-const ST_ADC_CFG_ITEM stAdcCfgItem[] =
-{
-    /* ADC-A：12位单端，SOC15转换完成产生ADCINT1，用于触发CLA Task1 */
-    {HW_ADC_ID0, &stAdcChCfgItem[0], HW_ADC_RESOLUTION_12BIT, HW_ADC_SIGNALMODE_SINGLE, 1U, 15U, 4U, 6U},
-
-    /* ADC-B：12位单端，不使用ADC中断 */
-    {HW_ADC_ID1, &stAdcChCfgItem[1], HW_ADC_RESOLUTION_12BIT, HW_ADC_SIGNALMODE_SINGLE, 0U, 0U, 4U, 6U},
-
-    /* ADC-C：12位单端，不使用ADC中断 */
-    {HW_ADC_ID2, &stAdcChCfgItem[2], HW_ADC_RESOLUTION_12BIT, HW_ADC_SIGNALMODE_SINGLE, 0U, 0U, 4U, 6U},
-
-    /* ADC-D：12位单端，不使用ADC中断 */
-    {HW_ADC_ID3, &stAdcChCfgItem[3], HW_ADC_RESOLUTION_12BIT, HW_ADC_SIGNALMODE_SINGLE, 0U, 0U, 4U, 6U},
-};
-
-/* stAdcCfg */
-ST_ADC_CFG stAdcCfg =
-{
-    &stAdcCfgItem[0],
-    sizeof(stAdcCfgItem) / sizeof(stAdcCfgItem[0])
-};
-
-/* stClaCfgItem */
-const ST_CLA_CFG_ITEM stClaCfgItem[] =
-{
-    {HW_CLA_TASK1, HW_CLA_TRIG_ADCA1, Cla1Task1},   /* ZERO 批次结束：控制主任务 */
-};
-
-/* stClaCfg */
-ST_CLA_CFG stClaCfg =
-{
-    &stClaCfgItem[0],
-    sizeof(stClaCfgItem) / sizeof(stClaCfgItem[0])
-};
-
-/* stSciCfgItem */
+/* stSciCfgItem：与 APP 一致的三路表（端口层按这张表建三路端口）。
+ * BOOT 只用 SCI-A 收升级；C/D 只初始化不驱动引脚，保持端口层结构不变。 */
 const ST_SCI_CFG_ITEM stSciCfgItem[] =
 {
-    {HW_SCI_ID_A,  19200UL, 0U},
-    {HW_SCI_ID_C, 115200UL, 0U},
-    {HW_SCI_ID_D,  38400UL, 0U},
+    {HW_SCI_ID_A,  19200UL, 0U, 0U,  8U},
+    {HW_SCI_ID_C, 115200UL, 0U, 0U,  8U},
+    {HW_SCI_ID_D,  38400UL, 0U, 0U,  8U},
 };
 
 /* stSciCfg */
@@ -354,85 +56,16 @@ ST_SCI_CFG stSciCfg =
     50000000UL
 };
 
-/* stCanCfgItem */
-const ST_CAN_CFG_ITEM stCanCfgItem[] =
+/* stSysCpuTimer1: 每 100 us 一次硬件中断 ((19999 + 1) / 200 MHz)，
+   u16TickDivCoef = 10 再分频出 1 ms 软件心跳。 */
+volatile ST_SYS_TIMER stSysCpuTimer1 =
 {
-    {HW_CAN_ID_A, 500000UL, 1U, 4U, 5U, 1U, 0x00000000UL, 0x00000000UL, 0U, 0U, 1U},
-    {HW_CAN_ID_B, 1000000UL, 1U, 4U, 5U, 1U, 0x00000000UL, 0x00000000UL, 1U, 0U, 1U},
-};
-
-/* stCanCfg */
-ST_CAN_CFG stCanCfg =
-{
-    &stCanCfgItem[0],
-    sizeof(stCanCfgItem) / sizeof(stCanCfgItem[0]),
-    200000000UL
-};
-
-/* stPwmTzCfgItem */
-const ST_PWM_TZ_CFG_ITEM stPwmTzCfgItem[] =
-{
-    /* 低有效外部故障经 TRIPOUTINV 后为高有效 DCAH/DCBH。 */
-    {HW_PWM_ID0,  HW_PWM_TRIP_9, HW_PWM_TRIP_10, TZ_DCAH_HI, TZ_DCBH_HI, HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_FORCE_LOW},
-    {HW_PWM_ID3,  HW_PWM_TRIP_9, HW_PWM_TRIP_10, TZ_DCAH_HI, TZ_DCBH_HI, HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_FORCE_LOW},
-    {HW_PWM_ID1,  HW_PWM_TRIP_9, HW_PWM_TRIP_10, TZ_DCAH_HI, TZ_DCBH_HI, HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_FORCE_LOW},
-    {HW_PWM_ID9,  HW_PWM_TRIP_9, HW_PWM_TRIP_10, TZ_DCAH_HI, TZ_DCBH_HI, HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_FORCE_LOW},
-    {HW_PWM_ID2,  HW_PWM_TRIP_9, HW_PWM_TRIP_10, TZ_DCAH_HI, TZ_DCBH_HI, HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_FORCE_LOW},
-    {HW_PWM_ID10, HW_PWM_TRIP_9, HW_PWM_TRIP_10, TZ_DCAH_HI, TZ_DCBH_HI, HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_FORCE_LOW},
-    /* ---------- 光伏：EPWM7(PV1)/9(PV2)/5(PV3)/6(PV4)，只有 A 通道 ---------- */
-    {HW_PWM_ID6,  HW_PWM_TRIP_4, HW_PWM_TRIP_NONE, TZ_DCAH_HI, 0U, HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_DO_NOTHING},
-    {HW_PWM_ID8,  HW_PWM_TRIP_5, HW_PWM_TRIP_NONE, TZ_DCAH_HI, 0U, HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_DO_NOTHING},
-    {HW_PWM_ID4,  HW_PWM_TRIP_7, HW_PWM_TRIP_NONE, TZ_DCAH_HI, 0U, HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_DO_NOTHING},
-    {HW_PWM_ID5,  HW_PWM_TRIP_8, HW_PWM_TRIP_NONE, TZ_DCAH_HI, 0U, HW_PWM_TZ_FORCE_LOW, HW_PWM_TZ_DO_NOTHING},
-};
-
-/* stPwmTzCfg */
-ST_PWM_TZ_CFG stPwmTzCfg =
-{
-    &stPwmTzCfgItem[0],
-    (Uint16)(sizeof(stPwmTzCfgItem) / sizeof(stPwmTzCfgItem[0]))
-};
-
-/* stXbarInputCfgItem */
-const ST_XBAR_INPUT_CFG_ITEM stXbarInputCfgItem[] =
-{
-    {HW_XBAR_INPUT1, 13U},      /* PV1 硬件过流 */
-    {HW_XBAR_INPUT2, 17U},      /* PV2 硬件过流 */
-    {HW_XBAR_INPUT3, 41U},      /* PV3 硬件过流 */
-    {HW_XBAR_INPUT4, 81U},      /* 硬件逆变过流：同时给 XINT1 计数 */
-    {HW_XBAR_INPUT5, 82U},      /* 硬件短路：同时给 XINT2 计数 */
-    {HW_XBAR_INPUT6, 40U},      /* PV4 硬件过流 */
-};
-
-/* stXbarTripMuxCfgItem */
-const ST_XBAR_TRIP_MUX_CFG_ITEM stXbarTripMuxCfgItem[] =
-{
-    {HW_XBAR_TRIP4,  1U, HW_XBAR_MUX_ENABLE},
-    {HW_XBAR_TRIP5,  3U, HW_XBAR_MUX_ENABLE},
-    {HW_XBAR_TRIP7,  5U, HW_XBAR_MUX_ENABLE},
-    {HW_XBAR_TRIP8, 11U, HW_XBAR_MUX_ENABLE},
-    {HW_XBAR_TRIP9,  7U, HW_XBAR_MUX_ENABLE},
-    {HW_XBAR_TRIP10, 9U, HW_XBAR_MUX_ENABLE},
-};
-
-/* stXbarTripOutCfgItem */
-const ST_XBAR_TRIP_OUT_CFG_ITEM stXbarTripOutCfgItem[] =
-{
-    {HW_XBAR_TRIP4, 1U},
-    {HW_XBAR_TRIP5, 1U},
-    {HW_XBAR_TRIP7, 1U},
-    {HW_XBAR_TRIP8, 1U},
-    {HW_XBAR_TRIP9, 1U},
-    {HW_XBAR_TRIP10, 1U},
-};
-
-/* stXbarCfg */
-ST_XBAR_CFG stXbarCfg =
-{
-    stXbarInputCfgItem,
-    (Uint16)(sizeof(stXbarInputCfgItem) / sizeof(stXbarInputCfgItem[0])),
-    stXbarTripMuxCfgItem,
-    (Uint16)(sizeof(stXbarTripMuxCfgItem) / sizeof(stXbarTripMuxCfgItem[0])),
-    stXbarTripOutCfgItem,
-    (Uint16)(sizeof(stXbarTripOutCfgItem) / sizeof(stXbarTripOutCfgItem[0]))
+    (Uint16)HW_CPUTIMER_ID1,        /* u16TimerId     */
+    0U,                             /* u16Prescaler   */
+    1U,                             /* bEnableInt     */
+    1U,                             /* bEmuStop       */
+    19999UL,                        /* u32Period      */
+    0UL,                            /* u32Tick        */
+    0U,                             /* u16TickDivCnt  */
+    10U                             /* u16TickDivCoef */
 };

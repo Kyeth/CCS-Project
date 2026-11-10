@@ -18,6 +18,5 @@ typedef struct
 } ST_CLOCK_CFG;
 
 Uint16 Hw_ClockInit(const ST_CLOCK_CFG *cfg);
-void Hw_WatchdogEnable(void);
 
 #endif
