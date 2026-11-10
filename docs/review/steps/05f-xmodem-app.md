@@ -1,9 +1,9 @@
-# 05F 申请文档（r4）：XMODEM 接收按参考工程移植进 APP
+# 05F 申请文档（r5）：XMODEM 接收按参考工程移植进 APP
 
 | 项 | 内容 |
 | --- | --- |
 | 步骤 | 05F |
-| 状态 | r4（2026-11-10）——已按复核意见（m02255）修正六组必要适配错误，生产态编译通过；未上板 |
+| 状态 | r5（2026-11-10）——r4 六组适配错误已修，r5 补齐四处上板前收尾；生产态编译通过；未上板 |
 | 基线 | 参考 BootLoader `IB800U_BootLoader`，HEAD `68701bd` |
 | 本工程 | `CCS-Project-minimal`（F28374S），分支 `test/board-bringup-20261031` |
 | 判据 | 上板实际升级成功；本步不新增性能指标 |
@@ -95,7 +95,7 @@ r3 已按这个方向落地并两态编译通过，但复核（m02255）列出�
 
 - Modbus 握手：`01 10 04 38 00 02`（6 字节）→ 回 8 字节（6 字节回显 + CRC，低字节在前）；判据是前缀匹配，多出来的字节存进 `s_au16HandshakeTail`。应答真正发完之后才 `AppUpgradeStart()`，并把尾部字节交给升级层。
 - `AppUpgrade` 三态：`WAIT_TX`（等应答发完）→ `ERASE`（逐扇区擦 H/I/J/K，再写一份"进行中"配置——参考工程由 Modbus 侧写这份配置，本工程在交接时写，否则 `TaskUpgrade()` 的守卫不通过）→ `RECEIVE`（`TaskUpgrade()`）。任务周期 10 ms，与参考一致。
-- 新增常量：`XMODEM_FILE_HEAD_LEN 32`、`XMODEM_CHIP_TYPE 0x37`、`XMODEM_FIRMWARE_APP 1`、`XMODEM_FIRMWARE_BOOT 2`、`XMODEM_APP_MAX_BYTES 0x34000`、`XMODEM_BOOT_MAX_BYTES 0xC000`。
+- 新增常量：`XMODEM_FILE_HEAD_LEN 32`、`XMODEM_CHIP_TYPE 1`（与 `CalcUpgradeBinCrc.exe "1" "1" ...` 的首参数一致）、`XMODEM_FIRMWARE_APP 1`、`XMODEM_FIRMWARE_BOOT 2`、`XMODEM_APP_MAX_BYTES 0x34000`、`XMODEM_BOOT_MAX_BYTES 0xC000`。
 
 ### 4.5 必要缺陷修复清单（11 条，含本轮六组）
 
@@ -162,10 +162,10 @@ r3 已按这个方向落地并两态编译通过，但复核（m02255）列出�
 
 | 状态 | `.out` 大小 | sha256 | `.map` | `.text` | `FLASH_APP` 用/余 | `RAMGS0` 余 | `RAMGS1` 余 | `RAMGS2` 余 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 生产 `0U` | 1,025,364 B | `2641c89cba9a54c4bb3941e9b024da399b6295663217c034bd9968ce02d7f3e9` | 128,029 B | `0x6341` | `0x83E5` / `0x11C19` | 0 | `0x134` | `0x7C0` |
-| 测量 `1U` | 1,043,416 B | `52f4e55705589f3afff285ecf7fd2a733b572cc1179347f243ec9cd1b9f1ab39` | 132,986 B | `0x66C0` | `0x8766` / `0x11898` | 0 | 1 | `0x7C0` |
+| 生产 `0U` | 1,025,952 B | `f242720c6bf52e21a060b9d2b3b4144aae620cd23ff1b69c40a7f8f652ce5cf5` | 128,139 B | `0x636B` | `0x8410` / `0x11BEE` | 0 | `0x134` | `0x7C0` |
+| 测量 `1U` | 1,043,988 B | `85561760967db2c4d38a0f55bbe74f9781101f6c61626a8e9ccfec4c0f96acc5` | 133,096 B | `0x66EA` | `0x8791` / `0x1186D` | 0 | 1 | `0x7C0` |
 
-生产态两次构建得到同一个 `.out` sha（可复现）；`.map` 内含时间戳，每次不同。与 r3 对比：生产态 `.out` 1,022,792 → 1,025,364 B（+2,572）、`.text` `0x625E` → `0x6341`（+227 字）、`FLASH_APP` `0x82D1` → `0x83E5`（+276 字）、`RAMGS1` 余 `0xF6` → `0x134`（余字节缓存移出 `.bss`）。工作树已切回生产态。
+生产态两次构建得到同一个 `.out` sha（可复现）；`.map` 内含时间戳，每次不同。与 r3 对比：`.out` 1,022,792 → 1,025,952 B（+3,160）、`.text` `0x625E` → `0x636B`（+269 字）、`FLASH_APP` `0x82D1` → `0x8410`（+319 字）、`RAMGS1` 余 `0xF6` → `0x134`；r4 → r5 只增加 588 B（`.text` +42 字），全部来自四处收尾。工作树已切回生产态。
 
 ## 8. 上板验证路径
 
@@ -184,3 +184,23 @@ r3 已按这个方向落地并两态编译通过，但复核（m02255）列出�
 1. **是否忠实移植**：§3 对照表逐文件；除表中列出的改动，参考代码未做其他修改。
 2. **必要适配是否正确**：§4.1~§4.4 逐类说明，§4.6 逐条对应复核意见；新增逻辑只有端口适配的整包累计（约 165 行）与 APP 侧接线（193 行）。
 3. **升级能否完成**：按 §8 五步上板跑通即视为本步完成；取消与重传属于第二步。
+
+## 10. 本轮（r5）上板前收尾
+
+复核（m02539）确认 r4 已修上轮主要问题、参考框架可以保留，另指出四处小范围收尾。本轮只改这四处：
+
+| # | 问题（复核位置） | 改法 |
+| --- | --- | --- |
+| 1 | `FlashSaveInt()` 只存 `IER`，`FlashRestoreInt()` 无条件 `EINT`，进入前若已关中断会被擅自打开 | 复用 05B 验证过的整字 ST1 方式：`FlashSaveInt()` 返回 `__disable_interrupts()`（PUSH ST1 / SETC INTM,DBGM），`FlashRestoreInt()` 走 `__restore_interrupts()`（POP ST1），INTM 与 DBGM 一起回到原值 |
+| 2 | CRC 失败后 `s_u16UpgradeDone` 仍为 1，下一会话跳过 `XmodemReceive()`（探针：第二次会话接收调用次数仍为 1） | `UpgradeUser.c` 新增 `UpgradeUserSessionReset()` 清该标志，`AppUpgradeStart()` 与 `AppUpgradeAbort()` 都调用；`UpgradeUser.h` 加声明 |
+| 3 | `AppUpgradeStart()` 失败时 `AppModbus` 仍先置 `u16Armed = 1` 并忽略返回值，端口停在无人接收状态 | 先调 `AppUpgradeStart()`，**返回 1 才置 `u16Armed`**；返回 0 则清握手尾部长度、计入丢弃、`SciPortResync()` + 刷新故障代次与时间戳，端口继续按 Modbus 收帧。另把 `Fapi_initializeAPI()` 的返回值纳入 `Dsp2837xSFlashInit()`（失败返回 -3），`s_u16FlashReady` 随之更严格 |
+| 4 | 接收端只认 ChipType `0x37`，而打包命令 `CalcUpgradeBinCrc.exe "1" "1" ...` 生成的是 1，探针确认会被拒（`XMODEM_RETRY_ERROR`） | 保持原打包约定，`XMODEM_CHIP_TYPE` 改为 `1U`，并在宏旁注明与打包命令首参数一致 |
+
+对上轮判断的确认：Bank0 单一选择、空片检查按 32 位字、RAM 内直接喂狗、备份区范围检查、擦写失败上抛，r4 已落地；真实 F021 时序仍需上板确认，主机探针不能替代。
+
+### 10.1 需要特别知道的边界
+
+1. **ST1 恢复的语义**：`__restore_interrupts()` 是整字弹回，因此在"进入时中断本来就关"的路径（例如从 ISR 里调用擦写）退出后不会开中断——这是刻意的，和 05B 临界区一致。
+2. **`s_u16UpgradeDone` 的生命周期**：只在一次会话内有意义；`AppUpgradeStart()` 开头与 `AppUpgradeAbort()` 都会清。
+3. **交接失败不回退握手应答**：8 字节应答已经发出去了，这里只把端口还给 Modbus 并重新同步，主机需要重新握手（与"中止后交还 Modbus"的裁定一致）。
+4. **ChipType 与打包工具**：若以后改用 `0x37`，打包命令首参数要写成十进制 `55`，并同步 APP/BOOT 两端与本文档。

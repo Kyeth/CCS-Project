@@ -20,6 +20,8 @@ extern ST_UPGRADE_HANDLE stUpgradeHandle;
 /* 返回 0 = 全部扇区擦除成功，其他 = 第一个失败码（上层必须停止推进） */
 extern int16 EraseBackUpBank(void);
 extern void UpgradeUserInit(void);
+/* 开始/中止一次升级会话时清掉会话级标志 */
+extern void UpgradeUserSessionReset(void);
 
 
 extern void CheckUpgrade(void);

@@ -87,6 +87,9 @@ Uint16 AppUpgradeStart(Uint16 u16SciId, const Uint16 *pu16Tail, Uint16 u16TailLe
         return 0U;
     }
 
+    /* 新会话开始：清掉上一次的会话级标志（尾部完成标志） */
+    UpgradeUserSessionReset();
+
     /* 握手同批多取上来的字节先还给协议层的读路径（内部会清掉上一次的半包） */
     XmodemRxPreload(pu16Tail, u16TailLen);
 
@@ -131,9 +134,10 @@ static void AppUpgradeAbort(void)
     s_u16UpPhase = APP_UP_PHASE_WAIT_TX;
     s_u32AbortCount++;
 
-    /* 协议层与适配层都清成初始态，避免上一次的半包混进下一次会话 */
+    /* 协议层、适配层与升级层的会话状态全清，避免上一次的半包与完成标志混进下一次会话 */
     (void)XmodemProcessInit();
     XmodemRxReset();
+    UpgradeUserSessionReset();
 
     /* 把端口还给 Modbus：丢弃候选/未发完的回复，重新同步流 */
     AppModbusReleasePort(APP_UP_PORT_INDEX);

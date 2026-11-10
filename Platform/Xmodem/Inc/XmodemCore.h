@@ -26,7 +26,9 @@ extern "C" {
  * 机型字节沿用本工程既有约定 0x37（'7'，F2837x）；长度上限按真实分区：
  * APP = 0x1A000 字 = 0x34000 字节，BOOT = 0x6000 字 = 0xC000 字节。 */
 #define XMODEM_FILE_HEAD_LEN      32U
-#define XMODEM_CHIP_TYPE          0x37U
+/* 必要修正：与打包命令保持一致。CalcUpgradeBinCrc.exe "1" "1" ...
+ * 生成的 ChipType 就是 1（十进制），接收端不能只认 0x37。 */
+#define XMODEM_CHIP_TYPE          1U
 #define XMODEM_FIRMWARE_APP       1U
 #define XMODEM_FIRMWARE_BOOT      2U
 #define XMODEM_APP_MAX_BYTES      0x34000UL

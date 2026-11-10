@@ -161,6 +161,13 @@ void CheckUpgrade(void)
 /* 已收完、只等发送排空后写配置的标志（本工程发送由主循环推进，不能阻塞等） */
 static Uint16 s_u16UpgradeDone = 0;
 
+/* 必要修正：上一次会话在尾部置位后，中止路径不清它，下一次会话
+ * 会直接跳过 XmodemReceive() 而去走写配置的尾巴。开始与中止时都要清。 */
+void UpgradeUserSessionReset(void)
+{
+    s_u16UpgradeDone = 0U;
+}
+
 Uint16 TaskUpgrade(void)
 {
     Uint32 u32Sum = 0;

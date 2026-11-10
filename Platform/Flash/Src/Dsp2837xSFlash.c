@@ -8,6 +8,7 @@
 #include "F021.h"
 #include "flash.h"
 #include "cpu.h"
+#include "interrupt.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -88,17 +89,17 @@ static Uint16 FlashSectorWords(Uint32 u32Addr)
 /* 擦写期间保存并屏蔽中断：INTM 置位后任何 Flash 里的 ISR 都不会被取指 */
 Uint16 FlashSaveInt(void)
 {
-    Uint16 u16Ier = (Uint16)IER;
-
-    DINT;
-    return u16Ier;
+    /* 必要适配修正：只保存 IER 无法得知进入前 INTM 是否已经置位，
+     * 退出时无条件 EINT 会擅自打开中断（例如从 ISR 路径进来时）。
+     * 这里复用 05B 验证过的方式：整字保存 ST1（含 INTM 与 DBGM），
+     * 退出时整字弹回。参考位置：Dsp280039Flash.c 擦写函数（参考未屏蔽中断）。 */
+    return (Uint16)__disable_interrupts();
 }
 
 
-void FlashRestoreInt(Uint16 u16Ier)
+void FlashRestoreInt(Uint16 u16State)
 {
-    IER = u16Ier;
-    EINT;
+    __restore_interrupts(u16State);
 }
 
 
@@ -123,7 +124,12 @@ int16 Dsp2837xSFlashInit(void)
 {
     /* 芯片适配：F28374S 只有一个 Flash 块，BOOT/APP/BACKUP/CFG 全在 Bank0；
      * 参考工程（F28003x）选了 Bank0/Bank1 两个块，这里删掉块选择。 */
-    Fapi_initializeAPI(F021_CPU0_W0_BASE_ADDRESS, FLASH_HCLK_MHZ);
+    /* 必要适配修正：参考工程忽略 Fapi_initializeAPI() 的返回值，初始化失败
+     * 也会继续擦写。这里把它纳入就绪判定。 */
+    if (Fapi_initializeAPI(F021_CPU0_W0_BASE_ADDRESS, FLASH_HCLK_MHZ) != Fapi_Status_Success)
+    {
+        return -3;
+    }
     FLASH_DELAY_CONFIG;
 
     Flash_disablePrefetch(FLASH0CTRL_BASE);

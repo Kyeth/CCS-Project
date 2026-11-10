@@ -509,8 +509,21 @@ static Uint16 AppMbProtoService(ST_PROTO_INSTANCE *pstInst)
         }
 
         pstPort->bArmPending = 0U;
+
+        /* 必要修正：只有升级层真正接下这个端口才能停止 Modbus 收帧。
+         * （例如 Flash API 没初始化好时 AppUpgradeStart() 返回 0，）否则端口会停在
+         * 无人接收的状态。接交失败就丢弃握手待发状态并重新同步流。 */
+        if (AppUpgradeStart(u16SciId, &s_au16HandshakeTail[0], s_u16HandshakeTailLen) == 0U)
+        {
+            s_u16HandshakeTailLen = 0U;
+            pstPort->u32TxDropped++;
+            SciPortResync(u16SciId);
+            pstPort->u16FaultGen = SciPortFaultGeneration(u16SciId);
+            pstPort->u32RxTick = Hw_TimeBaseTicks();
+            return 1U;
+        }
+
         pstPort->u16Armed = 1U;
-        (void)AppUpgradeStart(u16SciId, &s_au16HandshakeTail[0], s_u16HandshakeTailLen);
     }
     if (pstPort->u16Armed != 0U) {
         return 1U;   /* 升级通道已交接：端口归上位机，协议层不再收帧 */
