@@ -42,6 +42,8 @@ typedef struct {
     Uint16 u16ArmSubmitted;/* 1 = 握手已全部入端口环，等硬件发完 */
     Uint16 u16Armed;       /* 1 = 端口已交给升级协议 */
     Uint16 u16ArmPeekLen;
+    Uint32 u32LastBatchTick;   /* 最近一次已处理批次的观察时标 */
+    Uint16 u16HaveBatchTick;   /* 1 = u32LastBatchTick 有效 */
     Uint16 u16ArmReplyLen;
     Uint16 au16ArmPeek[MB_ARM_PREFIX_LEN];
     Uint16 au16ArmReply[MB_ARM_REPLY_MAX];
@@ -53,11 +55,15 @@ typedef struct {
 #endif
 static ST_MB_PROTO_STATE s_astMbProto[MB_PROTO_SLOTS];
 static Uint16 s_au16RxChunk[MB_RX_CHUNK_BYTES];
+static Uint16 s_au16Replay[MB_ARM_PREFIX_LEN + MB_RX_CHUNK_BYTES];
 static MB_ARM_HOOK s_pfArmHook = (MB_ARM_HOOK)0;
 static void *s_pArmCtx = (void *)0;
 static Uint16 s_u16ArmSciId = 0xFFFFU;   /* 只有这个端口检查升级起点 */
 
-static Uint16 MbProtoArmFeed(ST_MB_PROTO_STATE *pstState, const Uint16 *pu16Data, Uint16 u16Count);
+static Uint16 MbProtoArmFeed(ST_MB_PROTO_STATE *pstState, const Uint16 *pu16Data,
+                            Uint16 u16Count, Uint32 u32Tick);
+static void   MbProtoReplay(ST_MB_PROTO_STATE *pstState, Uint16 u16Keep,
+                            const Uint16 *pu16Rest, Uint16 u16RestCount, Uint32 u32Tick);
 static Uint16 MbProtoInit(ST_PROTO_INSTANCE *pstInst);
 static Uint16 MbProtoService(ST_PROTO_INSTANCE *pstInst);
 static void   MbProtoReset(ST_PROTO_INSTANCE *pstInst);
@@ -214,6 +220,8 @@ static Uint16 MbProtoInit(ST_PROTO_INSTANCE *pstInst)
     pstState->u16ArmSubmitted = 0U;
     pstState->u16Armed = 0U;
     pstState->u16ArmPeekLen = 0U;
+    pstState->u32LastBatchTick = 0UL;
+    pstState->u16HaveBatchTick = 0U;
     pstState->u16ArmReplyLen = 0U;
     pstState->u32RxBacklog = 0UL;
 
@@ -223,16 +231,15 @@ static Uint16 MbProtoInit(ST_PROTO_INSTANCE *pstInst)
 static Uint16 MbProtoService(ST_PROTO_INSTANCE *pstInst)
 {
     ST_MB_PROTO_STATE *pstState;
-    Uint32 u32Now;
-    Uint16 u16TickValid;
+    Uint32 u32PollTick;
+    Uint16 u16PollValid;
     Uint16 u16State;
     Uint16 u16Got;
     Uint16 u16Total;
     Uint16 u16Chunk;
     Uint16 u16Drained;
     Uint16 u16Max;
-    Uint32 u32LastBatchTick;
-    Uint16 bHaveBatchTick;
+    Uint16 u16ArmResult;
 
     if ((pstInst == 0) || (pstInst->pCtx == 0))
     {
@@ -250,9 +257,6 @@ static Uint16 MbProtoService(ST_PROTO_INSTANCE *pstInst)
     {
         return 0U;
     }
-
-    u32Now = Hw_TimeBaseTicks();
-    u16TickValid = Hw_TimeBaseIsReady();
 
     if (MbProtoHandleFaults(pstState) == 0U)
     {
@@ -312,8 +316,6 @@ static Uint16 MbProtoService(ST_PROTO_INSTANCE *pstInst)
     u16State = SciPortRxState(pstInst->u16SciId);
     if (u16State == SCI_RX_IDLE) {
         u16Total = 0U;
-        bHaveBatchTick = 0U;
-        u32LastBatchTick = 0UL;
 
         for (u16Chunk = 0U; u16Chunk < MB_RX_CHUNKS_PER_ROUND; u16Chunk++)
         {
@@ -330,26 +332,39 @@ static Uint16 MbProtoService(ST_PROTO_INSTANCE *pstInst)
 
             u16Got = SciPortPopBatch(pstInst->u16SciId, s_au16RxChunk, u16Max, &stSeg);
             if (u16Got == 0U) {
-                /* 额度足够容纳一条完整批次却取不到：端口已取空 */
+                /* 取零：先确认这期间没有新的断流或代次变化，才算干净取空 */
+                if ((SciPortForceResets(pstInst->u16SciId) != pstState->u32ForceSeen) ||
+                    (SciPortFaultGeneration(pstInst->u16SciId) != pstState->u16GenSeen) ||
+                    (SciPortIsStreamBreak(pstInst->u16SciId) != 0U)) {
+                    (void)MbProtoHandleFaults(pstState);
+                    u16Drained = 0U;
+                    break;
+                }
                 u16Drained = 1U;
                 break;
             }
 
             /* 新批次与上一批次间隔足够，才认为升级起点的匹配进度过期 */
-            if (bHaveBatchTick != 0U)
+            if (pstState->u16HaveBatchTick != 0U)
             {
-                if ((Uint32)(u32LastBatchTick - stSeg.u32Tick) >= pstState->stMb.u32T35Ticks)
+                if ((Uint32)(pstState->u32LastBatchTick - stSeg.u32Tick) >= pstState->stMb.u32T35Ticks)
                 {
-                    pstState->u16ArmPeekLen = 0U;
+                    pstState->u16ArmPeekLen = 0U;   /* 前缀匹配超时重新开始 */
                 }
             }
-            u32LastBatchTick = stSeg.u32Tick;
-            bHaveBatchTick = 1U;
+            pstState->u32LastBatchTick = stSeg.u32Tick;
+            pstState->u16HaveBatchTick = 1U;
 
-            if ((pstInst->u16SciId == s_u16ArmSciId) &&
-                (MbProtoArmFeed(pstState, s_au16RxChunk, u16Got) != 0U)) {
-                u16Drained = 0U;   /* 已交给升级协议 */
-                break;
+            if (pstInst->u16SciId == s_u16ArmSciId) {
+                u16ArmResult = MbProtoArmFeed(pstState, s_au16RxChunk, u16Got, stSeg.u32Tick);
+                if (u16ArmResult != 0U) {
+                    u16Total = (Uint16)(u16Total + u16Got);
+                    if (u16ArmResult >= 2U) {
+                        u16Drained = 0U;   /* 已交给升级协议 */
+                        break;
+                    }
+                    continue;          /* 本批已暂存或已回放 */
+                }
             }
 
             (void)ModbusRtuFeed(&pstState->stMb, s_au16RxChunk, u16Got,
@@ -360,7 +375,11 @@ static Uint16 MbProtoService(ST_PROTO_INSTANCE *pstInst)
 
     if (u16Drained != 0U) {
         /* 只有确认端口取空，才允许用"静默"确认帧结束。 */
-        ModbusRtuPoll(&pstState->stMb, u32Now, u16TickValid);
+        u32PollTick = Hw_TimeBaseTicks();
+        u16PollValid = Hw_TimeBaseIsReady();
+        if (u16PollValid != 0U) {
+            ModbusRtuPoll(&pstState->stMb, u32PollTick, 1U);
+        }
     } else {
         pstState->u32RxBacklog = pstState->u32RxBacklog + 1UL;
     }
@@ -372,20 +391,24 @@ static Uint16 MbProtoService(ST_PROTO_INSTANCE *pstInst)
  * @brief 升级入口：只在指定端口、候选命令起点累积六字节并调用回调。
  * @return 1 = 本批已被升级入口接管；0 = 继续按普通 Modbus 处理
  */
-static Uint16 MbProtoArmFeed(ST_MB_PROTO_STATE *pstState, const Uint16 *pu16Data, Uint16 u16Count)
+/* 升级起点匹配：返回 0 = 交回普通 Modbus，1 = 本批已消费（暂存或已回放），
+ * 2 = 已接管（装载握手成功，本轮停止消费）。
+ * 匹配中的字节只暂存、不交给普通 Modbus；失配或未接管时按原顺序回放，不丢不重。 */
+static Uint16 MbProtoArmFeed(ST_MB_PROTO_STATE *pstState, const Uint16 *pu16Data,
+                             Uint16 u16Count, Uint32 u32Tick)
 {
     Uint16 u16Idx;
     Uint16 u16Byte;
     Uint16 u16ReplyLen;
+    Uint16 u16Keep;
 
     if (s_pfArmHook == (MB_ARM_HOOK)0) {
         return 0U;
     }
     if ((pstState->u16Armed != 0U) || (pstState->u16ArmPending != 0U) ||
         (pstState->u16ArmSubmitted != 0U)) {
-        return 1U;
+        return 1U;   /* 交接进行中：本层不再把字节交给普通 Modbus */
     }
-    /* 只从"还没有候选帧"的起点开始匹配，避免拿数据区或半个帧来对起点。 */
     if (ModbusRtuIsHunting(&pstState->stMb) == 0U) {
         pstState->u16ArmPeekLen = 0U;
         return 0U;
@@ -394,36 +417,65 @@ static Uint16 MbProtoArmFeed(ST_MB_PROTO_STATE *pstState, const Uint16 *pu16Data
     for (u16Idx = 0U; u16Idx < u16Count; u16Idx++)
     {
         u16Byte = (Uint16)(pu16Data[u16Idx] & 0xFFU);
-        pstState->au16ArmPeek[pstState->u16ArmPeekLen] = u16Byte;
-        pstState->u16ArmPeekLen = (Uint16)(pstState->u16ArmPeekLen + 1U);
 
-        if (u16Byte != s_au16ArmPrefix[pstState->u16ArmPeekLen - 1U]) {
-            pstState->u16ArmPeekLen = 0U;   /* 失配：本批按普通 Modbus 处理 */
-            return 0U;
-        }
-        if (pstState->u16ArmPeekLen < MB_ARM_PREFIX_LEN) {
-            continue;
+        if (u16Byte == s_au16ArmPrefix[pstState->u16ArmPeekLen]) {
+            pstState->au16ArmPeek[pstState->u16ArmPeekLen] = u16Byte;
+            pstState->u16ArmPeekLen = (Uint16)(pstState->u16ArmPeekLen + 1U);
+            if (pstState->u16ArmPeekLen < MB_ARM_PREFIX_LEN) {
+                continue;   /* 匹配中：暂存，进度跨批次保留 */
+            }
+
+            u16ReplyLen = s_pfArmHook(s_pArmCtx, pstState->au16ArmPeek, MB_ARM_PREFIX_LEN,
+                                      pstState->au16ArmReply, MB_ARM_REPLY_MAX);
+            if ((u16ReplyLen != 0U) && (u16ReplyLen <= MB_ARM_REPLY_MAX)) {
+                ModbusRtuOnStreamBreak(&pstState->stMb);
+                if (ModbusRtuLoadReply(&pstState->stMb, pstState->au16ArmReply, u16ReplyLen) != 0U) {
+                    pstState->u16ArmReplyLen = u16ReplyLen;
+                    pstState->u16ArmPeekLen = 0U;
+                    pstState->u16ArmPending = 1U;
+                    return 2U;
+                }
+            }
+
+            /* 未接管：暂存的前缀与本批剩余字节按原顺序交回普通 Modbus */
+            u16Keep = pstState->u16ArmPeekLen;
+            pstState->u16ArmPeekLen = 0U;
+            MbProtoReplay(pstState, u16Keep, &pu16Data[u16Idx],
+                          (Uint16)(u16Count - u16Idx), u32Tick);
+            return 1U;
         }
 
-        u16ReplyLen = s_pfArmHook(s_pArmCtx, pstState->au16ArmPeek, MB_ARM_PREFIX_LEN,
-                                  pstState->au16ArmReply, MB_ARM_REPLY_MAX);
+        /* 失配：暂存的前缀 + 本字节及剩余字节按原顺序交回普通 Modbus */
+        u16Keep = pstState->u16ArmPeekLen;
         pstState->u16ArmPeekLen = 0U;
-
-        if ((u16ReplyLen == 0U) || (u16ReplyLen > MB_ARM_REPLY_MAX)) {
-            return 0U;   /* 回调不接受：按普通 Modbus 请求继续走 */
-        }
-
-        /* 特例不校验后续数据与 CRC：丢弃普通 Modbus 候选，装载握手回复。 */
-        ModbusRtuOnStreamBreak(&pstState->stMb);
-        if (ModbusRtuLoadReply(&pstState->stMb, pstState->au16ArmReply, u16ReplyLen) == 0U) {
-            return 0U;
-        }
-        pstState->u16ArmReplyLen = u16ReplyLen;
-        pstState->u16ArmPending = 1U;
+        MbProtoReplay(pstState, u16Keep, &pu16Data[u16Idx],
+                      (Uint16)(u16Count - u16Idx), u32Tick);
         return 1U;
     }
 
-    return 0U;
+    return 1U;   /* 整批都用于前缀匹配，已暂存 */
+}
+
+/* 把暂存前缀与剩余字节合并后一次性交给普通 Modbus（保持原顺序）。 */
+static void MbProtoReplay(ST_MB_PROTO_STATE *pstState, Uint16 u16Keep,
+                          const Uint16 *pu16Rest, Uint16 u16RestCount, Uint32 u32Tick)
+{
+    Uint16 u16Idx;
+    Uint16 u16Len = 0U;
+
+    for (u16Idx = 0U; u16Idx < u16Keep; u16Idx++)
+    {
+        s_au16Replay[u16Len] = pstState->au16ArmPeek[u16Idx];
+        u16Len = (Uint16)(u16Len + 1U);
+    }
+    for (u16Idx = 0U; u16Idx < u16RestCount; u16Idx++)
+    {
+        s_au16Replay[u16Len] = (Uint16)(pu16Rest[u16Idx] & 0xFFU);
+        u16Len = (Uint16)(u16Len + 1U);
+    }
+    if (u16Len != 0U) {
+        (void)ModbusRtuFeed(&pstState->stMb, s_au16Replay, u16Len, u32Tick, 1U);
+    }
 }
 
 void ModbusProtoSetArmHook(Uint16 u16SciId, void *pCtx, MB_ARM_HOOK pfHook)

@@ -86,6 +86,9 @@ static Uint16 s_u16TxIdle = 1U;
 static Uint16 s_au16Tx[STUB_TX_DEPTH];
 static Uint16 s_u16TxLen = 0U;
 static Uint16 s_u16PopCalls = 0U;
+static Uint16 s_u16LateArmed = 0U;   /* 1 = 下一次 PopBatch 期间来新批次 */
+static Uint16 s_u16LateByte = 0U;
+static void PushSeg(const Uint16 *pu16Data, Uint16 u16Count);
 
 Uint16 SciPortPopBatch(Uint16 u16PortId, Uint16 *pu16Dst, Uint16 u16Max,
                        ST_SCI_RX_SEG *pstSeg)
@@ -95,6 +98,14 @@ Uint16 SciPortPopBatch(Uint16 u16PortId, Uint16 *pu16Dst, Uint16 u16Max,
 
     (void)u16PortId;
     s_u16PopCalls++;
+
+    if (s_u16LateArmed != 0U)
+    {
+        /* 入口取时之后、取空之前，ISR 发布了时标更新的新批次 */
+        s_u16LateArmed = 0U;
+        Advance(50UL);
+        PushSeg(&s_u16LateByte, 1U);
+    }
 
     if (pstSeg != (ST_SCI_RX_SEG *)0)
     {
@@ -452,12 +463,12 @@ static void TestProtoQuota(void)
     Check(u16Len == 33U, "S-05D-10 帧长 33 字节");
     PushBytes(au16Frame, u16Len);
 
-    RunService();                     /* 本轮配额 32 字节，还剩 1 字节 */
-    Check(StubRxPending() == 1U, "S-05D-10 单轮配额 32 字节，剩 1 字节");
+    RunService();                     /* 七段 4 字节后剩余额度 4 < 8，本轮收手 */
+    Check(StubRxPending() == 5U, "S-05D-10 本轮消费 28 字节，剩 5 字节");
     Check(ModbusProtoRxBacklog(0U) == 1UL, "S-05D-10 积压轮数被记录");
     Check(s_au16Regs[0] == 0U, "S-05D-10 积压未清不算静默，不执行");
 
-    RunService();                     /* 取空剩余 1 字节 */
+    RunService();                     /* 取空剩余 5 字节 */
     Check(StubRxPending() == 0U, "S-05D-10 第二轮取空");
     Check(s_au16Regs[0] == 0U, "S-05D-10 取空当轮静默仍为 0，不执行");
 
@@ -663,6 +674,99 @@ static void TestProtoArmForceReset(void)
     Check(ModbusProtoArmActive(0U) == 0U, "S-05D-16 未进入已交接状态");
 }
 
+/* ================= S-05D-17 ARM 起点跨批次识别 ================= */
+
+static void TestProtoArmSplit(void)
+{
+    Uint16 u16Idx;
+    Uint16 u16PopBefore;
+
+    ProtoSetUp();
+    ModbusProtoSetArmHook(HW_SCI_ID_A, (void *)0, ArmHook);
+    for (u16Idx = 0U; u16Idx < 8U; u16Idx++)
+    {
+        s_au16ArmReply[u16Idx] = 0U;
+    }
+    s_au16ArmReply[0] = 0x01U;
+    s_au16ArmReply[1] = 0x10U;
+    s_au16ArmReply[6] = 0xC1U;
+    s_au16ArmReply[7] = 0x35U;
+    s_u16ArmReplyLen = 8U;
+
+    /* 第一批只有前 4 字节：不得触发回调，也不得漏进普通 Modbus */
+    PushSeg(s_au16ArmPrefix, 4U);
+    RunService();
+    Check(s_u16ArmCalls == 0U, "S-05D-17 前缀未收全不触发回调");
+    Check(StubRxPending() == 0U, "S-05D-17 已暂存的前缀不留在端口");
+    Check(s_u16TxLen == 0U, "S-05D-17 匹配中不产生任何回复");
+    Check(ModbusProtoArmPending(0U) == 0U, "S-05D-17 匹配中不算待提交");
+
+    /* 第二批补齐后 2 字节：跨批次完成匹配 */
+    PushSeg(&s_au16ArmPrefix[4], 2U);
+    RunService();
+    Check(s_u16ArmCalls == 1U, "S-05D-17 跨批次补齐后触发回调");
+    Check(ModbusProtoArmPending(0U) == 1U, "S-05D-17 握手待提交");
+
+    RunService();
+    Check(s_u16TxLen == 8U, "S-05D-17 握手回复 8 字节");
+    StubTxDrain();
+    RunService();
+    Check(ModbusProtoArmActive(0U) == 1U, "S-05D-17 跨批次识别后正常交接");
+
+    u16PopBefore = s_u16PopCalls;
+    PushBytes(s_au16ArmPrefix, MB_ARM_PREFIX_LEN);
+    RunService();
+    Check(s_u16PopCalls == u16PopBefore, "S-05D-17 交接后不再读端口");
+
+    ModbusProtoArmRelease(0U);
+    Check(ModbusProtoArmActive(0U) == 0U, "S-05D-17 释放后可交还端口");
+}
+
+/* ================= S-05D-18 探询前重新取时标 ================= */
+
+static void TestProtoPollFresh(void)
+{
+    Uint16 au16Body[40];
+    Uint16 au16Frame[48];
+    Uint16 u16Len;
+    Uint16 u16Idx;
+
+    ProtoSetUp();
+    au16Body[0] = 0x01U;
+    au16Body[1] = 0x10U;
+    au16Body[2] = 0x13U;
+    au16Body[3] = 0x88U;              /* 5000 */
+    au16Body[4] = 0x00U;
+    au16Body[5] = 0x0CU;              /* 12 个寄存器 */
+    au16Body[6] = 0x18U;
+    for (u16Idx = 0U; u16Idx < 24U; u16Idx++)
+    {
+        au16Body[7U + u16Idx] = 0x00U;
+    }
+    au16Body[7] = 0x12U;
+    au16Body[8] = 0x34U;              /* 5000 = 0x1234 */
+    u16Len = BuildFrame(au16Frame, au16Body, 31U);
+    Check(u16Len == 33U, "S-05D-18 帧长 33 字节");
+
+    /* 先投 32 字节（帧未完成），最后一字节在探询期间到达 */
+    PushBytes(au16Frame, 32U);
+    RunService();
+    Check(s_au16Regs[0] == 0U, "S-05D-18 帧未完成不执行");
+    Check(StubRxPending() == 0U, "S-05D-18 32 字节已消费");
+
+    s_u16LateByte = au16Frame[32];
+    s_u16LateArmed = 1U;
+    RunService();                     /* 最后一字节比入口时标新 50 tick */
+    Check(s_au16Regs[0] == 0U, "S-05D-18 实际静默为 0，不得执行");
+
+    Advance(3000UL);
+    RunService();                     /* 静默足够后执行 */
+    Check(s_au16Regs[0] == 0x1234U, "S-05D-18 真正静默后才执行写入");
+
+    RunService();
+    Check(s_u16TxLen == 8U, "S-05D-18 0x10 回复 8 字节");
+}
+
 int main(void)
 {
     TestProtoBasics();
@@ -673,6 +777,8 @@ int main(void)
     TestProtoArmReject();
     TestProtoArmPortFilter();
     TestProtoArmForceReset();
+    TestProtoArmSplit();
+    TestProtoPollFresh();
 
     printf("checks=%d fails=%d\n", s_iChecks, s_iFails);
 
