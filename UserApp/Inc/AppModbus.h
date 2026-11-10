@@ -1,32 +1,38 @@
 /**
  * @file AppModbus.h
- * @brief 应用层 Modbus 点表与协议实例配置表。
- *
- * 应用层只维护两件事：
- *   - Modbus 点表：地址、权限、类型、变量绑定、上下限；
- *   - 协议实例配置表：哪个 SCI 口跑 Modbus、从机地址多少、用哪张点表。
- * 收发、校验、类型转换、帧间隔都由平台协议层完成。
+ * @brief Modbus RTU 从机应用层对外接口（05E：参考协议层 + 端口层桥接）。
  */
 
 #ifndef APP_MODBUS_H
 #define APP_MODBUS_H
 
-#include "F2837xS_device.h"
 #include "Protocol.h"
 
-#define APP_MB_PORTS            (3U)
+/** 三路 SCI 从站：A / C / D。 */
+#define APP_MB_PORTS (3U)
 
-/** 建立点表与实例表；必须在 ProtocolTask 开始运行前调用一次。 */
+/** 建立三张从站表并登记协议实例；必须在 ProtocolTask 开始运行前调用一次。 */
 void AppModbusInit(void);
 
+/** 已登记进 1 ms 任务的从站实例数（0..APP_MB_PORTS）。 */
 Uint16 AppModbusEnabledCount(void);
-Uint32 AppModbusTableErrors(void);
 
-/** 该端口是否已收到升级请求（对应参考实现的 u16MdsIsUpdate）。 */
+/** 初始化阶段拿到错误返回的次数；0 = 三个实例全部登记成功。 */
+Uint32 AppModbusInitErrors(void);
+
+/** 该端口的升级标志（参考层 stMdsUpdateParam.u16MdsIsUpdate）。 */
 Uint16 AppModbusUpgradeFlag(Uint16 u16Port);
 
-/** 是否已把 SCI-A 切到 115200、准备接收 Xmodem 数据包。 */
-Uint16 AppModbusXmodemReady(void);
+/** 诊断：该端口已交给参考层的完整请求帧数。 */
+Uint32 AppModbusRxFrames(Uint16 u16Port);
+
+/** 诊断：该端口已整帧交给端口层的回复帧数。 */
+Uint32 AppModbusTxFrames(Uint16 u16Port);
+
+/** 诊断：该端口因缓冲装不下或端口不在接收态而丢弃的字节数。 */
+Uint32 AppModbusRxDropped(Uint16 u16Port);
+
+/** 诊断：协议层实例（只读）。 */
 const ST_PROTO_INSTANCE *AppModbusInstance(Uint16 u16Index);
 
 #endif /* APP_MODBUS_H */

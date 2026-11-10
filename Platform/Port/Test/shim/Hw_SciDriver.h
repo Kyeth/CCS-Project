@@ -31,6 +31,21 @@
 
 typedef struct
 {
+    Uint16 u16SciId;
+    Uint32 u32Baudrate;
+    Uint16 bLoopback;
+    Uint16 u16DataFormat;
+    Uint16 u16RxFifoLevel;
+} ST_SCI_CFG_ITEM;
+typedef struct
+{
+    const ST_SCI_CFG_ITEM *pstSciCfgItem;
+    Uint16 u16ItemNum;
+    Uint32 u32LspclkHz;
+} ST_SCI_CFG;
+
+typedef struct
+{
     Uint16 u16Status;
     Uint16 u16RxFifoLevel;
     Uint16 u16TxFifoLevel;

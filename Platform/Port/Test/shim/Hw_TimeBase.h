@@ -11,6 +11,7 @@
 Uint16 Hw_TimeBaseInit(Uint32 u32SysclkHz);
 Uint32 Hw_TimeBaseTicks(void);
 Uint32 Hw_TimeBaseUsToTicks(Uint32 u32Us);
+Uint32 Hw_TimeBaseElapsed(Uint32 u32Start);
 Uint16 Hw_TimeBaseIsReady(void);
 
 #endif /* HW_TIME_BASE_SHIM_H */
