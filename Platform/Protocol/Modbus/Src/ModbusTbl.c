@@ -5,6 +5,34 @@
 
 #include "ModbusTbl.h"
 
+#include <string.h>   /* memcpy：按位模式搬运 float，不做数值转换 */
+
+/*
+ * float 在线上是 32 位 IEEE-754 位模式，(Uint32)f 是数值转换（12.5 -> 12），
+ * 不是位模式。这里统一用 memcpy 搬 32 位，长度取 sizeof(float) 以兼容 C28x。
+ */
+static Uint32 MbFloatToBits(float f32Value)
+{
+    Uint32 u32Bits;
+
+    memcpy(&u32Bits, &f32Value, sizeof(float));
+    return u32Bits;
+}
+
+static float MbBitsToFloat(Uint32 u32Bits)
+{
+    float f32Value;
+
+    memcpy(&f32Value, &u32Bits, sizeof(float));
+    return f32Value;
+}
+
+/* 1 = 指数位全 1，即 NaN 或 Inf；这种值不接受写进点表。 */
+static Uint16 MbIsNanOrInf(Uint32 u32Bits)
+{
+    return (Uint16)(((u32Bits & 0x7F800000UL) == 0x7F800000UL) ? 1U : 0U);
+}
+
 typedef union {
     Uint16 u16;
     int16 i16;
@@ -255,7 +283,7 @@ static void MbEncodeRegs(const MB_VALUE *pstValue, Uint16 u16Type, Uint16 *pu16O
         pu16Out[0] = (Uint16)pstValue->i16;
         break;
     case MB_PT_F32:
-        u32Bits = (Uint32)pstValue->f32;
+        u32Bits = MbFloatToBits(pstValue->f32);
         pu16Out[0] = (Uint16)(u32Bits >> 16);
         pu16Out[1] = (Uint16)(u32Bits & 0xFFFFUL);
         break;
@@ -285,7 +313,7 @@ static void MbDecodeRegs(const Uint16 *pu16In, Uint16 u16Type, MB_VALUE *pstValu
         break;
     case MB_PT_F32:
         u32Bits = ((Uint32)pu16In[0] << 16) | (Uint32)pu16In[1];
-        pstValue->f32 = (float)u32Bits;
+        pstValue->f32 = MbBitsToFloat(u32Bits);
         break;
     case MB_PT_I32:
         u32Bits = ((Uint32)pu16In[0] << 16) | (Uint32)pu16In[1];
@@ -331,7 +359,9 @@ static Uint16 MbInLimits(const ST_MODBUS_POINT *pstPoint, const MB_VALUE *pstVal
         }
         break;
     default:
-        if ((pstValue->f32 < pstPoint->fMin) || (pstValue->f32 > pstPoint->fMax)) {
+        if (MbIsNanOrInf(MbFloatToBits(pstValue->f32)) != 0U) {
+            u16Ok = 0U;   /* NaN / Inf 一律拒绝，避免把无法比较的值写进点表 */
+        } else if ((pstValue->f32 < pstPoint->fMin) || (pstValue->f32 > pstPoint->fMax)) {
             u16Ok = 0U;
         }
         break;

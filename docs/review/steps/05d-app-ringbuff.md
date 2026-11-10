@@ -2,11 +2,12 @@
 
 | 项 | 内容 |
 | --- | --- |
-| 文档版本 | v0.3 |
-| 日期 | 2026-11-09 |
+| 文档版本 | v0.4 |
+| 日期 | 2026-11-10 |
 | 基线 | `83dba4c`（05C 前台轮转可用基线） |
-| 状态 | 已实现、目标构建通过，待审阅 |
-| 取代 | v0.2（把"协议服务放主循环 + 16 位回调"改为三层表驱动） |
+| 状态 | 已按复审意见返工（五项修正 + ARM 入口），目标构建通过，待复核 |
+| 取代 | v0.3（补五项修正、t3.5 规则、批次配额、回复忙门禁、ARM 入口与点表 5000..5036） |
+| 复审依据 | v0.3 包实跑 `checks=54 fails=3`（float 12.5 编码、写 float、−50 解码），另五项接入问题 |
 
 ## 0. 结论先行
 
@@ -225,9 +226,9 @@ while (1)
 
 ## 10. 内存与链接
 
-- 每实例 `ST_MB_INSTANCE` = 418 字（接收 256 + 回复 128 + 状态），三路 1,254 字；
-- 新增段 `.protobuf`（`RAMGS1`，`PAGE = 1`）：`ModbusProto 0x504` + `AppModbus 0x24` + `Protocol 0x24` = **`0x54C` 字**，起点 `0x00D000`；
-- `.portstat` 顺移到 `0x00D54C`（`0x14` 字）；
+- 每实例 `ST_MB_INSTANCE`：接收 256 + 回复 144（`MB_TX_BUF_SIZE` 由 128 提到 144）+ 寄存器镜像 64（`MB_MAX_REGISTERS` 由 32 提到 **64**，覆盖 5000..5036 连续 37 个）+ 状态，三路合计约 1,350 字；
+- 新增段 `.protobuf`（`RAMGS1`，`PAGE = 1`）：`ModbusProto 0x588` + `AppModbus 0x24` + `Protocol 0x24` = **`0x5D0` 字**，起点 `0x00D000`；
+- `.portstat` 顺移到 `0x00D5D0`（`0x14` 字）；
 - `.portbuf` 仍在 `0x00DC00`（`0x180` 字），未受影响。
 
 ## 11. 构建
@@ -238,33 +239,51 @@ while (1)
 | --- | --- |
 | 编译单元 | **42** 个（05C 的 37 个 + `Protocol.c` / `ModbusRtu.c` / `ModbusTbl.c` / `ModbusProto.c` / `AppModbus.c`） |
 | 警告 | 0 |
-| `.text` | `0x5286`（05C 基线 `0x45AF`） |
-| `RAMGS0` | 用 `0xEEB`，余 `0x115`（277 字） |
-| `RAMGS1` | 用 `0x560`，余 `0x6A0` |
-| `EP15K_minimal.out` | 843,956 B，sha256 `61b4eef795f572fd2446b36e32f3a8733c3f05b1b4ada04ebc4bb1ab1a87e5c0` |
-| `EP15K_minimal.map` | 107,982 B，sha256 `22926c846ce1fabbb14029ea3e8580858adddec85cb75054a9da0f1344d75bbe` |
+| `.text` | `0x5523`（05C 基线 `0x45AF`；v0.3 为 `0x5286`） |
+| `RAMGS0` | 用 `0xF00`，余 `0x100`（256 字） |
+| `RAMGS1` | 用 `0x5E4`，余 `0x61C` |
+| `EP15K_minimal.out` | 856,556 B，sha256 `5de0ceeaa8b2405d3a872d7fb7c72dfa1a06de2ad2a8525839eaa2cc1b1a50cb` |
+| `EP15K_minimal.map` | 109,034 B，sha256 `f1bd4250a00a2a32165ba3eba6dc2b65d1e353226c839b597ac42de503ef9846` |
 
 `PORT_BENCH_TEST` 仍为 `0U`（生产态）。
 
 ## 12. 验收
 
-主机：测试源码 `Platform/Protocol/Test/modbus_stub_test.c`（自带 `main()`，不接 SciPort）。
-本机没有 `cc`/`gcc`，**五组用例未在实施方执行**；只用 `cl2000` 按 C28x 类型做过语法与类型检查
-（零错误零警告），请审阅方按下面命令跑：
+主机有两个测试文件，都是自带 `main()` 的独立程序：
+
+| 文件 | 覆盖 | `Check(` 调用点 |
+| --- | --- | --- |
+| `Platform/Protocol/Test/modbus_stub_test.c` | CRC、点表校验、类型转换、访问限制、帧级行为、倒计时与回绕、分批积压、回复忙 | **73** |
+| `Platform/Protocol/Test/modbus_proto_stub_test.c` | 适配层：静默确认、配额耗尽积压、两帧分批积压、回复忙不覆盖、ARM 交接与释放 | **34** |
+
+`modbus_proto_stub_test.c` 自己带 SciPort 与时间基准替身，链接 `ModbusProto.c`、`ModbusRtu.c`、`ModbusTbl.c`。
+
+本机没有 `cc`/`gcc`，两个文件**都只在实施方做过 `cl2000` 的语法/类型检查**（零错误零警告），
+**尚未执行**；请审阅方跑：
 
 ```
 cc -std=c99 -Wall -Wextra -ITest/shim -I../Inc -I../Modbus/Inc \
    modbus_stub_test.c ../Modbus/Src/ModbusRtu.c ../Modbus/Src/ModbusTbl.c \
    -o modbus_stub_test
+
+cc -std=c99 -Wall -Wextra -I../../Port/Test/shim -I../../Port/Inc \
+   -I../Inc -I../Modbus/Inc -I../../../Drivers/inc \
+   modbus_proto_stub_test.c ../Modbus/Src/ModbusProto.c \
+   ../Modbus/Src/ModbusRtu.c ../Modbus/Src/ModbusTbl.c \
+   -o modbus_proto_stub_test
 ```
 
-五组用例：
+用例（两个文件合计 8 组）：
 
 1. CRC 与组帧（已知报文向量、异常应答字节序）；
-2. 点表校验（重叠、类型、`Uint16` 配 66530、浮点限值）；
-3. 类型转换（`Uint32` 高字在前、`float` 往返、`int32` 负值）；
+2. 点表校验（重叠、类型、`Uint16` 配 66530、浮点限位颠倒、32 位中间重叠、未绑定）；
+3. 类型转换（`Uint32` 高字在前、`float` 位模式往返、`int32` 负值、NaN/Inf 被拒）；
 4. 32 位项不完整访问 → `0x02`；只读被写 → `0x02`；超限 → `0x03` 且变量未被改；
-5. 广播写执行不回复、广播读忽略、坏 CRC/地址不符不回复、`0x10` byteCount 不符回 `0x03`。
+5. 广播写执行不回复、广播读忽略、坏 CRC/地址不符不回复、`0x10` byteCount 不符回 `0x03`；
+6. 倒计时：只过 20 µs 不执行、过 200 µs 执行、`tick = 0` 仍有效、`0xFFFFF000` 回绕后也能判静默；
+7. 配额耗尽：一轮取满 32 字节后仍有积压 → 记录积压、不确认、不执行；取空后才执行；
+8. 回复忙：端口环满时第二条写请求不执行，回复缓冲不被覆盖，端口恢复后补提交；
+   另含 ARM 入口：六字节起点命中回调 → 装载握手回复 → 提交后交接（`ArmActive = 1`，本层不再读端口）→ 释放后普通读恢复。
 
 上板（需 Modbus 主站，PC + USB 转串口）：
 
@@ -274,11 +293,13 @@ cc -std=c99 -Wall -Wextra -ITest/shim -I../Inc -I../Modbus/Inc \
 4. 只给 A 注入短故障：C/D 请求不中断，A 恢复后继续应答；
 5. 控制侧：`u16ControlStallMs = 0`，入口间隔仍按单列记录（本步不改控制路径）。
 
-## 13. 待确认
+## 13. 三项待确认的裁定（v0.4 已按裁定实现）
 
-1. `t3.5` 是否在当前换算（38.5 位时间向上取整）之外再加保守系数？
-2. 候选帧超时定为 100 ms 是否合适（现为 `MB_FRAME_TIMEOUT_MS`）？
-3. 测试点表（0x0000..0x0009，含 5 种类型）是否够用，还是需要按实际业务变量另给地址表？
+| 问题 | 裁定 | 实现 |
+| --- | --- | --- |
+| `t3.5` 是否加保守系数 | **不加**。≤19200 按实际字符格式算；>19200 用固定 **1750 µs**，不再套 `38500000/baud` | `MbProtoElapsedUs()`：`u32Baud > 19200` 时 `MB_T35_FIXED_US = 1750`，否则 `38.5e6 / baud` |
+| 候选帧超时 100 ms | 保留，只作**候选帧停滞兜底**，不是 RTU 帧间隔、也不是整帧接收时限 | `MB_FRAME_TIMEOUT_MS = 100`，仅清停滞候选 |
+| 点表是否够用 | 基础测试够；补版本寄存器 **5035/5036**，升级兼容入口随 ARM 约定补 | 点表基址 **5000**，5010..5034 占位，5035/5036 绑 `s_u16AppVersion/s_u16AppBuild` |
 
 ## 14. 实施记录
 
@@ -289,3 +310,58 @@ cc -std=c99 -Wall -Wextra -ITest/shim -I../Inc -I../Modbus/Inc \
 - 新增主机测试 `Platform/Protocol/Test/modbus_stub_test.c`（5 组、`Check(` 位置数见包内 README），
   并把 `int16`/`int32` 补进主机 shim `Platform/Port/Test/shim/F2837xS_device.h`；
 - CCS 的源路径排除项扩展为 `Platform/Port/Test/,Platform/Protocol/Test/`，测试不进固件。
+
+## 15. v0.4 返工记录（对复审五项 + ARM 入口）
+
+### 15.1 浮点编解码
+
+`(Uint32)float` 与 `(float)Uint32` 是数值转换，不是位模式转换。`ModbusTbl.c` 改为
+`MbFloatToBits()` / `MbBitsToFloat()`（`memcpy(&u32Bits, &f, sizeof(float))` 双向），
+上下限比较前先 `MbIsNanOrInf()`（`(u32Bits & 0x7F800000UL) == 0x7F800000UL`）拒 NaN/Inf。
+
+### 15.2 时间方向
+
+`ModbusRtuPoll()` 两处改为 `u32Elapsed = (Uint32)(pst->u32LastByteTick - u32Tick);`，
+与 Timer0 向下计数一致，回绕由无符号减法自然处理；`u32Tick == 0` 不再当作无效值
+（`Feed()` 传 `u16TickValid = 1U`）。
+
+### 15.3 批次配额
+
+`MB_RX_CHUNKS_PER_ROUND` 由 2 提到 **8**（`SCI_PORT_RX_QUOTA` 仍为 16，故每轮上限
+`8 × 16 = 128`，正常情形由 32 字节总配额先截断），保留每端口每轮 32 字节总配额。
+
+### 15.4 配额耗尽不算静默
+
+`MbProtoService()` 的接收循环引入 `u16Drained`：只有"本轮把端口读空或取满末段"才
+`ModbusRtuPoll()`；否则累加 `ModbusProtoRxBacklog()` 并跳过本轮确认。
+`ModbusRtuFeed()` 在 `MB_RX_COMPLETE` 收到新字节时改为"先执行上一帧、再把该字节当新帧起点"，
+不再直接丢弃已收满的候选帧。
+
+### 15.5 回复忙
+
+`MbExecute()` 开头加门禁：`u16TxLen != 0` 时计 `u32RxIgnored`、丢弃候选、不执行功能码，
+从根上避免"上一回复未提交完就被下一请求覆盖工作缓冲"。
+
+### 15.6 ARM 升级入口
+
+- `ModbusProtoSetArmHook(void *pCtx, MB_ARM_HOOK pfHook)`；
+- 六字节起点 `01 10 04 38 00 02` 按字节累积匹配（不匹配即清零重找），命中后调回调；
+- 回调返回 >0 表示接管：置 `u16ArmPending`，用 `ModbusRtuOnStreamBreak()` 断开当前 Modbus 帧，
+  再用 `ModbusRtuLoadReply()` 装载握手回复（不覆盖已有待发回复，长度 0 视为不接管）；
+- 握手回复**提交完成**后才置 `u16Armed = 1`，此后 `ModbusProtoService()` 立即返回、不再读端口；
+- `ModbusProtoArmRelease()` 由 ARM 侧在 Xmodem 结束时调用，交还端口。
+
+### 15.7 点表与容量
+
+- 点表基址改为 **5000**（5000 U16 模式、5001 int16 偏移、5002 零占位、5003/5004 U32 计数、
+  5005/5006 int32 微调、5007/5008 float 增益、5009 U16 只读状态）；
+- 5010..5034 由 `s_au16Reserved0[25]` 占位（可读，值为 0）；
+- 5035/5036 为应用版本/构建号（`0x0100` / `0x0001`）；
+- `MB_MAX_REGISTERS` 32 → **64**，`MB_TX_BUF_SIZE` 128 → **144**，`.protobuf` 由 `0x54C` 增到 `0x5D0`。
+
+### 15.8 本轮仍未做的
+
+- 两个主机测试文件**未在实施方执行**（本机无 `cc`/`gcc`），只做过 `cl2000` 语法/类型检查；
+- ARM 握手字节仍等待 ARM 侧约定：当前 `AppMbArmHook()` 返回 0（不接管），
+  约定后填 `s_au16ArmReply[]` 与 `s_u16ArmReplyLen` 即可；
+- 三路 Modbus 上板收发尚未开始。

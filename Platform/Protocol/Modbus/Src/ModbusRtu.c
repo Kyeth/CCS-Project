@@ -5,6 +5,9 @@
  * 时间语义：u32Tick 是"这批字节被观察到的时刻"，不是每个字符的真实到达时间。
  * 3.5 字符静默只能用"预期长度 + 批次观察 + 保守等待"近似，不能宣称精确检测
  * 所有临界字符间隔（申请 §5 已写明该限制）。
+ *
+ * 计数方向：时标来自 Timer0 自由运行**向下**计数，所以"过去了多久"是
+ * (Uint32)(u32LastTick - u32Now)，不是 u32Now - u32LastTick。
  */
 
 #include "ModbusRtu.h"
@@ -100,6 +103,15 @@ static void MbExecute(ST_MB_INSTANCE *pst)
     Uint16 u16Exception;
     Uint16 u16Idx;
     Uint16 au16Values[MB_MAX_REGISTERS];
+
+    if (pst->u16TxLen != 0U)
+    {
+        /* 上一条回复还没全部提交进端口环：执行新请求会覆盖发送缓冲，
+         * 于是丢弃这条请求（不执行、尤其不重复执行写操作），并计数。 */
+        pst->u32RxIgnored = pst->u32RxIgnored + 1UL;
+        MbDropCandidate(pst, 1U);
+        return;
+    }
 
     if (u16Len < 4U)
     {
@@ -400,8 +412,14 @@ Uint16 ModbusRtuFeed(ST_MB_INSTANCE *pst, const Uint16 *pu16Data, Uint16 u16Coun
 
         if (pst->u16State == MB_RX_COMPLETE)
         {
-            /* 以为结束了却又来字节：上一帧没结束或流已错位，丢弃后重新找帧头。 */
-            MbDropCandidate(pst, 1U);
+            /* 这个候选已经够长了，后面却还有字节：说明它不是靠静默确认的。
+             * 先按长度把它确认掉（校验/执行/生成回复），再把当前字节当作
+             * 下一帧的起点。前台延迟导致两帧挤在同一批积压里就靠这条分开。 */
+            MbExecute(pst);
+            if (pst->u16State != MB_RX_HUNT)
+            {
+                MbDropCandidate(pst, 1U);   /* 执行后仍未回到找头：状态异常 */
+            }
         }
 
         if (pst->u16State == MB_RX_HUNT)
@@ -475,7 +493,7 @@ void ModbusRtuPoll(ST_MB_INSTANCE *pst, Uint32 u32Tick, Uint16 u16TickValid)
             pst->u32TimeInvalid = pst->u32TimeInvalid + 1UL;
             return;
         }
-        u32Elapsed = u32Tick - pst->u32LastByteTick;
+        u32Elapsed = (Uint32)(pst->u32LastByteTick - u32Tick);   /* 向下计数 */
         if ((pst->u32T35Ticks == 0UL) || (u32Elapsed >= pst->u32T35Ticks))
         {
             MbExecute(pst);
@@ -485,7 +503,7 @@ void ModbusRtuPoll(ST_MB_INSTANCE *pst, Uint32 u32Tick, Uint16 u16TickValid)
 
     if ((pst->u16State == MB_RX_FRAME) && (pst->u32FrameTimeoutTicks != 0UL) && (u16TickValid != 0U))
     {
-        u32Elapsed = u32Tick - pst->u32LastByteTick;
+        u32Elapsed = (Uint32)(pst->u32LastByteTick - u32Tick);   /* 向下计数 */
         if (u32Elapsed >= pst->u32FrameTimeoutTicks)
         {
             MbDropCandidate(pst, 1U);   /* 半帧超时：丢弃，不回复 */
@@ -544,5 +562,24 @@ Uint16 ModbusRtuDiscardReply(ST_MB_INSTANCE *pst)
     pst->u16TxOffset = 0U;
     pst->u16TxLost = 1U;
     pst->u32TxLostEvents = pst->u32TxLostEvents + 1UL;
+    return 1U;
+}
+
+Uint16 ModbusRtuLoadReply(ST_MB_INSTANCE *pst, const Uint16 *pu16Frame, Uint16 u16Len)
+{
+    Uint16 u16Idx;
+
+    if ((pst == (ST_MB_INSTANCE *)0) || (pu16Frame == (const Uint16 *)0) ||
+        (u16Len == 0U) || (u16Len > MB_TX_BUF_SIZE) || (pst->u16TxLen != 0U))
+    {
+        return 0U;
+    }
+    for (u16Idx = 0U; u16Idx < u16Len; u16Idx++)
+    {
+        pst->au16TxBuf[u16Idx] = (Uint16)(pu16Frame[u16Idx] & 0xFFU);
+    }
+    pst->u16TxLen = u16Len;
+    pst->u16TxOffset = 0U;
+    pst->u16TxLost = 0U;
     return 1U;
 }

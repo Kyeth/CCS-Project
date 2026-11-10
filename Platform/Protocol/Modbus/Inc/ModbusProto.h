@@ -25,5 +25,28 @@ Uint32 ModbusProtoRxFrames(Uint16 u16Index);
 Uint32 ModbusProtoTxSubmitted(Uint16 u16Index);
 Uint32 ModbusProtoTxLostEvents(Uint16 u16Index);
 Uint32 ModbusProtoRxDropped(Uint16 u16Index);
+Uint32 ModbusProtoRxBacklog(Uint16 u16Index);
+
+/*
+ * 协议切换入口（ARM 升级）：候选帧起点匹配前 6 字节后回调，命中时本层把端口
+ * 交给 Xmodem。这个特例不校验后续数据与 CRC，普通 Modbus 请求仍按原规则校验。
+ */
+#define MB_ARM_PREFIX_LEN       (6U)
+#define MB_ARM_REPLY_MAX        (16U)
+
+/**
+ * @brief ARM 升级入口回调。
+ * @param pu16Prefix 匹配到的 6 个起始字节
+ * @param pu16Reply  命中时由回调填写握手回复
+ * @return >0 = 握手回复字节数（发送完成后交接端口）；0 = 不是升级命令
+ */
+typedef Uint16 (*MB_ARM_HOOK)(void *pCtx, const Uint16 *pu16Prefix, Uint16 u16PrefixLen,
+                              Uint16 *pu16Reply, Uint16 u16ReplyMax);
+
+void ModbusProtoSetArmHook(void *pCtx, MB_ARM_HOOK pfHook);
+/** 1 = 该端口已交给升级协议，本层不再收发。 */
+Uint16 ModbusProtoArmActive(Uint16 u16Index);
+/** 升级结束后交还端口，本层从找帧头重新开始。 */
+void ModbusProtoArmRelease(Uint16 u16Index);
 
 #endif /* MODBUS_PROTO_H */

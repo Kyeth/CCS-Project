@@ -3,11 +3,12 @@
  * @brief 05D 主机测试：Modbus RTU 从机（组帧/CRC/点表/类型/异常应答）。
  *
  * 编译（主机 cc，不接 SciPort）：
- *   cc -std=c99 -Wall -Wextra -ITest/shim -I../Inc -I../Modbus/Inc \
+ *   cc -std=c99 -Wall -Wextra -I../../Port/Test/shim -I../Inc -I../Modbus/Inc \
  *      modbus_stub_test.c ../Modbus/Src/ModbusRtu.c ../Modbus/Src/ModbusTbl.c \
  *      -o modbus_stub_test
  *
- * 只覆盖协议核心与点表，不覆盖 SciPort 适配层（那部分由 05A/05B 桩覆盖）。
+ * 覆盖协议核心与点表；SciPort 适配层由同目录 modbus_proto_stub_test.c 覆盖。
+ * 时标语义：Timer0 向下计数，所以"过去多久"= (Uint32)(last - now)。
  */
 
 #include <stdio.h>
@@ -74,12 +75,13 @@ static Uint16 BuildFrame(Uint16 *pu16Out, const Uint16 *pu16Body, Uint16 u16Body
     return (Uint16)(u16BodyLen + 2U);
 }
 
+/* 向下计数：批次观察在 u32Tick，静默之后现在读数更小（少了 110 tick）。 */
 static void Deliver(ST_MB_INSTANCE *pst, const Uint16 *pu16Frame, Uint16 u16Len)
 {
     Uint32 u32Tick = 1000UL;
 
     (void)ModbusRtuFeed(pst, pu16Frame, u16Len, u32Tick, 1U);
-    (void)ModbusRtuPoll(pst, u32Tick + 1000UL, 1U);
+    (void)ModbusRtuPoll(pst, u32Tick - 110UL, 1U);
 }
 
 /* ================= S-05D-01 CRC 与组帧 ================= */
@@ -159,6 +161,24 @@ static void TestTypedAccess(void)
     Check(ModbusTblWrite(s_astTbl, TBL_COUNT, 0x0003U, 2U, au16In) == MB_EX_NONE, "S-05D-03 写 float 成功");
     Check((s_fReg34 > -50.01f) && (s_fReg34 < -49.99f), "S-05D-03 float -50 解码");
 
+    /* 反向：写 12.5 的位模式，读回也要是 12.5（不是 12） */
+    au16In[0] = 0x4148U;
+    au16In[1] = 0x0000U;
+    Check(ModbusTblWrite(s_astTbl, TBL_COUNT, 0x0003U, 2U, au16In) == MB_EX_NONE,
+          "S-05D-03 写 float 12.5 成功");
+    Check((s_fReg34 > 12.49f) && (s_fReg34 < 12.51f), "S-05D-03 float 12.5 写回正确");
+
+    /* NaN 与 Inf 不接受写入 */
+    au16In[0] = 0x7FC0U;
+    au16In[1] = 0x0000U;
+    Check(ModbusTblWrite(s_astTbl, TBL_COUNT, 0x0003U, 2U, au16In) == MB_EX_ILLEGAL_VALUE,
+          "S-05D-03 NaN 写 -> 0x03");
+    au16In[0] = 0x7F80U;   /* +Inf */
+    au16In[1] = 0x0000U;
+    Check(ModbusTblWrite(s_astTbl, TBL_COUNT, 0x0003U, 2U, au16In) == MB_EX_ILLEGAL_VALUE,
+          "S-05D-03 Inf 写 -> 0x03");
+    Check((s_fReg34 > 12.49f) && (s_fReg34 < 12.51f), "S-05D-03 NaN/Inf 没有改值");
+
     /* 单寄存器读写 */
     au16In[0] = 0x00FFU;
     Check(ModbusTblWrite(s_astTbl, TBL_COUNT, 0x0000U, 1U, au16In) == MB_EX_NONE, "S-05D-03 写 Uint16 成功");
@@ -204,8 +224,8 @@ static void TestAccessLimits(void)
     /* 数量越界 */
     Check(ModbusTblRead(s_astTbl, TBL_COUNT, 0x0000U, 0U, au16Out) == MB_EX_ILLEGAL_VALUE,
           "S-05D-04 数量 0 -> 0x03");
-    Check(ModbusTblRead(s_astTbl, TBL_COUNT, 0x0000U, 33U, au16Out) == MB_EX_ILLEGAL_VALUE,
-          "S-05D-04 数量 33 -> 0x03");
+    Check(ModbusTblRead(s_astTbl, TBL_COUNT, 0x0000U, 65U, au16Out) == MB_EX_ILLEGAL_VALUE,
+          "S-05D-04 数量 65 -> 0x03");
 }
 
 /* ================= S-05D-05 帧级行为 ================= */
@@ -349,6 +369,91 @@ static void TestFrames(void)
     Check(ModbusRtuDiscardReply(&s_stMb) == 0U, "S-05D-05 无回复时作废返回 0");
 }
 
+/* ================= S-05D-06 倒计时与零时标 ================= */
+
+static void TestTiming(void)
+{
+    Uint16 au16Body[16];
+    Uint16 u16Len;
+
+    /* t35 = 100 tick；只过去 20 tick 不能确认帧结束 */
+    MbSetUp();
+    au16Body[0] = 0x01U; au16Body[1] = 0x03U;
+    au16Body[2] = 0x00U; au16Body[3] = 0x00U;
+    au16Body[4] = 0x00U; au16Body[5] = 0x01U;
+    u16Len = BuildFrame(s_au16Frame, au16Body, 6U);
+    (void)ModbusRtuFeed(&s_stMb, s_au16Frame, u16Len, 1000000UL, 1U);
+    (void)ModbusRtuPoll(&s_stMb, 999980UL, 1U);
+    Check((s_stMb.u32RxFrames == 0UL) && (s_stMb.u16TxLen == 0U),
+          "S-05D-06 静默不足不执行");
+    (void)ModbusRtuPoll(&s_stMb, 999800UL, 1U);
+    Check(s_stMb.u32RxFrames == 1UL, "S-05D-06 静默足够才执行");
+
+    /* 批次时标 0 是有效值；跨 0 回绕同样按差值算 */
+    MbSetUp();
+    u16Len = BuildFrame(s_au16Frame, au16Body, 6U);
+    (void)ModbusRtuFeed(&s_stMb, s_au16Frame, u16Len, 0UL, 1U);
+    (void)ModbusRtuPoll(&s_stMb, 0xFFFFF000UL, 1U);   /* 过去 0x1000 tick */
+    Check(s_stMb.u32RxFrames == 1UL, "S-05D-06 时标 0 有效且回绕正确");
+}
+
+/* ================= S-05D-07 积压双帧 ================= */
+
+static void TestBacklogFrames(void)
+{
+    Uint16 au16Body[16];
+    Uint16 u16Len;
+
+    MbSetUp();
+    s_u16Reg0 = 0x1234U;
+    au16Body[0] = 0x01U; au16Body[1] = 0x03U;
+    au16Body[2] = 0x00U; au16Body[3] = 0x00U;
+    au16Body[4] = 0x00U; au16Body[5] = 0x01U;
+    u16Len = BuildFrame(s_au16Frame, au16Body, 6U);
+
+    (void)ModbusRtuFeed(&s_stMb, s_au16Frame, u16Len, 1000UL, 1U);
+    Check(s_stMb.u16State == MB_RX_COMPLETE, "S-05D-07 首批到齐等边界");
+    Check(s_stMb.u32RxFrames == 0UL, "S-05D-07 没有静默不执行");
+
+    /* 第二批紧跟着来：靠"又来字节"确认上一帧，不靠静默 */
+    (void)ModbusRtuFeed(&s_stMb, s_au16Frame, 1U, 1000UL, 1U);
+    Check(s_stMb.u32RxFrames == 1UL, "S-05D-07 下一帧起点即确认上一帧");
+    Check(s_stMb.u16TxLen == 7U, "S-05D-07 第一帧生成回复");
+    Check(s_stMb.u16RxLen == 1U, "S-05D-07 新字节成为下一帧起点");
+
+    (void)ModbusRtuFeed(&s_stMb, &s_au16Frame[1], (Uint16)(u16Len - 1U), 1000UL, 1U);
+    (void)ModbusRtuConsumeReply(&s_stMb, s_stMb.u16TxLen);
+    (void)ModbusRtuPoll(&s_stMb, 800UL, 1U);
+    Check(s_stMb.u32RxFrames == 2UL, "S-05D-07 两帧都执行");
+    Check(s_stMb.u32TxSubmitted == 2UL, "S-05D-07 两条回复都提交");
+}
+
+/* ================= S-05D-08 回复忙不覆盖 ================= */
+
+static void TestReplyBusy(void)
+{
+    Uint16 au16Body[16];
+    Uint16 u16Len;
+
+    MbSetUp();
+    au16Body[0] = 0x01U; au16Body[1] = 0x06U;
+    au16Body[2] = 0x00U; au16Body[3] = 0x00U;
+    au16Body[4] = 0x0AU; au16Body[5] = 0x0AU;
+    u16Len = BuildFrame(s_au16Frame, au16Body, 6U);
+    Deliver(&s_stMb, s_au16Frame, u16Len);
+    Check((s_u16Reg0 == 0x0A0AU) && (s_stMb.u16TxLen == 8U), "S-05D-08 第一条执行并占住缓冲");
+
+    /* 回复还没提交完，第二条写请求必须丢弃而不是覆盖缓冲 */
+    au16Body[4] = 0x0BU; au16Body[5] = 0x0BU;
+    u16Len = BuildFrame(s_au16Frame, au16Body, 6U);
+    (void)ModbusRtuFeed(&s_stMb, s_au16Frame, u16Len, 1000UL, 1U);
+    (void)ModbusRtuPoll(&s_stMb, 800UL, 1U);
+    Check(s_u16Reg0 == 0x0A0AU, "S-05D-08 回复忙不执行新写");
+    Check(s_stMb.u32RxIgnored == 1UL, "S-05D-08 丢弃有计数");
+    Check((s_stMb.u16TxLen == 8U) && (s_stMb.au16TxBuf[4] == 0x0AU),
+          "S-05D-08 回复缓冲未被覆盖");
+}
+
 int main(void)
 {
     TestCrc();
@@ -356,6 +461,9 @@ int main(void)
     TestTypedAccess();
     TestAccessLimits();
     TestFrames();
+    TestTiming();
+    TestBacklogFrames();
+    TestReplyBusy();
 
     printf("checks=%d fails=%d\n", s_iChecks, s_iFails);
 

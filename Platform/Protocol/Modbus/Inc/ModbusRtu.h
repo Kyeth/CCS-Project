@@ -6,9 +6,9 @@
  * 不持有硬件状态。字节从端口层经 ModbusSci 送进来，回复写回实例的 au16TxBuf。
  *
  * 支持的功能码（第一版）：
- *   0x03 读保持寄存器（1..32 个）
+ *   0x03 读保持寄存器（1..64 个）
  *   0x06 写单寄存器
- *   0x10 写多个寄存器（1..32 个）
+ *   0x10 写多个寄存器（1..64 个）
  * 其余功能码返回异常 0x01。
  */
 
@@ -17,9 +17,9 @@
 
 #include "F2837xS_device.h"
 
-#define MB_MAX_REGISTERS        (32U)    /* 单次最多操作的寄存器数 */
+#define MB_MAX_REGISTERS        (64U)    /* 单次最多操作的寄存器数（5000..5036 需 37） */
 #define MB_RX_BUF_SIZE          (256U)   /* 每实例接收缓冲（1 单元 = 1 线上字节） */
-#define MB_TX_BUF_SIZE          (128U)   /* 每实例回复缓冲（0x03 读 32 个 = 69 字节） */
+#define MB_TX_BUF_SIZE          (144U)   /* 每实例回复缓冲（0x03 读 64 个 = 133 字节） */
 
 #define MB_FRAME_TIMEOUT_MS     (100UL)  /* 候选帧超时：超过即丢弃 */
 
@@ -116,5 +116,11 @@ Uint16 ModbusRtuConsumeReply(ST_MB_INSTANCE *pst, Uint16 u16Accepted);
 
 /** 强制复位事件：作废尚未提交完的回复（不自动重发），返回 1 表示确有待发回复被作废。 */
 Uint16 ModbusRtuDiscardReply(ST_MB_INSTANCE *pst);
+
+/**
+ * @brief 直接装载一段已编码好的回复（用于协议切换握手）。
+ * @return 1 = 已装载；0 = 参数错或已有待发回复（不覆盖）
+ */
+Uint16 ModbusRtuLoadReply(ST_MB_INSTANCE *pst, const Uint16 *pu16Frame, Uint16 u16Len);
 
 #endif /* MODBUS_RTU_H */
