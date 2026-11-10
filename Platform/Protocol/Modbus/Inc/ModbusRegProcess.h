@@ -1,6 +1,6 @@
 /**
  * @file ModbusRegProcess.h
- * @author hanyuhang (008467)
+ * @author yetingheng (004182)
  * @brief 
  * @version 0.1
  * @date 2025-06-26
@@ -195,7 +195,8 @@ extern int16 LoadRegValFromMdsMsg(Uint16 *pu16DataBuff, ST_REG_SLAVE_ITEM *pstSr
  *                  0：值超限
  *                  1：成功
  */
-extern int16 SetRegValByType(ST_REG_SLAVE_ITEM *pstRegDrc, ST_REG_SLAVE_ITEM *pstRegSrc);
+extern int16 CheckRegValByType(const ST_REG_SLAVE_ITEM *pstRegDrc, const ST_REG_SLAVE_ITEM *pstRegSrc);
+int16 SetRegValByType(ST_REG_SLAVE_ITEM *pstRegDrc, ST_REG_SLAVE_ITEM *pstRegSrc);
 
 #ifdef __cplusplus
 }

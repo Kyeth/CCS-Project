@@ -1,6 +1,6 @@
 /**
  * @file ModbusRegProcess.c
- * @author hanyuhang(008467)
+ * @author yetingheng (004182)
  * @brief 
  * @version 0.1
  * @date 2025-06-06
@@ -284,15 +284,31 @@ int16 LoadRegValFromMdsMsg(Uint16 *pu16DataBuff, ST_REG_SLAVE_ITEM *pstSrcRegVal
  *                  0：值超限
  *                  1：成功
  */
-int16 SetRegValByType(ST_REG_SLAVE_ITEM *pstRegDrc, ST_REG_SLAVE_ITEM *pstRegSrc)
+/**
+ * @brief CheckRegValByType
+ *          只做限值判断，不写目标寄存器。写多条命令要先整段验过再提交，
+ *          靠它做“试算”。
+ *
+ * @param pstRegDrc - 目标寄存器
+ * @param pstRegSrc - 源寄存器（待写入的值）
+ * @return int16 -  -1：入参异常
+ *                  -2：目标寄存器上下限属性配置异常
+ *                  -3：目标寄存器值类型配置异常
+ *                  0：值超限
+ *                  1：在限值范围内
+ */
+int16 CheckRegValByType(const ST_REG_SLAVE_ITEM *pstRegDrc, const ST_REG_SLAVE_ITEM *pstRegSrc)
 {
     int16 i16Ret = 0;
+
     if ((pstRegDrc == NULL) || (pstRegSrc == NULL))
     {
         return -1;
     }
 
-    if ((int64)pstRegDrc->i32DownLimitVal > pstRegDrc->u32UpLimitVal)
+    /* 下限是有符号数、上限是无符号数，必须按同一宽度比较：直接拿有符号负数去和
+     * 无符号数比，会被提升成一个巨大的正值，负下限的点永远判超限。 */
+    if ((int64)pstRegDrc->i32DownLimitVal > (int64)pstRegDrc->u32UpLimitVal)
     {
         return -2;
     }
@@ -300,67 +316,128 @@ int16 SetRegValByType(ST_REG_SLAVE_ITEM *pstRegDrc, ST_REG_SLAVE_ITEM *pstRegSrc
     switch (pstRegDrc->bValType)
     {
         case TYPE_UINT8:
-            if ((pstRegSrc->puRegVal->u8Val <= pstRegDrc->u32UpLimitVal) && (pstRegSrc->puRegVal->u8Val >= pstRegDrc->i32DownLimitVal))
+            if ((pstRegSrc->puRegVal->u8Val <= pstRegDrc->u32UpLimitVal) &&
+                ((int64)pstRegSrc->puRegVal->u8Val >= (int64)pstRegDrc->i32DownLimitVal))
             {
-                pstRegDrc->puRegVal->u8Val = pstRegSrc->puRegVal->u8Val;
                 i16Ret = 1;
             }
             break;
 
         case TYPE_INT8:
-            if ((pstRegSrc->puRegVal->i8Val <= (int32)pstRegDrc->u32UpLimitVal) && (pstRegSrc->puRegVal->i8Val >= pstRegDrc->i32DownLimitVal))
+            if (((int64)pstRegSrc->puRegVal->i8Val <= (int64)pstRegDrc->u32UpLimitVal) &&
+                ((int64)pstRegSrc->puRegVal->i8Val >= (int64)pstRegDrc->i32DownLimitVal))
             {
-                pstRegDrc->puRegVal->i8Val = pstRegSrc->puRegVal->i8Val;
                 i16Ret = 1;
             }
             break;
 
         case TYPE_UINT16:
-            if ((pstRegSrc->puRegVal->u16Val <= pstRegDrc->u32UpLimitVal) && (pstRegSrc->puRegVal->u16Val >= pstRegDrc->i32DownLimitVal))
+            if ((pstRegSrc->puRegVal->u16Val <= pstRegDrc->u32UpLimitVal) &&
+                ((int64)pstRegSrc->puRegVal->u16Val >= (int64)pstRegDrc->i32DownLimitVal))
             {
-                pstRegDrc->puRegVal->u16Val = pstRegSrc->puRegVal->u16Val;
                 i16Ret = 1;
             }
             break;
 
         case TYPE_INT16:
-            if ((pstRegSrc->puRegVal->i16Val <= (int32)pstRegDrc->u32UpLimitVal) && (pstRegSrc->puRegVal->i16Val >= pstRegDrc->i32DownLimitVal))
+            if (((int64)pstRegSrc->puRegVal->i16Val <= (int64)pstRegDrc->u32UpLimitVal) &&
+                ((int64)pstRegSrc->puRegVal->i16Val >= (int64)pstRegDrc->i32DownLimitVal))
             {
-                pstRegDrc->puRegVal->i16Val = pstRegSrc->puRegVal->i16Val;
                 i16Ret = 1;
             }
             break;
 
         case TYPE_UINT32:
-            if ((pstRegSrc->puRegVal->u32Val <= pstRegDrc->u32UpLimitVal) && (pstRegSrc->puRegVal->u32Val >= (int64)pstRegDrc->i32DownLimitVal))
+            if (((int64)pstRegSrc->puRegVal->u32Val <= (int64)pstRegDrc->u32UpLimitVal) &&
+                ((int64)pstRegSrc->puRegVal->u32Val >= (int64)pstRegDrc->i32DownLimitVal))
             {
-                pstRegDrc->puRegVal->u32Val = pstRegSrc->puRegVal->u32Val;
                 i16Ret = 1;
             }
             break;
 
         case TYPE_INT32:
-            if (((int64)pstRegSrc->puRegVal->i32Val <= pstRegDrc->u32UpLimitVal) && (pstRegSrc->puRegVal->i32Val >= (int32)pstRegDrc->i32DownLimitVal))
+            if (((int64)pstRegSrc->puRegVal->i32Val <= (int64)pstRegDrc->u32UpLimitVal) &&
+                ((int64)pstRegSrc->puRegVal->i32Val >= (int64)pstRegDrc->i32DownLimitVal))
             {
-                pstRegDrc->puRegVal->i32Val = pstRegSrc->puRegVal->i32Val;
                 i16Ret = 1;
             }
             break;
 
         case TYPE_FLOAT:
-            // 浮点数不能直接比较需要转化成整数
-            if (((int64)pstRegSrc->puRegVal->fVal <= pstRegDrc->u32UpLimitVal) && ((int64)pstRegSrc->puRegVal->fVal >= pstRegDrc->i32DownLimitVal))
+            /* 浮点数不能直接比较需要转化成整数 */
+            if (((int64)pstRegSrc->puRegVal->fVal <= (int64)pstRegDrc->u32UpLimitVal) &&
+                ((int64)pstRegSrc->puRegVal->fVal >= (int64)pstRegDrc->i32DownLimitVal))
             {
-                pstRegDrc->puRegVal->fVal = pstRegSrc->puRegVal->fVal;
                 i16Ret = 1;
             }
             break;
+
         default :
             i16Ret = -3;
             break;
     }
 
     return i16Ret;
+}
+
+
+/**
+ * @brief SetRegValByType
+ *          寄存器值赋值
+ * 
+ * @param pstRegDrc - 目标寄存器
+ * @param pstRegSrc - 源寄存器
+ * @return int16 -  -1：入参异常
+ *                  -2：目标寄存器上下限属性配置异常
+ *                  -3：目标寄存器值类型配置异常
+ *                  0：值超限
+ *                  1：成功
+ */
+int16 SetRegValByType(ST_REG_SLAVE_ITEM *pstRegDrc, ST_REG_SLAVE_ITEM *pstRegSrc)
+{
+    int16 i16Ret = CheckRegValByType(pstRegDrc, pstRegSrc);
+
+    if (i16Ret != 1)
+    {
+        /* 入参/配置/超限一律原样上报，只有 1 才允许落地 */
+        return i16Ret;
+    }
+
+    switch (pstRegDrc->bValType)
+    {
+        case TYPE_UINT8:
+            pstRegDrc->puRegVal->u8Val = pstRegSrc->puRegVal->u8Val;
+            break;
+
+        case TYPE_INT8:
+            pstRegDrc->puRegVal->i8Val = pstRegSrc->puRegVal->i8Val;
+            break;
+
+        case TYPE_UINT16:
+            pstRegDrc->puRegVal->u16Val = pstRegSrc->puRegVal->u16Val;
+            break;
+
+        case TYPE_INT16:
+            pstRegDrc->puRegVal->i16Val = pstRegSrc->puRegVal->i16Val;
+            break;
+
+        case TYPE_UINT32:
+            pstRegDrc->puRegVal->u32Val = pstRegSrc->puRegVal->u32Val;
+            break;
+
+        case TYPE_INT32:
+            pstRegDrc->puRegVal->i32Val = pstRegSrc->puRegVal->i32Val;
+            break;
+
+        case TYPE_FLOAT:
+            pstRegDrc->puRegVal->fVal = pstRegSrc->puRegVal->fVal;
+            break;
+
+        default :
+            return -3;
+    }
+
+    return 1;
 }
 
 #ifdef __cplusplus

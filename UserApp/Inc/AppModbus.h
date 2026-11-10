@@ -31,6 +31,8 @@ Uint32 AppModbusTxFrames(Uint16 u16Port);
 
 /** 诊断：该端口因缓冲装不下或端口不在接收态而丢弃的字节数。 */
 Uint32 AppModbusRxDropped(Uint16 u16Port);
+Uint32 AppModbusTxDropped(Uint16 u16Port);
+Uint32 AppModbusCallBacks(Uint16 u16Port);
 
 /** 诊断：协议层实例（只读）。 */
 const ST_PROTO_INSTANCE *AppModbusInstance(Uint16 u16Index);

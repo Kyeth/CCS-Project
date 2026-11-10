@@ -16,5 +16,6 @@ typedef uint16_t Uint16;
 typedef uint32_t Uint32;
 typedef int16_t int16;
 typedef int32_t int32;
+typedef long long int64;
 
 #endif /* F2837XS_DEVICE_SHIM_H */
