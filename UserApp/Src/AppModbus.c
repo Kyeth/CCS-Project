@@ -25,12 +25,16 @@ static const Uint16 s_u16Zero = 0U;
 static const Uint16 s_au16Reserved0[25] = { 0U };
 
 /* 5035/5036：版本寄存器（只读）。 */
-static const Uint16 s_u16AppVersion = 0x0100U;   /* 5035：协议层版本 1.00 */
-static const Uint16 s_u16AppBuild   = 0x0001U;   /* 5036：构建号 */
+/* 5035/5036：项目版本 503900 = 0x0007B05C，按高字在前占两个寄存器。 */
+static const Uint16 s_u16AppVersion = 0x0007U;   /* 5035：高字 */
+static const Uint16 s_u16AppBuild   = 0xB05CU;   /* 5036：低字 */
 
-/* ARM 升级握手回复：按 ARM 侧约定填写；长度 0 表示暂不接管端口。 */
-static Uint16 s_au16ArmReply[MB_ARM_REPLY_MAX];
-static Uint16 s_u16ArmReplyLen = 0U;
+/* ARM 升级握手回复：01 10 04 38 00 02 C1 35（CRC 已按该请求算好）。 */
+static const Uint16 s_au16ArmReply[8] = {
+    0x01U, 0x10U, 0x04U, 0x38U, 0x00U, 0x02U, 0xC1U, 0x35U
+};
+#define APP_MB_ARM_REPLY_LEN   (8U)
+#define APP_MB_ARM_SCI_ID      (HW_SCI_ID_A)   /* 暂定 SCI-A 作为升级端口，待确认 */
 
 /* 一张点表：地址严格递增、32 位项占两个寄存器（高字在前）。 */
 #define APP_MB_VER_POINT(addr, pvar)                                                           \
@@ -102,8 +106,8 @@ static Uint32 AppMbBaudOf(Uint16 u16SciId);
  * @brief ARM 升级握手入口。
  *
  * 命中 6 字节起始模式后由协议层调用；返回握手回复长度即表示接管端口。
- * 目前 s_u16ArmReplyLen 为 0：入口已就位，但握手字节要等 ARM 侧约定确认后
- * 填进 s_au16ArmReply 再置长度，避免凭猜测定义线上格式。
+ * 握手内容已确定：请求 01 10 04 38 00 02，回复 01 10 04 38 00 02 C1 35。
+ * 交接时机（握手全部入环、硬件发完）由协议层负责。
  */
 static Uint16 AppMbArmHook(void *pCtx, const Uint16 *pu16Prefix, Uint16 u16PrefixLen,
                            Uint16 *pu16Reply, Uint16 u16ReplyMax)
@@ -111,19 +115,17 @@ static Uint16 AppMbArmHook(void *pCtx, const Uint16 *pu16Prefix, Uint16 u16Prefi
     Uint16 u16Idx;
 
     (void)pCtx;
-    if ((pu16Prefix == (const Uint16 *)0) || (pu16Reply == (Uint16 *)0)) {
+    (void)pu16Prefix;   /* 前缀已由协议层逐字节匹配，这里只回握手 */
+    if (pu16Reply == (Uint16 *)0) {
         return 0U;
     }
-    if (u16PrefixLen != MB_ARM_PREFIX_LEN) {
+    if ((u16PrefixLen != MB_ARM_PREFIX_LEN) || (u16ReplyMax < APP_MB_ARM_REPLY_LEN)) {
         return 0U;
     }
-    if ((s_u16ArmReplyLen == 0U) || (s_u16ArmReplyLen > u16ReplyMax)) {
-        return 0U;   /* 还没约定握手字节：不接管端口 */
-    }
-    for (u16Idx = 0U; u16Idx < s_u16ArmReplyLen; u16Idx++) {
+    for (u16Idx = 0U; u16Idx < APP_MB_ARM_REPLY_LEN; u16Idx++) {
         pu16Reply[u16Idx] = s_au16ArmReply[u16Idx];
     }
-    return s_u16ArmReplyLen;
+    return APP_MB_ARM_REPLY_LEN;
 }
 
 void AppModbusInit(void)
@@ -141,7 +143,7 @@ void AppModbusInit(void)
     }
 
     /* ARM 升级入口：候选帧起点匹配 01 10 04 38 00 02 时交给升级流程。 */
-    ModbusProtoSetArmHook((void *)0, AppMbArmHook);
+    ModbusProtoSetArmHook(APP_MB_ARM_SCI_ID, (void *)0, AppMbArmHook);
 
     for (u16Index = 0U; u16Index < APP_MB_PORTS; u16Index++) {
         ST_PROTO_INSTANCE *pstCfg = &s_astProtoCfg[u16Index];

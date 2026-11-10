@@ -224,6 +224,8 @@ static void TestAccessLimits(void)
     /* 数量越界 */
     Check(ModbusTblRead(s_astTbl, TBL_COUNT, 0x0000U, 0U, au16Out) == MB_EX_ILLEGAL_VALUE,
           "S-05D-04 数量 0 -> 0x03");
+    Check(ModbusTblRead(s_astTbl, TBL_COUNT, 0x0000U, 61U, au16Out) == MB_EX_ILLEGAL_VALUE,
+          "S-05D-04 数量 61 -> 0x03");
     Check(ModbusTblRead(s_astTbl, TBL_COUNT, 0x0000U, 65U, au16Out) == MB_EX_ILLEGAL_VALUE,
           "S-05D-04 数量 65 -> 0x03");
 }
@@ -415,17 +417,20 @@ static void TestBacklogFrames(void)
     Check(s_stMb.u16State == MB_RX_COMPLETE, "S-05D-07 首批到齐等边界");
     Check(s_stMb.u32RxFrames == 0UL, "S-05D-07 没有静默不执行");
 
-    /* 第二批紧跟着来：靠"又来字节"确认上一帧，不靠静默 */
+    /* 同一时刻又来一个字节：新字节本身不能证明上一帧已经结束。 */
     (void)ModbusRtuFeed(&s_stMb, s_au16Frame, 1U, 1000UL, 1U);
-    Check(s_stMb.u32RxFrames == 1UL, "S-05D-07 下一帧起点即确认上一帧");
-    Check(s_stMb.u16TxLen == 7U, "S-05D-07 第一帧生成回复");
+    Check(s_stMb.u32RxFrames == 0UL, "S-05D-07 同批次新字节不算静默");
+    Check(s_stMb.u32RxDropped != 0UL, "S-05D-07 丢弃候选有计数");
     Check(s_stMb.u16RxLen == 1U, "S-05D-07 新字节成为下一帧起点");
 
-    (void)ModbusRtuFeed(&s_stMb, &s_au16Frame[1], (Uint16)(u16Len - 1U), 1000UL, 1U);
+    /* 前缀在途：补齐这一帧，再用足够的静默确认它。 */
+    (void)ModbusRtuFeed(&s_stMb, &s_au16Frame[1], (Uint16)(u16Len - 1U), 2000UL, 1U);
+    Check(s_stMb.u16State == MB_RX_COMPLETE, "S-05D-07 补齐后到达长度");
+    (void)ModbusRtuPoll(&s_stMb, 1900UL, 1U);
+    Check(s_stMb.u32RxFrames == 1UL, "S-05D-07 静默足够才执行");
+    Check(s_stMb.u16TxLen == 7U, "S-05D-07 生成 7 字节回复");
     (void)ModbusRtuConsumeReply(&s_stMb, s_stMb.u16TxLen);
-    (void)ModbusRtuPoll(&s_stMb, 800UL, 1U);
-    Check(s_stMb.u32RxFrames == 2UL, "S-05D-07 两帧都执行");
-    Check(s_stMb.u32TxSubmitted == 2UL, "S-05D-07 两条回复都提交");
+    Check(s_stMb.u32TxSubmitted == 1UL, "S-05D-07 回复已提交");
 }
 
 /* ================= S-05D-08 回复忙不覆盖 ================= */

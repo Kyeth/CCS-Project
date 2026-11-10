@@ -1118,6 +1118,27 @@ Uint16 SciPortIsTxSuspended(Uint16 u16PortId)
     return (p == (ST_SCI_PORT *)0) ? 1U : p->bTxSuspended;
 }
 
+Uint16 SciPortIsTxIdle(Uint16 u16PortId)
+{
+    ST_SCI_PORT *p = SciPortFind(u16PortId);
+    Uint16 u16Idle = 0U;
+
+    if ((p == (ST_SCI_PORT *)0) || (p->pstDrv == (const ST_SCI_PORT_DRV *)0))
+    {
+        return 0U;
+    }
+    if (RingBuffUsed(&p->stTxRing) != 0U)
+    {
+        return 0U;
+    }
+    /* 查询失败按“不空闲”处理：协议交接不能在状态不明时推进。 */
+    if (p->pstDrv->pfIsTxIdle(p->u16PortId, &u16Idle) == 0U)
+    {
+        return 0U;
+    }
+    return (u16Idle != 0U) ? 1U : 0U;
+}
+
 Uint16 SciPortTxResetQueue(Uint16 u16PortId)
 {
     ST_SCI_PORT *p = SciPortFind(u16PortId);

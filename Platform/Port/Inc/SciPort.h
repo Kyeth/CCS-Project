@@ -216,6 +216,9 @@ Uint16 SciPortTxResume(Uint16 u16PortId);
 Uint16 SciPortTxResetQueue(Uint16 u16PortId);
 Uint32 SciPortTxResetDrop(Uint16 u16PortId);
 
+/** 1 = 软件 TX 环与硬件发送器都已空闲（协议交接用）。 */
+Uint16 SciPortIsTxIdle(Uint16 u16PortId);
+
 /* 重同步（纯软件）：清两环、序号、观察记录与时间基准，并让 ISR 丢弃 FIFO 残留。
  * 在恢复流程中调用按“合并”处理：只重做软件失效，不改恢复状态与阶段。 */
 void SciPortResync(Uint16 u16PortId);

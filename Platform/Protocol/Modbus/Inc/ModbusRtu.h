@@ -17,9 +17,10 @@
 
 #include "F2837xS_device.h"
 
-#define MB_MAX_REGISTERS        (64U)    /* 单次最多操作的寄存器数（5000..5036 需 37） */
+#define MB_MAX_REGISTERS        (60U)    /* 单次最多操作的寄存器数（5000..5036 需 37）；
+                                         * 读 60 个回复 125 字节，小于 TX 环有效容量 127 */
 #define MB_RX_BUF_SIZE          (256U)   /* 每实例接收缓冲（1 单元 = 1 线上字节） */
-#define MB_TX_BUF_SIZE          (144U)   /* 每实例回复缓冲（0x03 读 64 个 = 133 字节） */
+#define MB_TX_BUF_SIZE          (144U)   /* 每实例回复缓冲（0x03 读 60 个 = 125 字节） */
 
 #define MB_FRAME_TIMEOUT_MS     (100UL)  /* 候选帧超时：超过即丢弃 */
 
@@ -110,6 +111,9 @@ void ModbusRtuOnStreamBreak(ST_MB_INSTANCE *pst);
 
 /** 1 = 有回复待提交。 */
 Uint16 ModbusRtuHasReply(const ST_MB_INSTANCE *pst);
+
+/** 1 = 正在找帧头（没有未完成的候选帧）。 */
+Uint16 ModbusRtuIsHunting(const ST_MB_INSTANCE *pst);
 
 /** 提交进度：u16Accepted 为本次被端口接受的字节数；1 = 全部入环。 */
 Uint16 ModbusRtuConsumeReply(ST_MB_INSTANCE *pst, Uint16 u16Accepted);

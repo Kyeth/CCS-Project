@@ -8,8 +8,11 @@
  *      modbus_proto_stub_test.c ../Modbus/Src/ModbusProto.c \
  *      ../Modbus/Src/ModbusRtu.c ../Modbus/Src/ModbusTbl.c -o modbus_proto_stub_test
  *
- * 时标语义：Timer0 向下计数，"过去多久" = (Uint32)(last - now)，替身同向。
- * 流水线：RX 阶段消费与执行（回复在此装载）→ 下一次调用的 TX 阶段才入端口环。
+ * 替身按真实接口建模：
+ *   - SciPortPopBatch() 一次返回"一条批次记录"，记录带自己的长度与观察时标；
+ *     单条记录装不进 u16Max 时返回 0（真实接口同此语义）。
+ *   - SciPortWriteTx() 内部是 RingBuffWriteExact()：整批装不下就一个字节都不收。
+ *   - 时标为 Timer0 向下计数，"过去多久" = (Uint32)(last - now)。
  */
 
 #include <stdio.h>
@@ -57,20 +60,29 @@ static void Advance(Uint32 u32Ticks)
     s_u32Now = s_u32Now - u32Ticks;
 }
 
-/* ================= SciPort 替身 ================= */
+/* ================= SciPort 替身（批次记录队列） ================= */
 
-#define STUB_RX_DEPTH   (512U)
+#define STUB_SEG_BYTES  (16U)
+#define STUB_SEG_DEPTH  (96U)
 #define STUB_TX_DEPTH   (512U)
 
-static Uint16 s_au16Rx[STUB_RX_DEPTH];
-static Uint16 s_u16RxHead = 0U;
-static Uint16 s_u16RxTail = 0U;
+typedef struct {
+    Uint16 au16Data[STUB_SEG_BYTES];
+    Uint16 u16Len;
+    Uint32 u32Tick;          /* 该批次被观察到的时刻 */
+} ST_STUB_SEG;
+
+static ST_STUB_SEG s_astSeg[STUB_SEG_DEPTH];
+static Uint16 s_u16SegHead = 0U;
+static Uint16 s_u16SegTail = 0U;
+
 static Uint16 s_u16RxState = SCI_RX_IDLE;
 static Uint32 s_u32ForceResets = 0UL;
 static Uint16 s_u16Gen = 1U;
 static Uint16 s_u16StreamBreak = 0U;
 static Uint16 s_u16TxSuspended = 0U;
 static Uint16 s_u16TxFree = STUB_TX_DEPTH;
+static Uint16 s_u16TxIdle = 1U;
 static Uint16 s_au16Tx[STUB_TX_DEPTH];
 static Uint16 s_u16TxLen = 0U;
 static Uint16 s_u16PopCalls = 0U;
@@ -78,45 +90,68 @@ static Uint16 s_u16PopCalls = 0U;
 Uint16 SciPortPopBatch(Uint16 u16PortId, Uint16 *pu16Dst, Uint16 u16Max,
                        ST_SCI_RX_SEG *pstSeg)
 {
-    Uint16 u16Got = 0U;
+    ST_STUB_SEG *pstRec;
+    Uint16 u16Idx;
 
     (void)u16PortId;
     s_u16PopCalls++;
-    while ((u16Got < u16Max) && (s_u16RxHead < s_u16RxTail))
-    {
-        pu16Dst[u16Got] = s_au16Rx[s_u16RxHead];
-        s_u16RxHead++;
-        u16Got++;
-    }
+
     if (pstSeg != (ST_SCI_RX_SEG *)0)
     {
         pstSeg->u32Tick = s_u32Now;
         pstSeg->u32TickEmptyLast = s_u32Now;
         pstSeg->u16SeqStart = 0U;
-        pstSeg->u16Count = u16Got;
-        pstSeg->u16EmptyRounds = (u16Got == 0U) ? 1U : 0U;
+        pstSeg->u16Count = 0U;
+        pstSeg->u16EmptyRounds = 1U;
     }
-    return u16Got;
+    if (s_u16SegHead >= s_u16SegTail)
+    {
+        return 0U;                   /* 端口确实取空 */
+    }
+
+    pstRec = &s_astSeg[s_u16SegHead];
+    if (pstRec->u16Len > u16Max)
+    {
+        return 0U;                   /* 容量不足：真实接口也不拆段 */
+    }
+    for (u16Idx = 0U; u16Idx < pstRec->u16Len; u16Idx++)
+    {
+        pu16Dst[u16Idx] = pstRec->au16Data[u16Idx];
+    }
+    if (pstSeg != (ST_SCI_RX_SEG *)0)
+    {
+        pstSeg->u32Tick = pstRec->u32Tick;
+        pstSeg->u32TickEmptyLast = pstRec->u32Tick;
+        pstSeg->u16Count = pstRec->u16Len;
+        pstSeg->u16EmptyRounds = 0U;
+    }
+    s_u16SegHead++;
+    return pstRec->u16Len;
 }
 
 Uint16 SciPortWriteTx(Uint16 u16PortId, const Uint16 *pu16Data, Uint16 u16Count)
 {
-    Uint16 u16Accept = 0U;
+    Uint16 u16Idx;
 
     (void)u16PortId;
-    if (s_u16TxSuspended != 0U)
+    if ((s_u16TxSuspended != 0U) || (u16Count > s_u16TxFree))
     {
-        return 0U;
+        return 0U;                   /* RingBuffWriteExact：整批全有或全无 */
     }
-    while ((u16Accept < u16Count) && (s_u16TxFree != 0U) &&
-           (s_u16TxLen < STUB_TX_DEPTH))
+    for (u16Idx = 0U; u16Idx < u16Count; u16Idx++)
     {
-        s_au16Tx[s_u16TxLen] = pu16Data[u16Accept];
-        s_u16TxLen++;
-        s_u16TxFree--;
-        u16Accept++;
+        s_au16Tx[s_u16TxLen + u16Idx] = (Uint16)(pu16Data[u16Idx] & 0xFFU);
     }
-    return u16Accept;
+    s_u16TxLen = (Uint16)(s_u16TxLen + u16Count);
+    s_u16TxFree = (Uint16)(s_u16TxFree - u16Count);
+    s_u16TxIdle = 0U;
+    return u16Count;
+}
+
+Uint16 SciPortIsTxIdle(Uint16 u16PortId)
+{
+    (void)u16PortId;
+    return s_u16TxIdle;
 }
 
 Uint16 SciPortRxState(Uint16 u16PortId)
@@ -164,6 +199,11 @@ Uint16 SciPortTxResume(Uint16 u16PortId)
     return 1U;
 }
 
+static void StubTxDrain(void)
+{
+    s_u16TxIdle = 1U;                /* 软件环与硬件都发完了 */
+}
+
 /* ================= 点表：5000..5015 共 16 个 Uint16 ================= */
 
 #define PROTO_TBL_COUNT  (16U)
@@ -190,20 +230,47 @@ static void TableSetUp(void)
     }
 }
 
-static void PushBytes(const Uint16 *pu16Data, Uint16 u16Count)
+/* 一段记录入队：模拟真实端口"一次观察到一个短批次"。 */
+static void PushSeg(const Uint16 *pu16Data, Uint16 u16Count)
 {
+    ST_STUB_SEG *pstRec;
     Uint16 u16Idx;
 
+    pstRec = &s_astSeg[s_u16SegTail];
     for (u16Idx = 0U; u16Idx < u16Count; u16Idx++)
     {
-        s_au16Rx[s_u16RxTail] = (Uint16)(pu16Data[u16Idx] & 0xFFU);
-        s_u16RxTail++;
+        pstRec->au16Data[u16Idx] = (Uint16)(pu16Data[u16Idx] & 0xFFU);
+    }
+    pstRec->u16Len = u16Count;
+    pstRec->u32Tick = s_u32Now;
+    s_u16SegTail++;
+}
+
+/* 按 4 字节一段入队：接近真实 SCI 短批次的粒度。 */
+static void PushBytes(const Uint16 *pu16Data, Uint16 u16Count)
+{
+    Uint16 u16Left = u16Count;
+    Uint16 u16Chunk;
+
+    while (u16Left != 0U)
+    {
+        u16Chunk = (u16Left > 4U) ? 4U : u16Left;
+        PushSeg(pu16Data, u16Chunk);
+        pu16Data = &pu16Data[u16Chunk];
+        u16Left = (Uint16)(u16Left - u16Chunk);
     }
 }
 
 static Uint16 StubRxPending(void)
 {
-    return (Uint16)(s_u16RxTail - s_u16RxHead);
+    Uint16 u16Idx;
+    Uint16 u16Total = 0U;
+
+    for (u16Idx = s_u16SegHead; u16Idx < s_u16SegTail; u16Idx++)
+    {
+        u16Total = (Uint16)(u16Total + s_astSeg[u16Idx].u16Len);
+    }
+    return u16Total;
 }
 
 static Uint16 BuildFrame(Uint16 *pu16Out, const Uint16 *pu16Body, Uint16 u16BodyLen)
@@ -258,6 +325,7 @@ static Uint16 ArmHook(void *pCtx, const Uint16 *pu16Prefix, Uint16 u16PrefixLen,
     Uint16 u16Idx;
 
     (void)pCtx;
+    (void)pu16Prefix;
     s_u16ArmCalls++;
     if ((u16PrefixLen != MB_ARM_PREFIX_LEN) || (s_u16ArmReplyLen > u16ReplyMax))
     {
@@ -271,6 +339,11 @@ static Uint16 ArmHook(void *pCtx, const Uint16 *pu16Prefix, Uint16 u16PrefixLen,
 }
 
 /* ================= 装配与流水线 ================= */
+
+static const Uint16 s_au16ArmPrefix[MB_ARM_PREFIX_LEN] =
+{
+    0x01U, 0x10U, 0x04U, 0x38U, 0x00U, 0x02U
+};
 
 static void ProtoSetUp(void)
 {
@@ -287,14 +360,15 @@ static void ProtoSetUp(void)
     s_stInst.pstTbl = (const void *)s_astProtoTbl;
     s_stInst.pCtx = ModbusProtoState(0U);
 
-    s_u16RxHead = 0U;
-    s_u16RxTail = 0U;
+    s_u16SegHead = 0U;
+    s_u16SegTail = 0U;
     s_u16RxState = SCI_RX_IDLE;
     s_u32ForceResets = 0UL;
     s_u16Gen = 1U;
     s_u16StreamBreak = 0U;
     s_u16TxSuspended = 0U;
     s_u16TxFree = STUB_TX_DEPTH;
+    s_u16TxIdle = 1U;
     s_u16TxLen = 0U;
     s_u16PopCalls = 0U;
     s_u32Now = 1000000UL;
@@ -321,6 +395,7 @@ static void DeliverAndSettle(const Uint16 *pu16Frame, Uint16 u16Len)
     Advance(3000UL);       /* 越过 1750 µs 静默 */
     RunService();          /* 确认并执行，装载回复 */
     RunService();          /* 提交回复 */
+    StubTxDrain();
 }
 
 /* ================= S-05D-09 静默确认与基本回复 ================= */
@@ -359,7 +434,7 @@ static void TestProtoQuota(void)
     Uint16 u16Idx;
 
     ProtoSetUp();
-    /* 0x10 写 12 个寄存器（5000..5011）：帧长 9 + 24 + 2 = 35 字节，超过单轮 32 字节配额 */
+    /* 0x10 写 12 个寄存器（5000..5011）：7 字节头 + 24 字节数据 + 2 字节 CRC = 33 字节 */
     au16Body[0] = 0x01U;
     au16Body[1] = 0x10U;
     au16Body[2] = 0x13U;
@@ -374,14 +449,15 @@ static void TestProtoQuota(void)
     au16Body[7] = 0x00U;
     au16Body[8] = 0x55U;              /* 5000 = 0x0055 */
     u16Len = BuildFrame(au16Frame, au16Body, 31U);
+    Check(u16Len == 33U, "S-05D-10 帧长 33 字节");
     PushBytes(au16Frame, u16Len);
 
-    RunService();                     /* 只取 32 字节，还剩 3 字节 */
-    Check(StubRxPending() == 3U, "S-05D-10 单轮配额 32 字节");
+    RunService();                     /* 本轮配额 32 字节，还剩 1 字节 */
+    Check(StubRxPending() == 1U, "S-05D-10 单轮配额 32 字节，剩 1 字节");
     Check(ModbusProtoRxBacklog(0U) == 1UL, "S-05D-10 积压轮数被记录");
     Check(s_au16Regs[0] == 0U, "S-05D-10 积压未清不算静默，不执行");
 
-    RunService();                     /* 取空剩余 3 字节 */
+    RunService();                     /* 取空剩余 1 字节 */
     Check(StubRxPending() == 0U, "S-05D-10 第二轮取空");
     Check(s_au16Regs[0] == 0U, "S-05D-10 取空当轮静默仍为 0，不执行");
 
@@ -393,32 +469,36 @@ static void TestProtoQuota(void)
     Check(s_u16TxLen == 8U, "S-05D-10 0x10 回复 8 字节");
 }
 
-/* ================= S-05D-11 两帧分批积压 ================= */
+/* ================= S-05D-11 新字节不证明上一帧结束 ================= */
 
 static void TestProtoTwoFrames(void)
 {
     Uint16 au16Frame[32];
+    Uint16 au16Frame2[32];
     Uint16 u16Len;
+    Uint16 u16Len2;
 
     ProtoSetUp();
     u16Len = MakeWriteSingle(5000U, 0x0011U, au16Frame);
+    u16Len2 = MakeWriteSingle(5000U, 0x0022U, au16Frame2);
+
     PushBytes(au16Frame, u16Len);
     RunService();                     /* 8 字节收满，还没有边界信号 */
     Check(s_au16Regs[0] == 0U, "S-05D-11 第一帧未确认前不执行");
 
-    u16Len = MakeWriteSingle(5000U, 0x0022U, au16Frame);
-    PushBytes(au16Frame, u16Len);
-    RunService();                     /* 新字节到了 → 先执行第一帧 */
-    Check(s_au16Regs[0] == 0x0011U, "S-05D-11 第一帧按新帧起点确认并执行");
+    /* 同一批次/同一时刻紧跟着来第二帧：间隔不足静默，不能当作第一帧结束。 */
+    PushBytes(au16Frame2, u16Len2);
+    RunService();
+    Check(s_au16Regs[0] == 0U, "S-05D-11 无静默证据时不执行写命令");
+    Check(s_u16TxLen == 0U, "S-05D-11 也没有生成回复");
 
-    RunService();                     /* 提交第一帧回复 */
-    Check(s_u16TxLen == 8U, "S-05D-11 第一帧回复已入队");
-
+    /* 只剩第二帧的候选在途：越过静默后按第二帧执行。 */
     Advance(3000UL);
-    RunService();                     /* 第二帧按静默执行 */
-    RunService();                     /* 提交第二帧回复 */
-    Check(s_au16Regs[0] == 0x0022U, "S-05D-11 第二帧也执行");
-    Check(ModbusProtoTxSubmitted(0U) == 2UL, "S-05D-11 两条回复都提交");
+    RunService();
+    Check(s_au16Regs[0] == 0x0022U, "S-05D-11 静默后只执行第二帧");
+
+    RunService();
+    Check(ModbusProtoTxSubmitted(0U) == 1UL, "S-05D-11 只提交一条回复");
 }
 
 /* ================= S-05D-12 回复忙不覆盖 ================= */
@@ -459,36 +539,40 @@ static void TestProtoReplyBusy(void)
 
 static void TestProtoArm(void)
 {
-    static const Uint16 au16Prefix[MB_ARM_PREFIX_LEN] =
-    {
-        0x01U, 0x10U, 0x04U, 0x38U, 0x00U, 0x02U
-    };
     Uint16 u16PopBefore;
     Uint16 au16Frame[32];
     Uint16 u16Len;
 
     ProtoSetUp();
-    ModbusProtoSetArmHook((void *)0, ArmHook);
+    ModbusProtoSetArmHook(HW_SCI_ID_A, (void *)0, ArmHook);
     s_au16ArmReply[0] = 0x01U;
     s_au16ArmReply[1] = 0x10U;
-    s_au16ArmReply[2] = 0x00U;
-    s_u16ArmReplyLen = 3U;
+    s_au16ArmReply[2] = 0x04U;
+    s_au16ArmReply[3] = 0x38U;
+    s_au16ArmReply[4] = 0x00U;
+    s_au16ArmReply[5] = 0x02U;
+    s_au16ArmReply[6] = 0xC1U;
+    s_au16ArmReply[7] = 0x35U;
+    s_u16ArmReplyLen = 8U;
 
-    PushBytes(au16Prefix, MB_ARM_PREFIX_LEN);
+    PushBytes(s_au16ArmPrefix, MB_ARM_PREFIX_LEN);
     RunService();                     /* 命中回调并装载握手回复 */
     Check(s_u16ArmCalls == 1U, "S-05D-13 六字节起点触发回调");
+    Check(ModbusProtoArmPending(0U) == 1U, "S-05D-13 握手待提交");
     Check(ModbusProtoArmActive(0U) == 0U, "S-05D-13 握手未发完不交接");
 
     RunService();                     /* 提交握手回复 */
-    Check(s_u16TxLen == 3U, "S-05D-13 握手回复已入队");
+    Check(s_u16TxLen == 8U, "S-05D-13 握手回复 8 字节入环");
+    Check(ModbusProtoArmPending(0U) == 0U, "S-05D-13 提交完成后不再待提交");
+    Check(ModbusProtoArmActive(0U) == 0U, "S-05D-13 硬件未发完仍不交接");
 
-    RunService();                     /* 提交完成后交接 */
-    Check((ModbusProtoTxSubmitted(0U) == 1UL) && (ModbusProtoArmActive(0U) == 1U),
-          "S-05D-13 发送完成后交接端口");
+    StubTxDrain();
+    RunService();                     /* 软件环与硬件都空 → 交接 */
+    Check(ModbusProtoArmActive(0U) == 1U, "S-05D-13 发送完成后交接端口");
 
     /* 交接后本层不再消费 RX */
     u16PopBefore = s_u16PopCalls;
-    PushBytes(au16Prefix, MB_ARM_PREFIX_LEN);
+    PushBytes(s_au16ArmPrefix, MB_ARM_PREFIX_LEN);
     RunService();
     Check((s_u16PopCalls == u16PopBefore) && (StubRxPending() == MB_ARM_PREFIX_LEN),
           "S-05D-13 交接后不再读端口");
@@ -497,8 +581,8 @@ static void TestProtoArm(void)
     Check(ModbusProtoArmActive(0U) == 0U, "S-05D-13 释放后交还端口");
 
     /* 释放后普通请求继续可用 */
-    s_u16RxHead = 0U;
-    s_u16RxTail = 0U;
+    s_u16SegHead = 0U;
+    s_u16SegTail = 0U;
     s_au16Regs[0] = 0x7777U;
     u16Len = MakeRead(5000U, 1U, au16Frame);
     DeliverAndSettle(au16Frame, u16Len);
@@ -513,7 +597,7 @@ static void TestProtoArmReject(void)
     Uint16 u16Len;
 
     ProtoSetUp();
-    ModbusProtoSetArmHook((void *)0, ArmHook);
+    ModbusProtoSetArmHook(HW_SCI_ID_A, (void *)0, ArmHook);
     s_u16ArmReplyLen = 0U;            /* 回调不接受：按普通 Modbus 继续 */
 
     u16Len = MakeRead(5000U, 1U, au16Frame);
@@ -521,6 +605,62 @@ static void TestProtoArmReject(void)
     Check(s_u16ArmCalls == 0U, "S-05D-14 普通帧不触发回调");
     Check(ModbusProtoArmActive(0U) == 0U, "S-05D-14 普通帧不交接端口");
     Check(s_u16TxLen == 7U, "S-05D-14 普通读照常回复");
+}
+
+/* ================= S-05D-15 非 ARM 端口不识别升级起点 ================= */
+
+static void TestProtoArmPortFilter(void)
+{
+    Uint16 au16Body[16];
+    Uint16 au16Frame[32];
+    Uint16 u16Len;
+
+    ProtoSetUp();
+    ModbusProtoSetArmHook(HW_SCI_ID_C, (void *)0, ArmHook);   /* 只对 C 口生效 */
+    s_u16ArmReplyLen = 8U;
+
+    /* 完整的一帧 0x10：地址 0x0438、数量 2、4 字节数据 → 13 字节。 */
+    au16Body[0] = 0x01U;
+    au16Body[1] = 0x10U;
+    au16Body[2] = 0x04U;
+    au16Body[3] = 0x38U;
+    au16Body[4] = 0x00U;
+    au16Body[5] = 0x02U;
+    au16Body[6] = 0x04U;
+    au16Body[7] = 0x00U;
+    au16Body[8] = 0x00U;
+    au16Body[9] = 0x00U;
+    au16Body[10] = 0x00U;
+    u16Len = BuildFrame(au16Frame, au16Body, 11U);
+    PushBytes(au16Frame, u16Len);
+    RunService();
+    Check(s_u16ArmCalls == 0U, "S-05D-15 非 ARM 端口不匹配");
+
+    /* 按普通 0x10 处理：0x0438 不在点表内 → 异常应答 01 90 02 + CRC（5 字节）。 */
+    Advance(3000UL);
+    RunService();
+    RunService();
+    Check((s_u16TxLen == 5U) && (s_au16Tx[1] == 0x90U) && (s_au16Tx[2] == 0x02U),
+          "S-05D-15 非 ARM 端口按普通请求处理");
+}
+
+/* ================= S-05D-16 强制复位取消交接 ================= */
+
+static void TestProtoArmForceReset(void)
+{
+    ProtoSetUp();
+    ModbusProtoSetArmHook(HW_SCI_ID_A, (void *)0, ArmHook);
+    s_u16ArmReplyLen = 8U;
+
+    PushBytes(s_au16ArmPrefix, MB_ARM_PREFIX_LEN);
+    RunService();
+    Check(ModbusProtoArmPending(0U) == 1U, "S-05D-16 握手已装载");
+
+    /* 握手还没提交完就发生强制复位：丢弃，不得把"丢弃"当成"已发完"。 */
+    s_u32ForceResets++;
+    RunService();
+    Check(ModbusProtoArmPending(0U) == 0U, "S-05D-16 强制复位取消交接");
+    Check(ModbusProtoArmActive(0U) == 0U, "S-05D-16 未进入已交接状态");
 }
 
 int main(void)
@@ -531,6 +671,8 @@ int main(void)
     TestProtoReplyBusy();
     TestProtoArm();
     TestProtoArmReject();
+    TestProtoArmPortFilter();
+    TestProtoArmForceReset();
 
     printf("checks=%d fails=%d\n", s_iChecks, s_iFails);
 

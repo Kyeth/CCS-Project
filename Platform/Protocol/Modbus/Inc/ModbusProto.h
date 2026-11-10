@@ -43,9 +43,12 @@ Uint32 ModbusProtoRxBacklog(Uint16 u16Index);
 typedef Uint16 (*MB_ARM_HOOK)(void *pCtx, const Uint16 *pu16Prefix, Uint16 u16PrefixLen,
                               Uint16 *pu16Reply, Uint16 u16ReplyMax);
 
-void ModbusProtoSetArmHook(void *pCtx, MB_ARM_HOOK pfHook);
+void ModbusProtoSetArmHook(Uint16 u16SciId, void *pCtx, MB_ARM_HOOK pfHook);
 /** 1 = 该端口已交给升级协议，本层不再收发。 */
 Uint16 ModbusProtoArmActive(Uint16 u16Index);
+
+/** 1 = 握手回复仍在提交途中（尚未全部进入端口环）。 */
+Uint16 ModbusProtoArmPending(Uint16 u16Index);
 /** 升级结束后交还端口，本层从找帧头重新开始。 */
 void ModbusProtoArmRelease(Uint16 u16Index);
 

@@ -399,6 +399,7 @@ Uint16 ModbusRtuFeed(ST_MB_INSTANCE *pst, const Uint16 *pu16Data, Uint16 u16Coun
     Uint16 u16Byte;
     Uint16 u16Expected;
     Uint16 bAbsorbed = 0U;
+    Uint32 u32Gap;
 
     if ((pst == (ST_MB_INSTANCE *)0) || (pu16Data == (const Uint16 *)0) ||
         (pst->u16Enabled == 0U) || (u16Count == 0U))
@@ -412,13 +413,21 @@ Uint16 ModbusRtuFeed(ST_MB_INSTANCE *pst, const Uint16 *pu16Data, Uint16 u16Coun
 
         if (pst->u16State == MB_RX_COMPLETE)
         {
-            /* 这个候选已经够长了，后面却还有字节：说明它不是靠静默确认的。
-             * 先按长度把它确认掉（校验/执行/生成回复），再把当前字节当作
-             * 下一帧的起点。前台延迟导致两帧挤在同一批积压里就靠这条分开。 */
-            MbExecute(pst);
-            if (pst->u16State != MB_RX_HUNT)
+            /* 新字节本身不能证明上一帧结束：只有它离候选帧最后一个字节已超过
+             * 3.5 字符时间，才算真的静默过。同一批次里的额外字节一律视为
+             * "无法区分"，丢弃候选，避免执行有歧义的写命令。 */
+            u32Gap = (Uint32)(pst->u32LastByteTick - u32Tick);
+            if ((u16TickValid != 0U) && (u32Gap >= pst->u32T35Ticks))
             {
-                MbDropCandidate(pst, 1U);   /* 执行后仍未回到找头：状态异常 */
+                MbExecute(pst);
+                if (pst->u16State != MB_RX_HUNT)
+                {
+                    MbDropCandidate(pst, 1U);
+                }
+            }
+            else
+            {
+                MbDropCandidate(pst, 1U);   /* 无法证明静默：不执行，丢候选 */
             }
         }
 
@@ -523,6 +532,15 @@ void ModbusRtuOnStreamBreak(ST_MB_INSTANCE *pst)
 Uint16 ModbusRtuHasReply(const ST_MB_INSTANCE *pst)
 {
     if ((pst == (ST_MB_INSTANCE *)0) || (pst->u16TxLen == 0U))
+    {
+        return 0U;
+    }
+    return 1U;
+}
+
+Uint16 ModbusRtuIsHunting(const ST_MB_INSTANCE *pst)
+{
+    if ((pst == (const ST_MB_INSTANCE *)0) || (pst->u16State != MB_RX_HUNT))
     {
         return 0U;
     }
