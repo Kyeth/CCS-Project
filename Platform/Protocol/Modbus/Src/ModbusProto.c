@@ -58,6 +58,8 @@ static ST_MB_PROTO_STATE s_astMbProto[MB_PROTO_SLOTS];
 static Uint16 s_au16RxChunk[MB_RX_CHUNK_BYTES];
 static Uint16 s_au16Replay[MB_ARM_PREFIX_LEN + MB_RX_CHUNK_BYTES];
 static MB_ARM_HOOK s_pfArmHook = (MB_ARM_HOOK)0;
+static MB_ARM_DONE_HOOK s_pfArmDoneHook = (MB_ARM_DONE_HOOK)0;
+static void *s_pArmDoneCtx = (void *)0;
 static void *s_pArmCtx = (void *)0;
 static Uint16 s_u16ArmSciId = 0xFFFFU;   /* 只有这个端口检查升级起点 */
 
@@ -294,6 +296,9 @@ static Uint16 MbProtoService(ST_PROTO_INSTANCE *pstInst)
         {
             pstState->u16ArmSubmitted = 0U;
             pstState->u16Armed = 1U;
+            if (s_pfArmDoneHook != (MB_ARM_DONE_HOOK)0) {
+                s_pfArmDoneHook();
+            }
         }
         return 0U;
     }
@@ -506,6 +511,13 @@ static void MbProtoReplay(ST_MB_PROTO_STATE *pstState, Uint16 u16Keep,
     if (u16Len != 0U) {
         (void)ModbusRtuFeed(&pstState->stMb, s_au16Replay, u16Len, u32Tick, 1U);
     }
+}
+
+void ModbusProtoSetArmDoneHook(void *pCtx, MB_ARM_DONE_HOOK pfHook)
+{
+    (void)s_pArmDoneCtx;
+    s_pArmDoneCtx = pCtx;
+    s_pfArmDoneHook = pfHook;
 }
 
 void ModbusProtoSetArmHook(Uint16 u16SciId, void *pCtx, MB_ARM_HOOK pfHook)

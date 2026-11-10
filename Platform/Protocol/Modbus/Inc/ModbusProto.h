@@ -43,7 +43,13 @@ Uint32 ModbusProtoRxBacklog(Uint16 u16Index);
 typedef Uint16 (*MB_ARM_HOOK)(void *pCtx, const Uint16 *pu16Prefix, Uint16 u16PrefixLen,
                               Uint16 *pu16Reply, Uint16 u16ReplyMax);
 
+/** 交接完成（ACK 与 'C' 都已发完）时的通知，用于切到升级波特率。 */
+typedef void (*MB_ARM_DONE_HOOK)(void);
+
 void ModbusProtoSetArmHook(Uint16 u16SciId, void *pCtx, MB_ARM_HOOK pfHook);
+
+/** 注册交接完成回调（ACK 与 'C' 发完、硬件空闲后调用一次）。 */
+void ModbusProtoSetArmDoneHook(void *pCtx, MB_ARM_DONE_HOOK pfHook);
 /** 1 = 该端口已交给升级协议，本层不再收发。 */
 Uint16 ModbusProtoArmActive(Uint16 u16Index);
 

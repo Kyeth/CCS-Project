@@ -69,6 +69,12 @@ typedef struct {
 } ST_SCI_CFG;
 
 Uint16 Hw_SciInit(const ST_SCI_CFG *cfg);
+
+/**
+ * @brief 运行中修改某个 SCI 口的波特率（重算 BRR，保持 8N1 与 FIFO 配置不变）。
+ * @return 1 = 已写入；0 = 参数非法或该口未初始化
+ */
+Uint16 Hw_SciSetBaud(Uint16 u16SciId, Uint32 u32Baudrate);
 Uint16 Hw_SciTryReadByte(Uint16 id, Uint16 *data);
 Uint16 Hw_SciTryWriteByte(Uint16 id, Uint16 data);
 Uint16 Hw_SciGetTxFifoLevel(Uint16 id);

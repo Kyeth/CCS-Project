@@ -30,6 +30,7 @@ SOURCES = [
     "Platform/Protocol/Modbus/Src/ModbusTbl.c",
     "Platform/Protocol/Modbus/Src/ModbusProto.c",
     "UserApp/Src/AppModbus.c",
+    "UserApp/Src/AppModbusProtoTbl.c",
     "Drivers/src/Hw_ClaTask.cla",
     "device/common/source/F2837xS_Adc.c",
     "device/common/source/F2837xS_DefaultISR.c",

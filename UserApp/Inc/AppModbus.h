@@ -24,6 +24,9 @@ Uint32 AppModbusTableErrors(void);
 
 /** 该端口是否已收到升级请求（对应参考实现的 u16MdsIsUpdate）。 */
 Uint16 AppModbusUpgradeFlag(Uint16 u16Port);
+
+/** 是否已把 SCI-A 切到 115200、准备接收 Xmodem 数据包。 */
+Uint16 AppModbusXmodemReady(void);
 const ST_PROTO_INSTANCE *AppModbusInstance(Uint16 u16Index);
 
 #endif /* APP_MODBUS_H */

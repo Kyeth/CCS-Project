@@ -15,6 +15,7 @@
 static volatile struct SCI_REGS * const gSci[HW_SCI_ID_MAX] =
     { &SciaRegs, &ScibRegs, &ScicRegs, &ScidRegs };
 static Uint16 gSciInited[HW_SCI_ID_MAX] = {0U, 0U, 0U, 0U};
+static Uint32 g_u32LspclkHz = 0UL;   /* Init 时记下，运行中改波特率要用 */
 
 Uint16 Hw_SciInit(const ST_SCI_CFG *cfg)
 {
@@ -39,6 +40,9 @@ Uint16 Hw_SciInit(const ST_SCI_CFG *cfg)
                   (8UL * item->u32Baudrate);
         if (divider == 0UL || divider > 65536UL) return 0U;
     }
+
+    /* 记下 LSPCLK，供运行中改波特率重算 BRR。 */
+    g_u32LspclkHz = cfg->u32LspclkHz;
 
     /* 第二遍：整表已确认合法，才开始写寄存器。 */
     for (i = 0U; i < cfg->u16ItemNum; ++i)
@@ -242,4 +246,33 @@ Uint16 Hw_SciGetRxError(Uint16 id)
     if (Hw_SciGetRxStatus(id, &stStatus, 0U) == 0U) return 0xFFFFU;
 
     return (stStatus.u16Status != 0U) ? 1U : 0U;
+}
+
+Uint16 Hw_SciSetBaud(Uint16 u16SciId, Uint32 u32Baudrate)
+{
+    Uint32 divider;
+    Uint16 u16High;
+    Uint16 u16Low;
+
+    if ((u16SciId >= HW_SCI_ID_MAX) || (u32Baudrate == 0UL) || (g_u32LspclkHz == 0UL)) {
+        return 0U;
+    }
+    if (gSciInited[u16SciId] == 0U) {
+        return 0U;
+    }
+
+    divider = (g_u32LspclkHz + (4UL * u32Baudrate)) / (8UL * u32Baudrate);
+    if ((divider == 0UL) || (divider > 65536UL)) {
+        return 0U;
+    }
+    divider--;
+    u16High = (Uint16)((divider >> 16) & 0xFFFFU);
+    u16Low  = (Uint16)(divider & 0xFFFFU);
+
+    EALLOW;
+    gSci[u16SciId]->SCIHBAUD.all = u16High;
+    gSci[u16SciId]->SCILBAUD.all = u16Low;
+    EDIS;
+
+    return 1U;
 }
