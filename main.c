@@ -587,15 +587,6 @@ static void AppUpgradePause(void)
 }
 
 /**
- * @brief 升级结束（含取消）后的恢复
- * @note  按 05F 裁定：不自动重新开启功率输出，只解除采样/控制压制。
- */
-static void AppUpgradeResume(void)
-{
-    s_u16UpgradeHold = 0U;
-}
-
-/**
  * @brief 采样任务外面套一层：升级期间不出新的控制动作
  */
 static void AdcSampleTaskGuarded(void)
@@ -627,7 +618,7 @@ void ApplicationInit(void)
     /* 升级层：绑 XMODEM 传输/数据/时基回调，装 F021 擦写操作表。必须在
        协议任务起来之前完成，否则握手交接时升级会话还没准备好。 */
     AppUpgradeInit();
-    AppUpgradeSetPauseHook(AppUpgradePause, AppUpgradeResume);
+    AppUpgradeSetPauseHook(AppUpgradePause);
 }
 
 /**
@@ -661,7 +652,7 @@ void TaskCreate(void)
     }
 
     /* 升级任务：空闲时直接返回；收到握手后每轮推进一步（擦除/收包/校验）。 */
-    if (Task_Start(AppUpgradeTask, 1U, 0U) == 0U)
+    if (Task_Start(AppUpgradeTask, 10U, 0U) == 0U)
     {
         stBringupStatus.unError.Bits.bTaskCreateError = 1U;
     }

@@ -21,10 +21,10 @@
 
 #include "AppModbus.h"
 #include "AppModbusRegCfg.h"
+#include "AppUpgrade.h"
 #include "Modbus.h"
 #include "ModbusSlave.h"
 #include "ModbusPublic.h"
-#include "AppUpgrade.h"
 #include "Hw_SciDriver.h"
 #include "Hw_TimeBase.h"
 #include "SciPort.h"
@@ -53,8 +53,8 @@
 #define APP_MB_CMD_WRITE_MULTI (0x10U)
 #define APP_MB_BROADCAST_ADDR  (0x00U)
 #define APP_MB_HANDSHAKE_LEN   (6U)    /* 握手请求长度 */
-#define APP_MB_HANDSHAKE_REPLY (8U)    /* 6 字节请求 + CRC 2；'C' 由升级层擦完后单独发 */
-#define APP_MB_HANDSHAKE_TAIL  (64U)   /* 交接时最多带走多少个"多出来的字节" */
+#define APP_MB_HANDSHAKE_REPLY (8U)    /* 6 字节回显 + CRC 2；'C' 由升级层擦完备份区后自己发 */
+#define APP_MB_HANDSHAKE_TAIL  (64U)   /* 握手之后紧跟的升级流字节，原样交给升级层 */
 
 /** 一个从站实例的全部现场：参考层控制块 + 它要的数据空间 + 桥接状态。 */
 typedef struct {
@@ -94,6 +94,10 @@ static ST_PROTO_INSTANCE s_astProtoCfg[APP_MB_PORTS];
 static const Uint16 s_au16SciId[APP_MB_PORTS] = {
     HW_SCI_ID_A, HW_SCI_ID_C, HW_SCI_ID_D
 };
+/* 握手候选里超出手握手长度的字节属于升级流，原样交给升级层 */
+static Uint16 s_au16HandshakeTail[APP_MB_HANDSHAKE_TAIL];
+static Uint16 s_u16HandshakeTailLen;
+
 static const Uint16 s_au16SlaveAddr[APP_MB_PORTS] = { 1U, 1U, 2U };
 
 static Uint32 s_au32Baud[APP_MB_PORTS];
@@ -107,10 +111,6 @@ static const ModbusCallBack s_apfnCallBack[APP_MB_PORTS] = {
 };
 
 static Uint16 AppMbFrameIdle(const ST_APP_MB_PORT *pstPort);
-/** 握手那一批里多出来的字节：随端口一起交给升级层，只有端口 0 用 */
-static Uint16 s_au16HandshakeTail[APP_MB_HANDSHAKE_TAIL];
-static Uint16 s_u16HandshakeTailLen;
-
 static void   AppMbDispatchFrame(ST_APP_MB_PORT *pstPort);
 static Uint16 AppMbProtoInit(ST_PROTO_INSTANCE *pstInst);
 static Uint16 AppMbProtoService(ST_PROTO_INSTANCE *pstInst);
@@ -363,15 +363,12 @@ static Uint16 AppMbFrameIdle(const ST_APP_MB_PORT *pstPort)
             Hw_TimeBaseUsToTicks(AppMbT35Us(s_au32Baud[u16Port]))) ? 1U : 0U;
 }
 
-/**
- * @brief 六字节升级握手：01 10 04 38 00 02，只认 ARM 端口（SCI-A）
- * @note  只比前 6 个字节：主机可能在握手之后紧接着发 SOH，两段会被拼成
- *        同一条候选，多出来的字节属于升级流，交给 AppMbDispatchFrame 存走。
- */
+/** 六字节升级握手：01 10 04 38 00 02，只认 ARM 端口（SCI-A）。 */
 static Uint16 AppMbIsHandshake(const ST_APP_MB_PORT *pstPort, Uint16 u16Len)
 {
     const Uint16 *pu16Req = pstPort->pu16Data;
 
+    /* 前缀匹配：主机可能在握手的同一批数据里紧接着发 SOH */
     if ((pstPort != &s_astPort[0]) || (u16Len < APP_MB_HANDSHAKE_LEN)) {
         return 0U;
     }
@@ -396,28 +393,25 @@ static void AppMbDispatchFrame(ST_APP_MB_PORT *pstPort)
     ST_MDS_FRAME *pstFrame;
     Uint16 u16ReqLen;
     Uint16 u16ReqAddr;
+    Uint16 i;
 
     u16ReqLen = pstPort->u16RxLen;
     u16ReqAddr = pstPort->pu16Data[0];   /* 组帧后会被回复覆盖，先记下 */
 
     /* 升级握手是兼容入口，不是标准 Modbus 请求：原样回去 6 字节 + 现算 CRC，
-     * 只有这 8 字节真的发完才把端口交给升级层。'C' 不在这里发——擦除还没开始，
-     * 主机会以为可以立刻发包。 */
+     * 共 8 字节。'C' 由升级层在备份区擦完、准备好接收之后自己发，所以这里
+     * 只把 8 字节应答挂出去，等它真的发完（见服务第 3 步）才交接端口。 */
     if (AppMbIsHandshake(pstPort, u16ReqLen) != 0U) {
-        Uint16 i;
         Uint16 u16TailLen;
 
-        /* 同一批里紧跟握手之后到达的字节属于升级流：先存下来，随端口一起交出去，
-         * 不清环、不重新初始化，否则主机已经发出的首包开头会丢。 */
-        u16TailLen = (u16ReqLen > APP_MB_HANDSHAKE_LEN) ?
-                     (Uint16)(u16ReqLen - APP_MB_HANDSHAKE_LEN) : 0U;
+        u16TailLen = (Uint16)(u16ReqLen - APP_MB_HANDSHAKE_LEN);
         if (u16TailLen > APP_MB_HANDSHAKE_TAIL) {
             u16TailLen = APP_MB_HANDSHAKE_TAIL;
         }
+        s_u16HandshakeTailLen = u16TailLen;
         for (i = 0U; i < u16TailLen; i++) {
             s_au16HandshakeTail[i] = pstPort->pu16Data[APP_MB_HANDSHAKE_LEN + i];
         }
-        s_u16HandshakeTailLen = u16TailLen;
 
         PackModbusCrc(&pstPort->pu16Data[0], APP_MB_HANDSHAKE_LEN);
         pstPort->u16RxLen = 0U;
@@ -516,8 +510,6 @@ static Uint16 AppMbProtoService(ST_PROTO_INSTANCE *pstInst)
 
         pstPort->bArmPending = 0U;
         pstPort->u16Armed = 1U;
-
-        /* 应答已经出环，把端口连同这批余下的字节交给升级层；'C' 由它擦完再发 */
         (void)AppUpgradeStart(u16SciId, &s_au16HandshakeTail[0], s_u16HandshakeTailLen);
     }
     if (pstPort->u16Armed != 0U) {
@@ -657,6 +649,19 @@ Uint32 AppModbusInitErrors(void)
     return s_u32InitErrors;
 }
 
+Uint16 AppModbusUpgradeFlag(Uint16 u16Port)
+{
+    if (u16Port >= APP_MB_PORTS) {
+        return 0U;
+    }
+
+    return (s_astPort[u16Port].u16Armed != 0U) ? 1U : 0U;
+}
+
+/**
+ * @brief 升级结束（成功已复位、或取消）后把端口交还协议层：丢弃半帧与未发回复，
+ *        重新同步接收，并让协议层从"当前故障代次"重新开始记账。
+ */
 void AppModbusReleasePort(Uint16 u16Port)
 {
     ST_APP_MB_PORT *pstPort;
@@ -674,20 +679,8 @@ void AppModbusReleasePort(Uint16 u16Port)
     pstPort->u16Armed = 0U;
     pstPort->bArmPending = 0U;
     pstPort->u32RxTick = Hw_TimeBaseTicks();
-
-    /* 端口里可能还留着升级流的字节（主机等 'C' 时又发了一点）：作废并重同步，
-     * 让主机重新握手，而不是把残留当成 Modbus 请求去解析。 */
     SciPortResync(u16SciId);
     pstPort->u16FaultGen = SciPortFaultGeneration(u16SciId);
-}
-
-Uint16 AppModbusUpgradeFlag(Uint16 u16Port)
-{
-    if (u16Port >= APP_MB_PORTS) {
-        return 0U;
-    }
-
-    return (s_astPort[u16Port].u16Armed != 0U) ? 1U : 0U;
 }
 
 Uint32 AppModbusRxFrames(Uint16 u16Port)
