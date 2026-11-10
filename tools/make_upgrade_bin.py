@@ -1,8 +1,12 @@
 """Turn the linker's Intel-HEX output into an upgrade BIN for this project.
 
 Two steps, both done by the toolchain that ships inside the repository
-(`hex2bin/`), so CCS and `tools/build_minimal.py` produce byte-identical
-results:
+(`hex2bin/`), so the CCS build and `tools/build_minimal.py` use the same
+post-processing; their actual artifacts are recorded separately (see
+docs/build-and-bin.md §3.1) and are not required to share a hash:
+
+Only the APP target is available today. `boot` is reserved: it needs an
+independent BOOT project linked at 0x080000 first (see the guard in main()).
 
 1. `hex2bin/CalcHexAddr.exe <hex> <range-min> <range-max> <hex2bin.exe>`
    keeps only the data inside the target's flash window and calls
@@ -68,6 +72,13 @@ def main() -> None:
     parser.add_argument("--target", choices=sorted(TARGETS), default="app",
                         help="app = 0x086000..0x0A0000 (type 1), boot = 0x080000..0x086000 (type 2)")
     args = parser.parse_args()
+
+    if args.target == "boot":
+        # BOOT 镜像必须来自独立链接在 0x080000 的 BOOT 工程，不能把 APP 的 hex
+        # 改个窗口和 FirmwareType 就当成 BOOT 包发出去。
+        raise SystemExit("boot target is not available yet: build and link an "
+                         "independent BOOT project at 0x080000 first "
+                         "(see docs/build-and-bin.md)")
 
     for tool in (CALC_HEX_ADDR, HEX2BIN, CALC_UPGRADE_CRC):
         if not tool.is_file():
