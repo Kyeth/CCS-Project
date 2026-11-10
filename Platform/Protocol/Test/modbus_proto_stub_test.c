@@ -752,7 +752,7 @@ static void TestProtoPollFresh(void)
     PushBytes(au16Frame, 32U);
     RunService();
     Check(s_au16Regs[0] == 0U, "S-05D-18 帧未完成不执行");
-    Check(StubRxPending() == 0U, "S-05D-18 32 字节已消费");
+    Check(StubRxPending() == 4U, "S-05D-18 本轮消费 28 字节，剩 4 字节");
 
     s_u16LateByte = au16Frame[32];
     s_u16LateArmed = 1U;
@@ -767,6 +767,45 @@ static void TestProtoPollFresh(void)
     Check(s_u16TxLen == 8U, "S-05D-18 0x10 回复 8 字节");
 }
 
+/* ================= S-05D-19 回调拒绝时回放下标 ================= */
+
+static void TestProtoArmReplayIndex(void)
+{
+    Uint16 au16Body[16];
+    Uint16 au16Frame[24];
+    Uint16 u16Len;
+
+    ProtoSetUp();
+    ModbusProtoSetArmHook(HW_SCI_ID_A, (void *)0, ArmHook);
+    s_u16ArmReplyLen = 0U;            /* 回调拒绝接管 */
+
+    /* 合法 0x10 请求，但前六字节恰好等于升级起点：01 10 04 38 00 02 04 .... */
+    au16Body[0] = 0x01U;
+    au16Body[1] = 0x10U;
+    au16Body[2] = 0x04U;
+    au16Body[3] = 0x38U;              /* 地址 1080：点表里不存在 */
+    au16Body[4] = 0x00U;
+    au16Body[5] = 0x02U;
+    au16Body[6] = 0x04U;              /* 4 字节数据 */
+    au16Body[7] = 0x00U;
+    au16Body[8] = 0x00U;
+    au16Body[9] = 0x00U;
+    au16Body[10] = 0x00U;
+    u16Len = BuildFrame(au16Frame, au16Body, 11U);
+    Check(u16Len == 13U, "S-05D-19 合法请求 13 字节");
+
+    PushBytes(au16Frame, u16Len);
+    RunService();
+    Check(s_u16ArmCalls == 1U, "S-05D-19 前缀命中并调用回调");
+
+    Advance(3000UL);
+    RunService();                     /* 静默确认 → 生成异常应答 */
+    RunService();                     /* 提交应答 */
+    Check(s_u16TxLen == 5U, "S-05D-19 回放后按普通 Modbus 应答 5 字节");
+    Check((s_au16Tx[0] == 0x01U) && (s_au16Tx[1] == 0x90U) && (s_au16Tx[2] == 0x02U),
+          "S-05D-19 非法地址异常 0x02");
+}
+
 int main(void)
 {
     TestProtoBasics();
@@ -779,6 +818,7 @@ int main(void)
     TestProtoArmForceReset();
     TestProtoArmSplit();
     TestProtoPollFresh();
+    TestProtoArmReplayIndex();
 
     printf("checks=%d fails=%d\n", s_iChecks, s_iFails);
 

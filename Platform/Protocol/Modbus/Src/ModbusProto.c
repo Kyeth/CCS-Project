@@ -410,6 +410,7 @@ static Uint16 MbProtoArmFeed(ST_MB_PROTO_STATE *pstState, const Uint16 *pu16Data
         return 1U;   /* 交接进行中：本层不再把字节交给普通 Modbus */
     }
     if (ModbusRtuIsHunting(&pstState->stMb) == 0U) {
+        /* 普通 Modbus 已离开 HUNT：暂存字节不可信，直接丢弃、不回放。 */
         pstState->u16ArmPeekLen = 0U;
         return 0U;
     }
@@ -437,11 +438,12 @@ static Uint16 MbProtoArmFeed(ST_MB_PROTO_STATE *pstState, const Uint16 *pu16Data
                 }
             }
 
-            /* 未接管：暂存的前缀与本批剩余字节按原顺序交回普通 Modbus */
+            /* 未接管：暂存的前缀与本批剩余字节按原顺序交回普通 Modbus。
+             * 第六字节已存入 au16ArmPeek，这里必须从下一个字节开始，否则会重复回放。 */
             u16Keep = pstState->u16ArmPeekLen;
             pstState->u16ArmPeekLen = 0U;
-            MbProtoReplay(pstState, u16Keep, &pu16Data[u16Idx],
-                          (Uint16)(u16Count - u16Idx), u32Tick);
+            MbProtoReplay(pstState, u16Keep, &pu16Data[u16Idx + 1U],
+                          (Uint16)(u16Count - u16Idx - 1U), u32Tick);
             return 1U;
         }
 
