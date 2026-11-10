@@ -30,8 +30,13 @@ SOURCES = [
     "Platform/Protocol/Modbus/Src/ModbusSlave.c",
     "Platform/Protocol/Modbus/Src/ModbusRegProcess.c",
     "Platform/Protocol/Modbus/Src/ModbusPublic.c",
+    "Platform/Protocol/Xmodem/Src/XmodemCore.c",
+    "Platform/Upgrade/Src/UpgradeCore.c",
+    "Platform/Upgrade/Src/UpgradeFlash.c",
+    "Platform/Upgrade/Src/Fapi_UserDefinedFunctions.c",
     "UserApp/Src/AppModbus.c",
     "UserApp/Src/AppModbusRegCfg.c",
+    "UserApp/Src/AppUpgrade.c",
     "Drivers/src/Hw_ClaTask.cla",
     "device/common/source/F2837xS_Adc.c",
     "device/common/source/F2837xS_DefaultISR.c",
@@ -49,10 +54,18 @@ INCLUDES = [
     "Platform/Port/Inc",
     "Platform/Protocol/Inc",
     "Platform/Protocol/Modbus/Inc",
+    "Platform/Protocol/Xmodem/Inc",
+    "Platform/Upgrade/Inc",
     "UserApp/Inc",
     "device/common/include",
     "device/headers/include", "device/driverlib", "device/driverlib/inc",
 ]
+# F021 Flash API 不在仓库里：头文件与库都直接从 C2000Ware 取。
+# 只带 f2837xs 的那一份（5.04 只带 f28003x）。
+F021_ROOT = Path(r"D:/ti/C2000Ware_5_00_00_00/libraries/flash_api/f2837xs")
+F021_INCLUDES = [F021_ROOT / "include"]
+F021_LIBS = [F021_ROOT / "lib"]
+
 FLAGS = [
     "-v28", "-ml", "-mt", "--cla_support=cla1", "--float_support=fpu32",
     "--tmu_support=tmu0", "--vcu_support=vcu2", "--fp_mode=relaxed",
@@ -84,6 +97,9 @@ def main() -> None:
     out.mkdir(parents=True, exist_ok=True)
     include_flags = [f"--include_path={ROOT / d}" for d in INCLUDES]
     include_flags.append(f"--include_path={cgt / 'include'}")
+    include_flags.extend(f"--include_path={p}" for p in F021_INCLUDES)
+    if not (F021_ROOT / "include" / "F021.h").is_file():
+        raise SystemExit(f"F021 headers not found: {F021_ROOT / 'include'}")
     objects = []
     for rel in SOURCES:
         source = ROOT / rel
@@ -103,7 +119,9 @@ def main() -> None:
     print("link", flush=True)
     run([str(compiler), *FLAGS, "-z", f"-m{map_file}", "--stack_size=0x200",
          "--warn_sections", f"-i{cgt / 'lib'}", f"-i{cgt / 'include'}",
-         "--reread_libs", "--rom_model", "-o", str(image),
+         "--reread_libs", "--rom_model",
+         *[f"-i{p}" for p in F021_LIBS],
+         "-o", str(image),
          *[str(o) for o in objects],
          str(ROOT / "CMD/2837xS_FLASH_APP_CLA_lnk.cmd"),
          str(ROOT / "CMD/F2837xS_Headers_nonBIOS.cmd"), "-llibc.a"], out)

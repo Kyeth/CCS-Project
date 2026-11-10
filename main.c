@@ -26,6 +26,7 @@
 #include "AdcSample.h"
 #include "Protocol.h"
 #include "AppModbus.h"
+#include "AppUpgrade.h"
 
 /* ============================================================================
  * 上板测量开关（对应 05B 文档 §8.4）
@@ -549,6 +550,70 @@ void PlatformInit(void)
     }
 }
 
+/* 链接脚本里的搬运符号：LOAD 在 Flash，RUN 在 RAM */
+extern Uint16 RamfuncsLoadStart;
+extern Uint16 RamfuncsLoadSize;
+extern Uint16 RamfuncsRunStart;
+extern Uint16 _FlashfuncLoadStart;
+extern Uint16 _FlashfuncLoadSize;
+extern Uint16 _FlashfuncRunStart;
+
+/**
+ * @brief 把 LOAD 在 Flash、RUN 在 RAM 的代码段搬到运行位置
+ * @note  这两段必须在任何被搬函数被调用之前完成。启动代码原本没有搬运：
+ *        .TI.ramfunc 里的 Hw_GpioWritePin() 会跳到未初始化的 RAMD0；
+ *        .flashfunc 里的 F021 调用链与擦写循环更是必须先从 Flash 拷出来。
+ *        符号的"地址"就是长度，这是链接器给 LOAD_SIZE 的约定。
+ */
+static void CopyRunFromLoad(Uint16 *pu16Run, const Uint16 *pu16Load, Uint16 u16Words)
+{
+    Uint16 i;
+
+    for (i = 0U; i < u16Words; i++)
+    {
+        pu16Run[i] = pu16Load[i];
+    }
+}
+
+/* 升级期间：停功率输出、压制采样/控制动作。端口服务与时基必须继续跑，
+   否则擦除期间 'C'/ACK 根本发不出去。 */
+static volatile Uint16 s_u16UpgradeHold = 0U;
+
+static void AppUpgradePause(void)
+{
+    s_u16UpgradeHold = 1U;
+    Hw_StopAllPWM();
+    Hw_GpioWritePin(88U, 0U);
+}
+
+/**
+ * @brief 升级结束（含取消）后的恢复
+ * @note  按 05F 裁定：不自动重新开启功率输出，只解除采样/控制压制。
+ */
+static void AppUpgradeResume(void)
+{
+    s_u16UpgradeHold = 0U;
+}
+
+/**
+ * @brief 采样任务外面套一层：升级期间不出新的控制动作
+ */
+static void AdcSampleTaskGuarded(void)
+{
+    if (s_u16UpgradeHold == 0U)
+    {
+        AdcSampleTask();
+    }
+}
+
+static void CopyRamSections(void)
+{
+    CopyRunFromLoad(&RamfuncsRunStart, &RamfuncsLoadStart,
+                    (Uint16)(((Uint32)&RamfuncsLoadSize) & 0xFFFFUL));
+    CopyRunFromLoad(&_FlashfuncRunStart, &_FlashfuncLoadStart,
+                    (Uint16)(((Uint32)&_FlashfuncLoadSize) & 0xFFFFUL));
+}
+
 /**
  * @brief Initialize application data objects when an application is added.
  */
@@ -558,6 +623,11 @@ void ApplicationInit(void)
        validated here so a bad binding is reported at startup, not when
        the first request arrives. */
     AppModbusInit();
+
+    /* 升级层：绑 XMODEM 传输/数据/时基回调，装 F021 擦写操作表。必须在
+       协议任务起来之前完成，否则握手交接时升级会话还没准备好。 */
+    AppUpgradeInit();
+    AppUpgradeSetPauseHook(AppUpgradePause, AppUpgradeResume);
 }
 
 /**
@@ -566,7 +636,7 @@ void ApplicationInit(void)
 void TaskCreate(void)
 {
     /* 1 kHz display filter over the L3 / L4 sampling results. */
-    if (Task_Start(AdcSampleTask, 1U, 0U) == 0U)
+    if (Task_Start(AdcSampleTaskGuarded, 1U, 0U) == 0U)
     {
         stBringupStatus.unError.Bits.bTaskCreateError = 1U;
     }
@@ -586,6 +656,12 @@ void TaskCreate(void)
        timeout come from the batch observation ticks, not from the
        number of task runs. */
     if (Task_Start(ProtocolTask, 1U, 0U) == 0U)
+    {
+        stBringupStatus.unError.Bits.bTaskCreateError = 1U;
+    }
+
+    /* 升级任务：空闲时直接返回；收到握手后每轮推进一步（擦除/收包/校验）。 */
+    if (Task_Start(AppUpgradeTask, 1U, 0U) == 0U)
     {
         stBringupStatus.unError.Bits.bTaskCreateError = 1U;
     }
@@ -768,6 +844,7 @@ static __interrupt void Isr_Heartbeat(void)
 
 void main(void)
 {
+    CopyRamSections(); // 先把 ROM 里的 RAM 代码段搬到位
     PeripheralsInit(); // Initialize peripherals.
     PlatformInit();    // Initialize platform components.
     ApplicationInit(); // Initialize application data objects.

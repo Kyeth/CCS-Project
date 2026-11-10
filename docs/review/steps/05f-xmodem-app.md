@@ -3,7 +3,7 @@
 | 项目 | 内容 |
 | --- | --- |
 | 版本 | r2（2026-11-10）——替代首版 `41c1827`，按复核裁定修订 |
-| 状态 | 已裁定，按本文档直接实施，不再单独报批 |
+| 状态 | r3（2026-11-10）——已按裁定实施完毕，两态编译通过，主机测试待复核方实跑 |
 | 基准 | `test/board-bringup-20261031`，05E-r3 `41c1827` |
 | 移植依据 | 参考工程 git 提交 `68701bd` 的源文件（来源差异见 §2.2） |
 
@@ -213,12 +213,12 @@ RAM 函数所在的段：新增 `.flashfunc`（`LOAD = FLASH_APP`、`RUN = RAMGS
 
 | 文件 | 内容 |
 | --- | --- |
-| `Platform/Protocol/Xmodem/Inc/XmodemCore.h` | 参考头文件，长度字段改 `Uint32` |
-| `Platform/Protocol/Xmodem/Src/XmodemCore.c` | 移植：状态机、包解析、CRC16-CCITT |
-| `Platform/Upgrade/Inc/UpgradeCore.h` | 扇区表、接口声明 |
-| `Platform/Upgrade/Src/UpgradeCore.c` | F021 擦除/编程、配置区读写、CRC32 |
-| `UserApp/Inc/AppUpgrade.h` | 升级任务接口 |
-| `UserApp/Src/AppUpgrade.c` | SciPort 桥接、状态推进、`AppUpgradeTask()` |
+| `Platform/Protocol/Xmodem/Inc/XmodemCore.h` | 参考层接口：配置、传输层、数据回调、超时来源 |
+| `Platform/Protocol/Xmodem/Src/XmodemCore.c` | 状态机、组帧校验、控制字符待发队列 |
+| `Platform/Upgrade/Inc/UpgradeCore.h` | 分区常量、文件头、配置镜像、Flash 操作表 |
+| `Platform/Upgrade/Src/UpgradeCore.c` | 字节→Flash 字装填、攒块、末块补齐、配置提交 |
+| `UserApp/Inc/AppUpgrade.h` | 升级会话接口、状态码、芯片类型 |
+| `UserApp/Src/AppUpgrade.c` | SciPort 桥接、会话状态机、`'C'` 发送、复位 |
 | `UserApp/Src/AppModbus.c` | 应答改 8 字节、交接后让出端口 |
 | `main.c` | 注册升级任务、`.flashfunc`/`.TI.ramfunc` 搬运 |
 | `CMD/2837xS_FLASH_APP_CLA_lnk.cmd` | 新增 `.upybuf`、`.flashfunc` |
@@ -259,3 +259,120 @@ RAM 函数所在的段：新增 `.flashfunc`（`LOAD = FLASH_APP`、`RUN = RAMGS
 | Flash 分块 | 保留，但理由改为"主机等 ACK"，且必须"本块操作完成后返回调度器" |
 | 末块 | 满足 64 位编程单元对齐与 ECC，同一单元不重复写 |
 | 包缓冲位置 | `RAMGS2` 可接受，构建后检查 RAM 执行段与缓冲段 |
+
+## 14. 实施记录
+
+### 14.1 落地文件
+
+| 文件 | 行数 | 作用 |
+| --- | --- | --- |
+| `Platform/Protocol/Xmodem/Inc/XmodemCore.h` | 196 | 参考层接口：配置、传输层、数据回调、超时来源、协议上下文 |
+| `Platform/Protocol/Xmodem/Src/XmodemCore.c` | 606 | 状态机、组帧校验、控制字符待发队列、两次 EOT / 两次 CAN |
+| `Platform/Upgrade/Inc/UpgradeCore.h` | 197 | 分区常量、文件头、配置镜像、Flash 操作表、上下文 |
+| `Platform/Upgrade/Src/UpgradeCore.c` | 542 | 字节→Flash 字装填、攒块、末块补齐、配置提交与回读、CRC32 |
+| `Platform/Upgrade/Inc/UpgradeFlash.h` | 75 | F021 适配层接口 |
+| `Platform/Upgrade/Src/UpgradeFlash.c` | 212 | 擦除/编程/回读，全部 `.flashfunc` 段 |
+| `Platform/Upgrade/Src/Fapi_UserDefinedFunctions.c` | 32 | F021 回调 `Fapi_serviceWatchdogTimer()` |
+| `UserApp/Inc/AppUpgrade.h` | 112 | 升级会话接口、状态码、芯片类型 |
+| `UserApp/Src/AppUpgrade.c` | 566 | SciPort 桥接、会话状态机、'C' 发送、暂停/恢复、复位 |
+| `Platform/Protocol/Test/upgrade_stub_test.c` | 1,392 | 主机测试（19 组） |
+| `Platform/Port/Test/shim/sysctl.h` | 8 | 主机测试用的 `SysCtl_resetDevice()` 声明 |
+
+### 14.2 与文档描述的差异（实现时确定的三处）
+
+1. **字节与 Flash 字的关系**：串口每个字节占一个 `Uint16` 的低 8 位；写进 Flash 时**两个连续字节拼成一个 16 位字**（先到者在低字节），奇数长度末字高字节补 `0xFF`。因此备份区 `0x1A000` 字可容纳 `0x34000` 字节正文，与 APP / BOOT 上限一致；配置区 12 字镜像不走这条规则。
+2. **`AppUpRead()` 加了批次暂存**：协议层拼包时剩余空间会小于一条 8 字节批次，若直接返回 0 会被误判为"对端无数据"而停摆。改为"尾部 → 暂存 → 取新批次"三段式，一条批次取不完就留在暂存里下次继续。
+3. **取消与重试用尽不再由业务层重复发 CAN**：这两条路协议层已经连发两个 CAN，业务层只补它没发过的失败（文件头非法、写备份失败等）。
+
+### 14.3 实现要点对照裁定
+
+| 裁定 | 实现 |
+| --- | --- |
+| 8 字节应答 + 单独发 `'C'` | `AppMbDispatchFrame()` 只回 8 字节并置 `bArmPending`；服务第 3 步叫 `AppUpgradeStart()` 并把尾部字节一并交出；`'C'` 由 `XmodemReceive()` 在四扇区擦完后第一轮发出 |
+| 中止交还 Modbus | `AppUpEndSession()` 调 `AppModbusReleasePort()`（丢候选、丢回复、清 armed、`SciPortResync`、刷故障代次） |
+| 整区擦除按实际扇区起点 | `g_astUpgradeBackupSector[4] = {{0x0A0000,0x8000},{0x0A8000,0x8000},{0x0B0000,0x8000},{0x0B8000,0x2000}}`，每轮擦一个 |
+| 暂停功率输出/控制 ISR/ADC | `main.c` 的 `AppUpgradePause()` 置 hold + `Hw_StopAllPWM()` + `Hw_GpioWritePin(88,0)`；采样任务改走 `AdcSampleTaskGuarded()`；恢复只解除压制，不自动开波 |
+| RAM 内等 FSM | `UpgradeFlashWaitReady()` 在 `.flashfunc` 里自旋到 `Fapi_Status_FsmReady`，带 `UPGRADE_FLASH_WAIT_GUARD` 上限；API 库整段 `GROUP { .flashfunc { -l F021_API_F2837xS_FPU32_EABI.lib } } RUN = RAMGS3_RUN` |
+| 末块对齐与 ECC | `UpgradeCoreEndBody()` 先补奇数字节（高字节 `0xFF`），再把攒块补到 8 字；`Fapi_AutoEccGeneration` 由硬件生成 ECC；`StubProgram()` 在主机侧统计"同一 64 位单元被写两次" |
+| 文件头先校验 | 首包进 `AppUpWriteBlock()` 时先 `UpgradeCoreParseHead()` + `UpgradeCoreCheckHead(..., APP_UP_CHIP_TYPE=0x37)`，不过就不写正文 |
+| 首包 SOH 或 STX | 正文长度由包头决定（96 / 992），末包按 `u32FileSize` 截断 |
+| ACK 真正发完才复位 | FINISH 里 `AppUpWrite(ACK)` 返回 0 就 `break` 下轮重试；DONE 里等 `SciPortIsTxIdle()` 才 `SysCtl_resetDevice()` |
+
+## 15. 两态构建台账
+
+构建命令（工作树根目录）：
+
+```
+python tools/build_minimal.py --cgt C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2.LTS
+```
+
+| 指标 | 生产态 `PORT_BENCH_TEST=0U` | 测量态 `PORT_BENCH_TEST=1U` |
+| --- | --- | --- |
+| 编译单元 | 48，0 警告 0 错误 | 48，0 警告 0 错误 |
+| `.out` 大小 | 999,148 B | 1,017,184 B |
+| `.out` sha256 | `886f79a0abdea00d363ecdffc6931e6f797416dab841d4e325fed1f9f17e8edf` | `25eaed24b76bfe612f09babfef6db1ea4ee6c163a0977704652a122a824373e1` |
+| `.map` 大小 | 122,256 B | 127,160 B |
+| `FLASH_APP` | 用 `0x7E07`，余 `0x121F7` | 用 `0x8188`，余 `0x11E76` |
+| `RAMGS0` | 用满 `0x1000`，**余 0** | 用满 `0x1000`，**余 0** |
+| `RAMGS1` | 用 `0x6DF`，余 `0x521` | 用 `0x811`，余 `0x3EF` |
+| `RAMGS2` | 用 `0x424`，余 `0xBDC` | 用 `0x424`，余 `0xBDC` |
+| `RAMGS3` | 用 0（`RAMGS3_RUN` 侧 `0x70C`），余 `0x8F4` | 同左 |
+| `RAMD0`（`.TI.ramfunc`） | 用 `0x92`，余 `0x76E` | 同左 |
+| `.mbregs` | `0x670` | `0x670` |
+| `.upybuf` | `0x424`（`ST_XMODEM_PROTOCOL` 1,060 字） | `0x424` |
+
+与 05E-r3 对照（生产态）：`FLASH_APP` 用 `0x6BC3` → `0x7E07`（+`0x1244`，即 4,676 字，F021 库 2,585 字 + 本层代码）；`RAMGS0` 余 `0xAA` → **0**；`RAMGS1` 余 `0x534` → `0x521`；新增 `RAMGS2` 用 1,060 字、`RAMGS3` 运行区 1,804 字。
+
+`.out` 可复现（生产态连续两次构建 sha256 相同），`.map` 每次构建都会变，只作信息项。
+记录一处实测差异：`main.c` 修补时一度出现 `\r\r\n` 双写，同样的源码逻辑 `.out` 从 999,176 B 变成 999,148 B（调试信息里的行偏移随之变化），说明 CRLF 双写会污染 `.out` 的字节内容——交付前必须以单一 CRLF 收敛并重新构建取数。
+
+**RAMGS0 已经用满**：这是本轮新增的约束，说明再往 `.bss` 里放静态数据就没有空间了。下一轮若要加缓冲，必须放 `RAMGS2`/`RAMGS3` 或缩小现有缓冲。
+
+## 16. 主机测试
+
+本机没有任何主机 C 编译器（`cc`/`gcc`/`clang`/`tcc`/`cl` 都不存在），因此只做了 `cl2000` 语法检查，**实跑交给复核方**：
+
+```
+cc -std=c99 -O2 -Wall -Wextra \
+   -I Platform/Protocol/Test/shim -I Platform/Port/Test/shim \
+   -I Platform/Port/Inc -I Platform/Protocol/Inc -I Platform/Common/Inc \
+   -I Platform/Protocol/Xmodem/Inc -I Platform/Upgrade/Inc -I Drivers/inc \
+   -I UserApp/Inc \
+   Platform/Protocol/Test/upgrade_stub_test.c \
+   Platform/Protocol/Xmodem/Src/XmodemCore.c \
+   Platform/Upgrade/Src/UpgradeCore.c \
+   UserApp/Src/AppUpgrade.c -o upgrade_stub_test
+```
+
+期望输出末行：`upgrade_stub_test: 103 项检查，0 项失败`。建议同时用 `-fsanitize=address,undefined` 跑一遍。
+
+19 组用例：
+
+| # | 用例 | 断言要点 |
+| --- | --- | --- |
+| 1 | 基础算法 | CRC16("123456789") = `0x31C3`；CRC32 = `0x0376E6E7` |
+| 2 | 文件头 | 解析小端长度/CRC；机型、类型、零长度、超限分别被拒 |
+| 3 | 正文字节→字 | 两字节拼一字、奇数字节高位补 `0xFF`、补齐到 8 字、字数不含补齐 |
+| 4 | 配置区 | 写后回读一致；清掉后标志不再是 `0xAAEE` |
+| 5 | 扇区擦除 | 四次擦除的地址等于扇区表起点；越界下标被拒 |
+| 6 | 正常流程（SOH 首包） | 擦 4 扇区 → 发 `'C'` → 收包 ACK → 两次 EOT → 校验通过才发最终 ACK → 复位 + 交还端口 |
+| 7 | 首包 STX | 1029 字节首包同样能完成 |
+| 8 | 重复包 | 只回 ACK，正文不重复累加 |
+| 9 | 序号错 | 回 NAK，不写正文 |
+| 10 | CRC 错 | 回 NAK 不写正文；重传好包后 ACK |
+| 11 | 分批到达 | 每次 1 字节也能拼成整包，只回一个 ACK |
+| 12 | 控制字节发送遇忙 | `'C'`/ACK 写不进去时不丢、端口恢复后补发 |
+| 13 | Flash 失败 | 不回 ACK |
+| 14 | 两次 CAN | 协议层连发两个 CAN，记为失败，不写配置，端口交还 |
+| 15 | 长度/CRC 不符 | 不回 ACK，记失败，不复位 |
+| 16 | 等首包超时 | 超时后重发 `'C'` |
+| 17 | 超过 64 KiB | 98,304 字节、序号 255→0 回绕，全部收下并完成 |
+| 18 | 奇数字节末块 | 末字高字节 `0xFF`，补齐不越界 |
+| 19 | 大文件不重复写单元 | 编程调用中同一个 64 位单元只出现一次 |
+
+## 17. 仍未覆盖
+
+1. **245 字节级长回复**：属 05E，本轮不动。
+2. **真实 F021 时序**：主机替身不模拟 FSM 忙与 ECC，`UpgradeFlash.c` 只做过编译与静态检查，必须上板验证。
+3. **BOOT 侧**：回拷、跳转、启动恢复都不在本步，属最小 Bootloader（`HANDOVER_20261110.md` §8）。
+4. **升级期间 Modbus 其它端口**：只暂停了功率与采样，C / D 两口的 Modbus 仍在跑；是否需要一并静默，待主站联调时确认。

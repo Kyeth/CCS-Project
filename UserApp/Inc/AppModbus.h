@@ -23,6 +23,12 @@ Uint32 AppModbusInitErrors(void);
 /** 该端口的升级标志（参考层 stMdsUpdateParam.u16MdsIsUpdate）。 */
 Uint16 AppModbusUpgradeFlag(Uint16 u16Port);
 
+/**
+ * @brief 把端口交还 Modbus（升级取消/结束后调用）
+ * @note  作废未发完的回复与半帧候选，并让端口重同步，主机重新握手。
+ */
+void AppModbusReleasePort(Uint16 u16Port);
+
 /** 诊断：该端口已交给参考层的完整请求帧数。 */
 Uint32 AppModbusRxFrames(Uint16 u16Port);
 

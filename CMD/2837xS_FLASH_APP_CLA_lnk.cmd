@@ -62,6 +62,10 @@ MEMORY
     RAMLS4            : origin = 0x00A000, length = 0x000800
     RAMLS5            : origin = 0x00A800, length = 0x000800
 
+    /* 05F: .flashfunc 的运行区（程序空间别名，与 PAGE 1 的 RAMGS3 是同一块 RAM）。 */
+    /*      PAGE 0 / PAGE 1 是两个地址空间，程序段只能引用 PAGE 0 的区间名。 */
+    RAMGS3_RUN        : origin = 0x00F000, length = 0x001000
+
     /* RAMGS14 : 0x01A000 已注释 —— F28374S 无此 RAM（TI: Only Available on F28377S/F28375S） */
     /* RAMGS15 : 0x01B000 已注释 —— 同上，此片子上是空洞 */
 
@@ -136,6 +140,38 @@ SECTIONS
     #endif
 #endif
 
+    /* 05F：Flash 擦写历程。F021 库与调用链都必须跑在 RAM：FSM 忙的时候
+       不能再从仍在编程的 Flash 上取指，也不能进 Flash 里的 ISR。
+       库自身没有 .TI.ramfunc 标记（节名是 .text:Fapi_*），所以用 GROUP
+       把这些节整体收进 .flashfunc，再 LOAD 到 Flash、RUN 到 RAMGS3。 */
+#if defined(__TI_EABI__)
+        GROUP
+        {
+            .flashfunc
+            {
+                -l F021_API_F2837xS_FPU32_EABI.lib
+            }
+        } LOAD = FLASH_APP,
+          RUN  = RAMGS3_RUN,
+          LOAD_START(_FlashfuncLoadStart),
+          LOAD_SIZE(_FlashfuncLoadSize),
+          RUN_START(_FlashfuncRunStart),
+          PAGE = 0, ALIGN(8)
+#else
+        GROUP
+        {
+            .flashfunc
+            {
+                -l F021_API_F2837xS_FPU32.lib
+            }
+        } LOAD = FLASH_APP,
+          RUN  = RAMGS3_RUN,
+          LOAD_START(_FlashfuncLoadStart),
+          LOAD_SIZE(_FlashfuncLoadSize),
+          RUN_START(_FlashfuncRunStart),
+          PAGE = 0, ALIGN(8)
+#endif
+
     .reset           : > RESET, PAGE = 0, TYPE = DSECT
 
     /* 数据段 (PAGE 1 - RAM) */
@@ -157,6 +193,10 @@ SECTIONS
     .protobuf        : > RAMGS1, PAGE = 1, ALIGN(4)
     .mbregs          : > RAMGS1, PAGE = 1, ALIGN(4)
     .portstat        : > RAMGS1, PAGE = 1, ALIGN(4)
+
+    /* 05F：XMODEM 包缓冲 1030 字（每字节一个 Uint16）。RAMGS2 整段 4096 字，
+       05E 里它一个都没用，放这里不再挤 RAMGS0/RAMGS1。 */
+    .upybuf          : > RAMGS2, PAGE = 1, ALIGN(4)
 #else
     .ebss            : >> RAMGS0 | RAMGS1 | RAMGS2 | RAMGS3, PAGE = 1, ALIGN(4)
     .esysmem         : > RAMGS0, PAGE = 1, ALIGN(4)

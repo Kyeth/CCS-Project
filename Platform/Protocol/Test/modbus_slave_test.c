@@ -20,7 +20,7 @@
  * 覆盖：表结构不变量、二分查找边界、读/写单/写多、广播不回复、CRC 错不回复、
  * 地址不匹配不回复、半帧不提前收帧、回复跨轮入环、端口非空闲丢半帧、
  * 截短的 0x10 不误写、0x10 越限整条回滚、跨批次完整接收、时基不可用不确认帧、
- * DSP 版本号初值、强制复位取消未发完的回复、六字节升级握手。
+ * DSP 版本号初值、强制复位取消未发完的回复、六字节升级握手（8 字节应答 + 尾部交接）。
  */
 
 #include <stdio.h>
@@ -115,6 +115,27 @@ static Uint32 s_au32FaultGen[STUB_PORTS];
 static Uint16 s_au16StreamBreak[STUB_PORTS];
 static Uint16 s_au16TxSuspend[STUB_PORTS];
 static Uint16 s_au16ResyncCalls[STUB_PORTS];
+
+/* 升级层替身：AppModbus 在交接时会调 AppUpgradeStart()，这里只记录 */
+#define STUB_UP_TAIL 64U
+static Uint16 s_au16UpTail[STUB_UP_TAIL];
+static Uint16 s_u16UpTailLen;
+static Uint16 s_u16UpStartCalls;
+static Uint16 s_u16UpStartSci;
+
+Uint16 AppUpgradeStart(Uint16 u16SciId, const Uint16 *pu16Tail, Uint16 u16TailLen)
+{
+    Uint16 i;
+
+    s_u16UpStartCalls++;
+    s_u16UpStartSci = u16SciId;
+    s_u16UpTailLen = u16TailLen;
+    for (i = 0U; (i < u16TailLen) && (i < STUB_UP_TAIL); i++) {
+        s_au16UpTail[i] = pu16Tail[i];
+    }
+
+    return 1U;
+}
 
 static void StubReset(void)
 {
@@ -883,29 +904,37 @@ static void TestFrames(void)
           (s_au16TxGot[PORT_A][8] == (Uint16)((u16Crc >> 8) & 0xFFU)),
           "owner: 回复的 CRC 与正文自洽");
 
-    /* ---- 20. 六字节升级握手：01 10 04 38 00 02 → 9 字节应答 ---- */
+    /* ---- 20. 六字节升级握手：01 10 04 38 00 02 → 8 字节应答（'C' 由升级层发） ---- */
     u16Callbacks = AppModbusCallBacks(0U);
+    s_u16UpStartCalls = 0U;
+    s_u16UpTailLen = 0xFFFFU;
     au16Body[0] = 0x01U; au16Body[1] = 0x10U;
     au16Body[2] = 0x04U; au16Body[3] = 0x38U;   /* 1080 */
     au16Body[4] = 0x00U; au16Body[5] = 0x02U;
-    u16SavedLen = 6U;                           /* 握手帧没有数据段也没有 CRC */
+    au16Body[6] = 0x53U; au16Body[7] = 0x4FU;   /* 紧跟的 SOH + 序号：属于升级流 */
+    au16Body[8] = 0x01U; au16Body[9] = 0x00U;
+    u16SavedLen = 10U;                          /* 握手帧没有数据段也没有 CRC，后面直接接升级流 */
     StubTxClear(PORT_A);
     PushBytes(PORT_A, au16Body, u16SavedLen);
     Advance(2100U);
     ServiceOnce();
     u16Crc = TestCrcBitwise(au16Body, 6U);
-    Check(s_u16TxLen[PORT_A] == 9U, "handshake: 回 9 字节");
+    Check(s_u16TxLen[PORT_A] == 8U, "handshake: 回 8 字节");
     Check(memcmp(&s_au16Tx[PORT_A][0], au16Body, (size_t)6U * sizeof(Uint16)) == 0,
           "handshake: 前 6 字节是请求回显");
     Check(s_au16Tx[PORT_A][6] == (Uint16)(u16Crc & 0xFFU), "handshake: CRC 低字节在前");
     Check(s_au16Tx[PORT_A][7] == (Uint16)((u16Crc >> 8) & 0xFFU), "handshake: CRC 高字节在后");
-    Check(s_au16Tx[PORT_A][8] == 0x43U, "handshake: 第 9 字节是 XMODEM 就绪 'C'");
     Check(AppModbusUpgradeFlag(0U) == 0U, "handshake: 还没发完不交接升级");
-    Check(AppModbusCallBacks(0U) == (u16Callbacks + 1UL), "handshake: 业务回调被调一次");
+    Check(s_u16UpStartCalls == 0U, "handshake: 还没发完不交给升级层");
+    Check(AppModbusCallBacks(0U) == u16Callbacks, "handshake: 握手不走业务回调");
 
     StubTxDrain(PORT_A);                        /* 应答真正发完 */
     ServiceOnce();
     Check(AppModbusUpgradeFlag(0U) == 1U, "handshake: 确认发送完成才交接升级");
+    Check(s_u16UpStartCalls == 1U, "handshake: 交接时调用开始接口一次");
+    Check(s_u16UpTailLen == 4U, "handshake: 多出来的 4 字节一并交给升级层");
+    Check((s_au16UpTail[0] == 0x53U) && (s_au16UpTail[3] == 0x00U),
+          "handshake: 尾部字节原样保存");
 
     StubTxClear(PORT_A);
     PushBytes(PORT_A, au16Frame, u16Len);       /* 交接前最后构造的普通请求 */
