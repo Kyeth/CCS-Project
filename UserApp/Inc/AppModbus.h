@@ -21,6 +21,9 @@ void AppModbusInit(void);
 
 Uint16 AppModbusEnabledCount(void);
 Uint32 AppModbusTableErrors(void);
+
+/** 该端口是否已收到升级请求（对应参考实现的 u16MdsIsUpdate）。 */
+Uint16 AppModbusUpgradeFlag(Uint16 u16Port);
 const ST_PROTO_INSTANCE *AppModbusInstance(Uint16 u16Index);
 
 #endif /* APP_MODBUS_H */

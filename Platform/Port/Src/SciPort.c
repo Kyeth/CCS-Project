@@ -858,10 +858,10 @@ void SciPortInit(void)
         s_astSciPort[i].u16RecPhase = SCI_REC_PHASE_NONE;
     }
 
-    /* B 版：上电与重新初始化都从 A 开始，测试与启动行为确定。 */
+    /* 上电与重新初始化都从 A 开始，测试与启动行为确定。 */
     s_u16NextPort = 0U;
 
-    /* O2：阈值与当前 ticksPerUs 对齐（时基变化时由 SciPortSetSysclkHz 再同步）。 */
+    /* 阈值与当前 ticksPerUs 对齐（时基变化时由 SciPortSetSysclkHz 再同步）。 */
     SciPortUpdateGapLimit();
 }
 
@@ -898,7 +898,7 @@ Uint16 SciPortService100us(void)
         s_u32ServiceCalls++;
     }
 
-    /* B 版轮转：每拍只服务一路，游标无条件前进。即使当前端口为空、暂停、
+    /* 轮转：每拍只服务一路，游标无条件前进。即使当前端口为空、暂停、
      * 冻结或本轮时间读取失败，也不占用下一拍，另外两路的节拍不受影响。
      * 单路服务间隔 = 100 µs x SCI_PORT_NUM = 300 µs。 */
     u16Port = s_u16NextPort;

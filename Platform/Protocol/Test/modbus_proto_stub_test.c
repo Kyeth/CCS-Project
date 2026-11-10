@@ -232,7 +232,7 @@ static void TableSetUp(void)
         s_astProtoTbl[u16Idx].u16Addr = (Uint16)(5000U + u16Idx);
         s_astProtoTbl[u16Idx].u16Type = MB_PT_U16;
         s_astProtoTbl[u16Idx].u16Access = MB_PT_READWRITE;
-        s_astProtoTbl[u16Idx].u16Reserved = 0U;
+        s_astProtoTbl[u16Idx].u16Save = MB_PT_NOT_SAVE;
         s_astProtoTbl[u16Idx].pVar = &s_au16Regs[u16Idx];
         s_astProtoTbl[u16Idx].u32Min = 0UL;
         s_astProtoTbl[u16Idx].u32Max = 65535UL;

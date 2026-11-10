@@ -30,11 +30,16 @@
 #define MB_PT_WRITE             (2U)
 #define MB_PT_READWRITE         (3U)
 
+/* 保存属性：对应参考实现的 NOT_SAVE。当前工程没有掉电保存介质，只登记属性，
+ * 不写 Flash；需要保存时由应用层按该字段决定。 */
+#define MB_PT_NOT_SAVE          (0U)
+#define MB_PT_SAVE              (1U)
+
 typedef struct {
     Uint16 u16Addr;      /* 起始寄存器地址 */
     Uint16 u16Type;      /* MB_PT_* */
     Uint16 u16Access;    /* MB_PT_READ / WRITE / READWRITE */
-    Uint16 u16Reserved;  /* 保留（保存属性等后续使用） */
+    Uint16 u16Save;      /* MB_PT_NOT_SAVE / MB_PT_SAVE */
     void  *pVar;         /* 绑定的变量（必须非空） */
     Uint32 u32Min;       /* 整数型下限（按类型宽度解释） */
     Uint32 u32Max;       /* 整数型上限 */

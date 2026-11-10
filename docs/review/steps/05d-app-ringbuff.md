@@ -527,3 +527,82 @@ cc -std=c99 -Wall -Wextra -I../../Port/Test/shim -I../../Port/Inc \
 | `EP15K_minimal.map` | 109,510 B sha256 `e0ed137c1121e1fca5a19b7247945ac96c626f87721e1613486dbbceee907ef7` |
 
 两个主机测试仍**未在实施方执行**（本机无 `cc`/`gcc`），只做过 `cl2000` 语法/类型检查。
+
+## 19 点表与升级回调（按参考实现 ST_REG_SLAVE_ITEM 的格式重拟，v0.8）
+
+### 19.1 依据
+
+所有者提供参考实现 `ModbusSlaveRegCfg_1/2.h` 与 `ModbusSlaveBusiness.c`：点表是"地址严格升序的项数组 + 项数"；升级寄存器固定在 **1080（固件类型，0..1）** 与 **1081（升级波特率，0..66530）**；回调在"本机地址或广播 && 起始地址 == 1080 && 寄存器数 == 2 && 功能码 == 0x10"时把 `u16MdsIsUpdate` 置 1。
+
+本节把本工程的 `UserApp/Src/AppModbus.c` 改成同样的形状：点表按参考格式书写，1080/1081 进表，回调改成参考的判据形式。
+
+### 19.2 字段映射
+
+| 参考 `ST_REG_SLAVE_ITEM` | 本工程 `ST_MODBUS_POINT` | 说明 |
+| --- | --- | --- |
+| 寄存器地址 | `u16Addr` | 起始地址，升序 |
+| `READ_WRITE` / `READ_ONLY` | `MB_PT_READWRITE` / `MB_PT_READ`（另有 `MB_PT_WRITE`） | 权限 |
+| `TYPE_UINT16` / `TYPE_INT16` | `MB_PT_U16` / `MB_PT_I16`，另支持 `MB_PT_U32` / `MB_PT_I32` / `MB_PT_F32` | 32 位占两个寄存器，高字在前 |
+| `NOT_SAVE` | `MB_PT_NOT_SAVE`（新增；`MB_PT_SAVE` 保留） | 当前工程无掉电保存介质，只登记属性 |
+| `(U_REG_VAL *)(&变量)` | `(void *)(&变量)` | 平台按类型访问，保留 `volatile`，不做统一强转 |
+| 值下限 / 值上限 | `u32Min` / `u32Max`（浮点另用 `fMin` / `fMax`） | 配置期检查，超限回 0x03 |
+| `MDS_ITEM_OF(arr)` | `MDS_ITEM_OF(arr)` | 同名宏，求项数 |
+| `ST_REG_SLAVE_CFG{表指针, 项数}` | `s_apstPointTbl[] + s_au16PointCount[]` | 三路各一张表 |
+
+### 19.3 点表内容（每路一张，共 39 项 / 39 个寄存器）
+
+| 地址 | 类型 | 权限 | 保存 | 绑定变量 | 下限 | 上限 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1080 | Uint16 | 读写 | NOT_SAVE | `s_astUpgradeParam[i].u16FirmwareType` | 0 | 1 |
+| 1081 | Uint16 | 读写 | NOT_SAVE | `s_astUpgradeParam[i].u16UpdateBaud` | 0 | 66530 |
+| 5000 | Uint16 | 读写 | NOT_SAVE | `s_au16TestMode[i]` | 0 | 1000 |
+| 5001 | int16 | 读写 | NOT_SAVE | `s_ai16TestOffset[i]` | -500 | 500 |
+| 5002 | Uint16 | 只读 | NOT_SAVE | `s_u16Zero` | 0 | 65535 |
+| 5003..5004 | Uint32 | 读写 | NOT_SAVE | `s_au32TestCounter[i]` | 0 | 1000000 |
+| 5005..5006 | int32 | 读写 | NOT_SAVE | `s_ai32TestTrim[i]` | -100000 | 100000 |
+| 5007..5008 | float | 读写 | NOT_SAVE | `s_afTestGain[i]` | -50.0 | 150.0 |
+| 5009 | Uint16 | 只读 | NOT_SAVE | `s_au16TestStatus[i]` | 0 | 65535 |
+| 5010..5034 | Uint16 | 只读 | NOT_SAVE | `s_au16Reserved0[]` | 0 | 65535 |
+| 5035 / 5036 | Uint16 | 只读 | NOT_SAVE | 版本 0x0007 / 0xB05C | 0 | 65535 |
+
+升级参数对象 `ST_MB_UPGRADE_PARAM { u16FirmwareType, u16UpdateBaud, u16MdsIsUpdate }` 对应参考实现的 `stMdsUpdateParam`。
+
+### 19.4 升级回调
+
+```c
+static Uint16 AppModbusCallBack(Uint16 u16Port, const Uint16 *pu16Head,
+                                Uint16 *pu16Reply, Uint16 u16ReplyMax);
+```
+
+判据与参考一致（`u16Addr` 为本实例从机地址或 0、`u16Func == 0x10`、`u16Start == 1080`、`u16Nums == 2`）。命中后：
+
+1. `s_astUpgradeParam[u16Port].u16MdsIsUpdate = 1U;`
+2. 用请求前六字节拼标准 0x10 回声，CRC 由 `ModbusCrc16()` 现算（对 `01 10 04 38 00 02` 得 `0xC1 0x35`，与参考写死的握手一致）；
+3. 返回 8 表示接管，握手入环后由协议层等 `SciPortIsTxIdle()` 再置 `armed`（Modbus 不再消费该端口）。
+
+未命中返回 0，暂存字节按原顺序回放给普通 Modbus；`AppModbusUpgradeFlag(port)` 供观察。
+
+### 19.5 与上一版前缀匹配的差异
+
+- 旧实现匹配固定六字节 `01 10 04 38 00 02`，等于把从机地址写死成 1；
+- 现改为 `MbProtoArmByteOk()` 逐字节判定：第 0 字节 == 本实例从机地址 **或广播 0**，其后 `0x10`、`0x04`、`0x38`、`0x00`、`0x02`；
+- 三路（地址 1/1/2）都能各自触发，与参考"每路一个回调"的写法一致。
+
+参考代码的两处笔误没有照抄：`ModbusSlaveCallBack_1` 里误清 `ModbusTimeOutCnt_2`；`ModbusSlaveCallBack_2` 误写 `ObjModbusSlaveCtrl_1.stMdsUpdateParam.u16MdsIsUpdate`。
+
+### 19.6 构建
+
+- 42 个编译单元，0 warning；
+- `.text 0x577D`；`RAMGS0` 用 `0xF12`、余 `0xEE`（238 字）；`RAMGS1` 用 `0x5F0`、余 `0x610`；
+- `.protobuf` 起 `0x00D000`、共 `0x5DC`（`ModbusProto 0x594` / `AppModbus 0x24` / `Protocol 0x24`），`.portstat 0x14 @ 0x00D5DC`，`.portbuf 0x180 @ 0x00DC00`；
+- `EP15K_minimal.out` 862,424 B sha256 `fac722215e1dc576b208e778016316b412571abc6d0f041d39a0e8686d003f14`；
+- `EP15K_minimal.map` 109,589 B sha256 `011957a8009f0c47792ff5d63db56805fff0806cd67fdb4712b8702fb07c3e59`。
+
+两个主机测试文件同步改了字段名（`u16Save`），适配层新增升级用例前先登记：本机仍无 `cc`/`gcc`，未执行。
+
+### 19.7 待确认
+
+1. **地址布局**：参考实现的业务区是 0..92 加 1080/1081；本工程当前保留 5000..5036 的测试/版本区，是否改成参考的 0..92 起始布局？
+2. **升级端口**：参考两路都挂（`SCI_ID0`/`SCI_ID1`，从机地址都是 1）。本工程先挂 SCI-A（地址 1），是否三路都可触发、还是固定一路？
+3. **1081 语义**：暂定 0 = 沿用当前端口波特率；上限 66530 是否按参考保留？
+4. **通信超时计数**：参考有 `MODBUS_TIMEOUT 18000` 与 `ModbusTimeOutCnt_1/2`、平台超时标志；本工程目前没有这一层，是否需要按端口补 1 ms 超时计数与标志（为谁提供判据需要所有者决定）。

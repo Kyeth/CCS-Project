@@ -26,10 +26,11 @@
 #define MB_HIGH_BAUD_LIMIT      (19200UL)
 #define MB_SYSCLK_FALLBACK      (200UL)  /* 取不到 ticks/µs 时的保守值 */
 
-/* ARM 升级命令的固定起点：01 10 04 38 00 02（不校验后续数据与 CRC）。 */
-static const Uint16 s_au16ArmPrefix[MB_ARM_PREFIX_LEN] = {
-    0x01U, 0x10U, 0x04U, 0x38U, 0x00U, 0x02U
-};
+/* ARM 升级命令的起点：<从机地址或广播> 10 04 38 00 02，即"写 2 个寄存器到 1080"。
+ * 前六字节逐字节判定，不校验后续数据与 CRC。 */
+#define MB_ARM_UPGRADE_ADDR     (1080U)
+#define MB_ARM_UPGRADE_NUMS     (2U)
+#define MB_ARM_FUNC_WRITE_MULTI (0x10U)
 
 typedef struct {
     ST_MB_INSTANCE stMb;
@@ -60,6 +61,7 @@ static MB_ARM_HOOK s_pfArmHook = (MB_ARM_HOOK)0;
 static void *s_pArmCtx = (void *)0;
 static Uint16 s_u16ArmSciId = 0xFFFFU;   /* 只有这个端口检查升级起点 */
 
+static Uint16 MbProtoArmByteOk(const ST_MB_PROTO_STATE *pstState, Uint16 u16Idx, Uint16 u16Byte);
 static Uint16 MbProtoArmFeed(ST_MB_PROTO_STATE *pstState, const Uint16 *pu16Data,
                             Uint16 u16Count, Uint32 u32Tick);
 static void   MbProtoReplay(ST_MB_PROTO_STATE *pstState, Uint16 u16Keep,
@@ -394,6 +396,32 @@ static Uint16 MbProtoService(ST_PROTO_INSTANCE *pstInst)
 /* 升级起点匹配：返回 0 = 交回普通 Modbus，1 = 本批已消费（暂存或已回放），
  * 2 = 已接管（装载握手成功，本轮停止消费）。
  * 匹配中的字节只暂存、不交给普通 Modbus；失配或未接管时按原顺序回放，不丢不重。 */
+/**
+ * @brief 判断一个字节是否仍是升级命令的起点。
+ *
+ * 第 0 字节接受"本实例的从机地址"或广播 0；其后依次是 0x10、1080 高/低字节、
+ * 寄存器数高/低字节。这样三路各自的从机地址都能触发，又不依赖固定地址。
+ */
+static Uint16 MbProtoArmByteOk(const ST_MB_PROTO_STATE *pstState, Uint16 u16Idx, Uint16 u16Byte)
+{
+    Uint16 u16Slave = pstState->pstCfg->u16SlaveAddr;
+
+    switch (u16Idx) {
+    case 0U:
+        return ((u16Byte == u16Slave) || (u16Byte == 0U)) ? 1U : 0U;
+    case 1U:
+        return (u16Byte == MB_ARM_FUNC_WRITE_MULTI) ? 1U : 0U;
+    case 2U:
+        return (u16Byte == (Uint16)((MB_ARM_UPGRADE_ADDR >> 8) & 0xFFU)) ? 1U : 0U;
+    case 3U:
+        return (u16Byte == (Uint16)(MB_ARM_UPGRADE_ADDR & 0xFFU)) ? 1U : 0U;
+    case 4U:
+        return (u16Byte == (Uint16)((MB_ARM_UPGRADE_NUMS >> 8) & 0xFFU)) ? 1U : 0U;
+    default:
+        return (u16Byte == (Uint16)(MB_ARM_UPGRADE_NUMS & 0xFFU)) ? 1U : 0U;
+    }
+}
+
 static Uint16 MbProtoArmFeed(ST_MB_PROTO_STATE *pstState, const Uint16 *pu16Data,
                              Uint16 u16Count, Uint32 u32Tick)
 {
@@ -419,7 +447,7 @@ static Uint16 MbProtoArmFeed(ST_MB_PROTO_STATE *pstState, const Uint16 *pu16Data
     {
         u16Byte = (Uint16)(pu16Data[u16Idx] & 0xFFU);
 
-        if (u16Byte == s_au16ArmPrefix[pstState->u16ArmPeekLen]) {
+        if (MbProtoArmByteOk(pstState, pstState->u16ArmPeekLen, u16Byte) != 0U) {
             pstState->au16ArmPeek[pstState->u16ArmPeekLen] = u16Byte;
             pstState->u16ArmPeekLen = (Uint16)(pstState->u16ArmPeekLen + 1U);
             if (pstState->u16ArmPeekLen < MB_ARM_PREFIX_LEN) {
