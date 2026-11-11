@@ -171,6 +171,16 @@ APP 侧接线（APP 工程）：8 字节握手应答 → 擦备份区并写"接�
 落在 `.flashfunc` 运行区 `0x00F000..0x00FA8B`；`FlashWaitReady` @ `0x00F7D9` 本身就在 RAM，
 超时分支读的是 RAM 里的 `s_u16StallOnTimeout`，不再存在"超时路径回到 Flash 取指"的可能。
 
+### 3.8 第三轮复核追加的 2 条收口
+
+| # | 问题 | 最小改法 |
+| --- | --- | --- |
+| 1 | 合法的"接收中"记录被判无效：APP 与 BOOT 写接收配置时 `bChipType`/`bFirmwareType`/`u32FileSize`/`u32FileCrc` 都是 0，`CheckUpgrade()` 却用完整镜像规则校验，记录在进 `PrepareResumeReceive()` 之前就被清掉（有有效 APP 时直接跳 APP，掉电续收失效） | 校验拆成两套：`IsReceiveCfgValid()` 只查升级标志 + 串口 + 波特率档位（供"接收中"分支），`IsImageCfgValid()` 查芯片类型/镜像类型/非零偶数长度/按分区限长（供"已收完"分支）。`CheckUpgrade()` 先按 `GetUpgradeFirmwareFlag()` 分流再校验。同时统一波特率：新增 `UPGRADE_DEFAULT_BAUD (19200UL)`，`u16UpgradeBaud = 0` 一律解释为 19200（原来重入路径写成 38400，与首次接收的 SCI-A 19200 不一致） |
+| 2 | Type=2 清配置失败后仍自擦：`BootSelfUpdateTail()` 忽略配置扇区擦除结果 | 清配置的返回值纳入判定：失败直接 `return`（停在 BOOT、下次上电重试），**清成功后才 `FlashSetStallOnTimeout(1U)` 并开始擦 A/B/C**，避免旧"已收完"配置留到复位后被再装一次 |
+
+第三轮 RAM 可达性复核（新镜像）：`EraseBootBank` 调用点之后的可达调用仍全部落在
+`.flashfunc` 运行区 `0x00F000..0x00FA8B`，`FlashWaitReady` @ `0x00F7D9` 在 RAM。
+
 ---
 
 ## 4. 构建
@@ -213,11 +223,11 @@ python tools/build_minimal.py --cgt C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2
 
 | 产物 | CCS 11.1 Debug | 命令行 |
 | --- | --- | --- |
-| `.out` | 668,640 B `f6c053ac…` | 672,068 B `dc2ddd95…` |
-| `.map` | 84,444 B | 81,943 B |
-| `.hex` | 76,648 B `07e6bdc1…` | 76,648 B `b8f60e47…` |
-| `.bin`（烧录） | 31,880 B `ebf985cb…` | 31,880 B `245426fa…` |
-| `_UpgradeCRC32.bin` | 31,912 B `f99e356d…`，CRC32 `0xB0B15625` | 31,912 B `74af4a44…`，CRC32 `0xED8A5766` |
+| `.out` | 669,016 B `01eb6b16…` | 672,448 B `6c7239c9…` |
+| `.map` | 84,314 B | 81,813 B |
+| `.hex` | 76,863 B `91ec2055…` | 76,863 B `6bfc82b7…` |
+| `.bin`（烧录） | 31,944 B `9bbd0413…` | 31,944 B `d41748c7…` |
+| `_UpgradeCRC32.bin` | 31,976 B `f6483da9…`，CRC32 `0xA1D06C90` | 31,976 B `cb4cb275…`，CRC32 `0xF0032A83` |
 
 CCS Debug 的一套产物同时登记在 `artifacts/boot-v1/`（`.gitignore` 对这些文件开了
 例外，其余构建输出仍然忽略），可直接取用烧录文件与升级 BIN。
@@ -226,14 +236,14 @@ CCS Debug 的一套产物同时登记在 `artifacts/boot-v1/`（`.gitignore` 对
 `.hex`、`.bin`、升级 BIN 在各自路线内可复现（命令行路线连续两次构建，四个产物的
 sha256 完全一致）。
 
-两份 `.bin` 大小相同（31,880 B）、只差 **5 个字节**，全部是内嵌 `__FILE__` 字符串里的
-`\` 与 `/`（driverlib `ASSERT` 宏），因此两份升级 BIN 的 CRC32 不同（`0xB0B15625` 与 `0xED8A5766`）。属**实施方核对记录**，未做独立复现，不作为验收依据。
+两份 `.bin` 大小相同（31,944 B）、只差 **5 个字节**，全部是内嵌 `__FILE__` 字符串里的
+`\` 与 `/`（driverlib `ASSERT` 宏），因此两份升级 BIN 的 CRC32 不同（`0xA1D06C90` 与 `0xF0032A83`）。属**实施方核对记录**，未做独立复现，不作为验收依据。
 
 内存（两份 map 完全一致）：
 
 | 区 | 用 | 余 |
 | --- | --- | --- |
-| `FLASH_BOOT`（0x080002，0x5FFE 字） | `0x3E25` | `0x21D9` |
+| `FLASH_BOOT`（0x080002，0x5FFE 字） | `0x3E51` | `0x21AD` |
 | `RAMD0`（`.TI.ramfunc`） | `0x00C3` | `0x073D` |
 | `RAMGS0`（`.bss`） | `0x0976` | `0x068A` |
 | `RAMGS1` | `0x000C` | `0x0BF4` |
@@ -272,6 +282,9 @@ RUN `0x00F000`——其中 `FlashFeedWatchDog` @ `0x00F79F`、`FlashForceReset` 
    而是停在 BOOT；恢复后重新上电可再次进入接收。
 9. 配置损坏注入：把配置区改成非法长度（0 或奇数或超上限），确认 BOOT 直接清配置、
    不读备份区、按 APP 是否有效决定跳转或接收。
+10. 掉电续收：接收中途断电，重新上电后应凭"接收中"记录继续接收（芯片类型/镜像类型/
+    长度此时都是 0，不能被当成坏配置清掉），且波特率与首次接收一致（19200）。
+11. Type=2 清配置失败注入：让配置扇区擦除失败，确认 BOOT 不擦 A/B/C、不回拷、不复位。
 
 ---
 

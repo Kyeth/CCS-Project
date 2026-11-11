@@ -16,6 +16,10 @@ ST_UPGRADE_HANDLE stUpgradeHandle;
 /* 接收门控：只有"备份区擦除 + 接收配置"都准备好才允许 TaskUpgrade() 调 XmodemReceive()。
  * 首次接收、掉电重入、中止重入三条路径统一走这里，避免准备失败却发出 'C'。 */
 static Uint16 s_u16ReceiveReady = 0U;
+
+/* "接收中"记录里 u16UpgradeBaud = 0 表示默认档，必须与 SCI-A 的实际配置一致
+ * （DrvCfg_EP15K.c 里 SCI-A = 19200），否则首次接收和掉电重入会用上不同的波特率。 */
+#define UPGRADE_DEFAULT_BAUD (19200UL)
 //__attribute__((aligned(8))) Uint16 u16DataBuff[16];
 
 void UpgradeUserInit(void)
@@ -116,7 +120,34 @@ void jump_to_app(void);
 /* 配置自检：升级标志、芯片类型、镜像类型、非零偶数长度、按目标分区的长度上限。
  * 必要适配修正：参考实现在读备份区 CRC 之前不校验这些字段，配置损坏时 CRC 长度
  * 直接来自 u32FileSize，会读到备份区之外。 */
-static Uint16 IsCfgValid(void)
+/* "接收中"记录只校验接收参数：此时 bChipType/bFirmwareType/u32FileSize/u32FileCrc
+ * 都还是 0（APP 与 BOOT 写接收配置时就是这么填的），不能按完整镜像规则判无效。 */
+static Uint16 IsReceiveCfgValid(void)
+{
+    Uint16 u16BaudCfg = stUpgradeHandle.stUpgradeCfg.u16UpgradeBaud;
+
+    if (stUpgradeHandle.stUpgradeCfg.u16UpgradeFlag != 0xAAEEU)
+    {
+        return 0U;
+    }
+
+    if (stUpgradeHandle.stUpgradeCfg.u16UpgradeUart != (Uint16)HW_SCI_ID_A)
+    {
+        return 0U;
+    }
+
+    if ((u16BaudCfg != 0U) && (u16BaudCfg != 96U) && (u16BaudCfg != 192U) &&
+        (u16BaudCfg != 384U) && (u16BaudCfg != 576U) && (u16BaudCfg != 1152U))
+    {
+        return 0U;
+    }
+
+    return 1U;
+}
+
+
+/* "已收完"记录按完整镜像校验：芯片类型、镜像类型、非零偶数长度、按目标分区限长。 */
+static Uint16 IsImageCfgValid(void)
 {
     Uint32 u32Size = stUpgradeHandle.stUpgradeCfg.u32FileSize;
 
@@ -173,7 +204,7 @@ static Uint16 PrepareResumeReceive(void)
     }
     else if (u16BaudCfg == 0U)
     {
-        u32Baud = 38400UL;
+        u32Baud = UPGRADE_DEFAULT_BAUD;
     }
     else
     {
@@ -331,11 +362,15 @@ static void BootSelfUpdateTail(void)
         return;
     }
 
+    /* 先清配置，并且必须清成功：清了才不会被下次上电当成"已收完"再装一遍；
+     * 清不掉就停在 BOOT（下次上电还会走到这里重试），绝不动 A/B/C。 */
+    if (EraseSingleSector(stUpgradeHandle.u32UpgradeCfgAddr) != 0)
+    {
+        return;
+    }
+
     /* 从这里开始 BOOT 区可能已被破坏：等待 FSM 超时也不许复位回 Flash。 */
     FlashSetStallOnTimeout(1U);
-
-    /* 先清配置：中途掉电也不会留下"已收完"的配置，否则下次上电会把半截镜像再回拷一次。 */
-    (void)EraseSingleSector(stUpgradeHandle.u32UpgradeCfgAddr);
 
     /* 每轮重试都先擦目标扇区再编程：同一 64 位 ECC 单元不能被重复编程。 */
     for (u16Retry = 0U; u16Retry < 3U; u16Retry++)
@@ -380,24 +415,24 @@ void CheckUpgrade(void)
         return;
     }
 
-    /* 必要适配修正：先做配置自检，再碰备份区（参考实现直接拿 u32FileSize 算 CRC）。 */
-    if (IsCfgValid() == 0U)
-    {
-        (void)EraseSingleSector(stUpgradeHandle.u32UpgradeCfgAddr);
-        BootToAppOrReceive();
-        return;
-    }
-
     if (GetUpgradeFirmwareFlag(&stUpgradeHandle) == 0)
     {
-        /* 掉电重入：准备好才允许继续接收；准备失败就清配置重走门控，不能让旧配置
-         * 带着没擦净的备份区直接开始收包。 */
-        if (PrepareResumeReceive() != 0U)
+        /* "接收中"：只校验接收参数，然后准备好门控继续收包。若用完整镜像的规则来判，
+         * 芯片类型/镜像类型/长度都还是 0 的合法接收记录会被当成坏配置清掉。 */
+        if ((IsReceiveCfgValid() != 0U) && (PrepareResumeReceive() != 0U))
         {
             s_u16ReceiveReady = 1U;
             return;
         }
 
+        (void)EraseSingleSector(stUpgradeHandle.u32UpgradeCfgAddr);
+        BootToAppOrReceive();
+        return;
+    }
+
+    /* "已收完"：按完整镜像校验，再做备份区 CRC（参考实现直接拿 u32FileSize 算 CRC）。 */
+    if (IsImageCfgValid() == 0U)
+    {
         (void)EraseSingleSector(stUpgradeHandle.u32UpgradeCfgAddr);
         BootToAppOrReceive();
         return;
