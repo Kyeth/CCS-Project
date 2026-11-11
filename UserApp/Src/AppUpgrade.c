@@ -197,9 +197,9 @@ static void AppUpgradeAbort(void)
     XmodemRxReset();
     UpgradeUserSessionReset();
 
-    /* 失败收尾：串口恢复业务速率（硬件与协议层记录一起改），再把端口还给 Modbus */
-    AppModbusRestoreBaud(HW_SCI_ID_A, 19200UL);
-    AppModbusReleasePort(APP_UP_PORT_INDEX);
+    /* 失败收尾：切回业务速率成功后才把端口还给 Modbus；失败时端口停在恢复态
+     * 由 AppModbus 逐轮重试，避免硬件还在 115200 而主站按 19200 发帧。 */
+    AppModbusRestorePort(APP_UP_PORT_INDEX, 19200UL);
 }
 
 

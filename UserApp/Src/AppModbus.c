@@ -54,13 +54,9 @@
 #define APP_MB_BROADCAST_ADDR  (0x00U)
 #define APP_MB_HANDSHAKE_LEN   (6U)    /* 握手请求长度 */
 #define APP_MB_HANDSHAKE_REPLY (8U)    /* 6 字节回显 + CRC 2；'C' 由升级层擦完备份区后自己发 */
-/* 握手只接受两种已确认的帧，其余一律不回应、留在等待态由主站重发：
- *   1) 恰好 6 字节的短形式（说明文档的写法）；
- *   2) 标准 RTU 写多寄存器：13 字节、字节数 = 4、整帧 CRC 正确。
- * 握手阶段不预存升级流——ARM 明确要等 'C' 之后才发首包，多出来的字节必须
- * 当成"不是握手"，否则 CRC 错或截断的帧会把请求数据喂进 XMODEM。 */
-#define APP_MB_RTU_REQ_LEN     (13U)   /* 标准 RTU 写多寄存器请求总长 */
-#define APP_MB_RTU_BYTE_NUM    (4U)    /* 2 个寄存器的数据字节数 */
+/* 握手只认一种帧：整帧恰好 6 字节且内容为 01 10 04 38 00 02。
+ * 多于或少于 6 字节都不回应、留在等待态由主站重发；握手阶段也不预存升级流
+ * ——ARM 要等 'C' 之后才发首包，多出来的字节只能是重发或噪声。 */
 
 /* 旧 ARM 兼容入口（docs/review/steps/06a-legacy-arm.md）：
  *   19200：ARM 发 5 字节 F0 00 12 03 04，本层回 F0 00 12 05 06；应答发完后切到 115200。
@@ -77,6 +73,7 @@
 #define APP_MB_LEGACY_F0_TX     (1U)   /* F0 应答正在发 */
 #define APP_MB_LEGACY_WAIT_REQ  (2U)   /* 已切到 115200，等 01 10 请求 */
 #define APP_MB_LEGACY_REQ_TX    (3U)   /* 传输应答正在发，发完交接升级 */
+#define APP_MB_LEGACY_RESTORE   (4U)   /* 正在恢复业务速率；切速成功才算收尾完成 */
 
 static const Uint16 s_au16LegacyCmd[APP_MB_LEGACY_CMD_LEN] =
 {
@@ -98,6 +95,8 @@ typedef struct {
     Uint16 u16Armed;                  /* 升级通道已交接：本端口不再收新请求 */
     Uint16 bArmPending;               /* 握手回复已挂上发送侧，等它真正发完 */
     Uint16 u16Legacy;                 /* 旧 ARM 兼容状态（见 APP_MB_LEGACY_*） */
+    Uint32 u32RestoreBaud;            /* 恢复态要切回的速率 */
+    Uint32 u32BaudErrors;             /* 切速失败次数（诊断用） */
     Uint32 u32LegacyTick;             /* 进入 115200 等待的时刻 */
     Uint16 u16FaultGen;               /* 已处理的故障代次 */
     Uint32 u32RxTick;                 /* 最后一批请求字节被观察到的时刻 */
@@ -458,9 +457,8 @@ static Uint16 AppMbIsRequestPrefix(const ST_APP_MB_PORT *pstPort)
 /**
  * @brief 是否为一次完整的传输请求（只认两种确定形式）
  * @return 1 = 是；0 = 不是，调用方必须把这一帧当成"还没等到请求"
- * @note  1) 恰好 6 字节短形式；
- *        2) 13 字节标准 RTU 写多寄存器：字节数字段 = 4，且整帧 CRC 正确。
- *        截断帧、CRC 错帧、其它长度都不接受——交给 XMODEM 只会毁掉传输。
+ * @note  只有"整帧恰好 6 字节"这一种形式；比 6 字节多或少都不接受。
+ *        握手阶段没有可靠的帧边界，把多余字节当升级流只会毁掉传输。
  */
 static Uint16 AppMbIsTransferRequest(const ST_APP_MB_PORT *pstPort, Uint16 u16Len)
 {
@@ -469,28 +467,19 @@ static Uint16 AppMbIsTransferRequest(const ST_APP_MB_PORT *pstPort, Uint16 u16Le
         return 0U;
     }
 
-    if (u16Len == APP_MB_HANDSHAKE_LEN)
-    {
-        return 1U;
-    }
-
-    if ((u16Len == APP_MB_RTU_REQ_LEN) &&
-        (pstPort->pu16Data[APP_MB_HANDSHAKE_LEN] == APP_MB_RTU_BYTE_NUM) &&
-        (CheckModbusCrc((Uint16 *)&pstPort->pu16Data[0], u16Len) == 1))
-    {
-        return 1U;
-    }
-
-    return 0U;
+    /* 只认恰好 6 字节：多一个字节说明这一帧不是本次握手，少一个字节说明没接全，
+     * 两种情况都不回应，留在等待态由主站重发。 */
+    return (u16Len == APP_MB_HANDSHAKE_LEN) ? 1U : 0U;
 }
 
 
 /**
  * @brief 把端口的硬件速率与协议层记录一起改回给定值
- * @note  只改硬件会让协议层的 t3.5 与端口层缓存对不上，两处必须同步；
- *        切速失败时保持记录与硬件一致（都停在原速率），由调用方决定后续。
+ * @return 1 = 切速成功；0 = 失败（硬件与记录都停在原速率）
+ * @note  只改硬件会让协议层的 t3.5 与端口层缓存对不上，两处必须同步。
+ *        失败时不能假装成功：调用方必须据此决定是否把端口交还给 Modbus。
  */
-void AppModbusRestoreBaud(Uint16 u16SciId, Uint32 u32Baud)
+Uint16 AppModbusRestoreBaud(Uint16 u16SciId, Uint32 u32Baud)
 {
     Uint16 i;
 
@@ -498,33 +487,38 @@ void AppModbusRestoreBaud(Uint16 u16SciId, Uint32 u32Baud)
     {
         if (s_au16SciId[i] == u16SciId)
         {
-            if (Hw_SciSetBaud(u16SciId, u32Baud) != 0U)
+            if (Hw_SciSetBaud(u16SciId, u32Baud) == 0U)
             {
-                s_au32Baud[i] = u32Baud;
+                s_astPort[i].u32BaudErrors++;
+                return 0U;
             }
 
-            return;
+            s_au32Baud[i] = u32Baud;
+            return 1U;
         }
     }
+
+    return 0U;
 }
 
 
 /**
- * @brief 兼容流程收尾：SCI-A 恢复 19200、清残留、把端口还给 Modbus
+ * @brief 收尾第一步：丢掉握手残留并进入"恢复业务速率"状态
+ * @note  真正的交还发生在切速成功之后（服务状态机里的 APP_MB_LEGACY_RESTORE
+ *        分支）。若在这里无条件清状态，切速失败时硬件可能还在 115200，主站
+ *        按 19200 发来的帧会永远收不到。
  */
 static void AppMbLegacyRestore(Uint16 u16SciId, ST_APP_MB_PORT *pstPort)
 {
-    AppModbusRestoreBaud(u16SciId, APP_MB_BAUD_NORMAL);
+    (void)u16SciId;
 
-    pstPort->u16Legacy = APP_MB_LEGACY_NONE;
+    pstPort->u32RestoreBaud = APP_MB_BAUD_NORMAL;
+    pstPort->u16Legacy = APP_MB_LEGACY_RESTORE;
     pstPort->bArmPending = 0U;
     pstPort->u16Armed = 0U;
 
     AppMbDropRx(pstPort);
     AppMbDropTx(pstPort);
-    SciPortResync(u16SciId);
-    pstPort->u16FaultGen = SciPortFaultGeneration(u16SciId);
-    pstPort->u32RxTick = Hw_TimeBaseTicks();
 }
 
 
@@ -687,6 +681,22 @@ static Uint16 AppMbProtoService(ST_PROTO_INSTANCE *pstInst)
     /* 2b) 旧 ARM 兼容状态机（只在 SCI-A 上跑） */
     if (pstPort->u16Legacy != APP_MB_LEGACY_NONE) {
         Uint16 u16PortIdx = (Uint16)(pstPort - &s_astPort[0]);
+
+        if (pstPort->u16Legacy == APP_MB_LEGACY_RESTORE) {
+            /* 恢复 19200 成功才算收尾完成：失败说明硬件可能还在 115200，此时把端口
+             * 还给 Modbus 会让主站按 19200 发来的帧永远收不到，所以逐轮重试。 */
+            if (AppModbusRestoreBaud(u16SciId, pstPort->u32RestoreBaud) == 0U) {
+                return 1U;
+            }
+
+            pstPort->u16Legacy = APP_MB_LEGACY_NONE;
+            pstPort->bArmPending = 0U;
+            pstPort->u16Armed = 0U;
+            SciPortResync(u16SciId);
+            pstPort->u16FaultGen = SciPortFaultGeneration(u16SciId);
+            pstPort->u32RxTick = Hw_TimeBaseTicks();
+            return 1U;
+        }
 
         if (pstPort->u16Legacy == APP_MB_LEGACY_F0_TX) {
             /* F0 应答必须真的上线之后才能切速，否则 ARM 收不到应答 */
@@ -851,6 +861,8 @@ void AppModbusInit(void)
         pstPort->u16Armed = 0U;
         pstPort->bArmPending = 0U;
         pstPort->u16Legacy = APP_MB_LEGACY_NONE;
+        pstPort->u32RestoreBaud = APP_MB_BAUD_NORMAL;
+        pstPort->u32BaudErrors = 0UL;
         pstPort->u32LegacyTick = 0UL;
         /* 初始化到当前代次：启动本身不能被当成一次故障 */
         pstPort->u16FaultGen = SciPortFaultGeneration(s_au16SciId[u16Port]);
@@ -926,6 +938,35 @@ void AppModbusReleasePort(Uint16 u16Port)
     pstPort->u32RxTick = Hw_TimeBaseTicks();
     SciPortResync(u16SciId);
     pstPort->u16FaultGen = SciPortFaultGeneration(u16SciId);
+}
+
+/**
+ * @brief 升级结束后请求"切回业务速率再交还端口"
+ * @note  切速失败时端口停在恢复态由服务逐轮重试，Modbus 暂时不接管——宁可晚几拍，
+ *        也不能在硬件还停在 115200 时把端口交出去。
+ */
+void AppModbusRestorePort(Uint16 u16Port, Uint32 u32Baud)
+{
+    ST_APP_MB_PORT *pstPort;
+
+    if (u16Port >= APP_MB_PORTS) {
+        return;
+    }
+
+    pstPort = &s_astPort[u16Port];
+
+    pstPort->u32RestoreBaud = u32Baud;
+    pstPort->u16Legacy = APP_MB_LEGACY_RESTORE;
+    pstPort->bArmPending = 0U;
+    pstPort->u16Armed = 0U;
+
+    AppMbDropRx(pstPort);
+    AppMbDropTx(pstPort);
+}
+
+Uint32 AppModbusBaudErrors(Uint16 u16Port)
+{
+    return (u16Port < APP_MB_PORTS) ? s_astPort[u16Port].u32BaudErrors : 0UL;
 }
 
 Uint32 AppModbusRxFrames(Uint16 u16Port)

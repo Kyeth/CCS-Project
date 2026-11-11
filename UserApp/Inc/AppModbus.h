@@ -27,7 +27,13 @@ Uint16 AppModbusUpgradeFlag(Uint16 u16Port);
 void AppModbusReleasePort(Uint16 u16Port);
 
 /* 同时改硬件速率与协议层记录：只改硬件会让 t3.5 与端口层缓存对不上。 */
-void AppModbusRestoreBaud(Uint16 u16SciId, Uint32 u32Baud);
+Uint16 AppModbusRestoreBaud(Uint16 u16SciId, Uint32 u32Baud);
+
+/* 升级结束后用：切回业务速率成功后才把端口交还 Modbus，失败则逐轮重试。 */
+void AppModbusRestorePort(Uint16 u16Port, Uint32 u32Baud);
+
+/* 切速失败次数（诊断与上板确认用） */
+Uint32 AppModbusBaudErrors(Uint16 u16Port);
 
 /** 诊断：该端口已交给参考层的完整请求帧数。 */
 Uint32 AppModbusRxFrames(Uint16 u16Port);
