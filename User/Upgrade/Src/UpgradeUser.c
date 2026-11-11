@@ -311,6 +311,9 @@ static Uint16 StartReceiveFromBoot(Uint16 u16BaudCfg)
  *   115200：01 10 04 38 00 02 -> 01 10 04 38 00 02 C1 35
  * 只认以上整帧形式，其余字节丢掉继续等：握手阶段没有可靠帧边界，把可疑字节
  * 当成升级流会毁掉传输。握手期间不擦写 Flash，动作全部留给 8 字节应答发完之后。
+ * 时序：收到完整 F0 后先在本速率排空接收环（SCI_RX_SW_RESYNC 阶段会丢字节），
+ * 排空完成才发 5 字节应答；应答发完后只切速、不再重同步，因为 ARM 会在收到
+ * 最后一个停止位后立刻按 115200 发第二帧。
  * ---------------------------------------------------------------------- */
 #define BOOT_HS_CMD_LEN       (5U)
 #define BOOT_HS_REQ_LEN       (6U)
@@ -321,7 +324,7 @@ static Uint16 StartReceiveFromBoot(Uint16 u16BaudCfg)
 #define BOOT_HS_WAIT_MS       (5000UL)
 /* "接收中"配置里的速率编码是 x100，115200 即 1152 */
 #define BOOT_HS_BAUD_CFG      (1152U)
-#define BOOT_HS_DRAIN_MS      (100UL)     /* 切速前排空接收环的最长等待 */
+#define BOOT_HS_DRAIN_MS      (100UL)     /* 发 F0 应答前排空接收环的最长等待 */
 
 #define BOOT_HS_STOPPED  (0xFFU)  /* 未启用：交给 TaskUpgrade() 或已跳 APP */
 #define BOOT_HS_IDLE     (0U)     /* 19200 等 F0 */
@@ -329,6 +332,7 @@ static Uint16 StartReceiveFromBoot(Uint16 u16BaudCfg)
 #define BOOT_HS_WAIT_REQ (2U)     /* 115200 等传输请求 */
 #define BOOT_HS_REQ_TX   (3U)     /* 8 字节应答在发，发完准备接收 */
 #define BOOT_HS_RESTORE  (4U)     /* 收尾：控制字节发完再切回 19200 */
+#define BOOT_HS_F0_DRAIN (5U)     /* F0 已收全：先排空 19200 残留，再发应答 */
 
 static const Uint16 s_au16HsUpCmd[BOOT_HS_CMD_LEN] =
 {
@@ -456,12 +460,12 @@ static Uint16 BootHsSend(const Uint16 *pu16Src, Uint16 u16Len)
 }
 
 
-/* 切速之前先在本速率下把接收环排空。
+/* 在本速率下把接收环排空（不发应答、也不切速）。
  *
  * SciPortResync() 会让端口进入丢弃阶段（SW_RESYNC），只有某一轮读空才回 IDLE。
- * 如果在切速之后才重同步，紧随其后的握手首帧会被当成"旧速率残留"一起丢掉——
- * ARM 收完应答立刻切 115200 发请求时正好撞上这个窗口。所以先排空、再切速。
- * 返回 1 = 可以切速。 */
+ * 该阶段读到什么都会丢，所以必须在"对端还没有开始发下一帧"的时候做完：
+ * F0 应答之前排空，ARM 收完应答立刻切 115200 时端口已经在 IDLE 上等着。
+ * 返回 0 = 还在排空，1 = 已回到 IDLE，2 = 超时（对端仍在连续发送）。 */
 static Uint16 BootHsDrainDone(void)
 {
     if (s_u16HsDrain == 0U)
@@ -478,11 +482,11 @@ static Uint16 BootHsDrainDone(void)
         return 1U;
     }
 
-    /* 对端还在连续发送（取消时尤其如此）：超时就带着残留切速，交给帧匹配兜底 */
+    /* 对端还在连续发送（取消时尤其如此）：超时交给调用者决定重来还是带残留切速 */
     if (Hw_TimeBaseElapsed(s_u32HsDrainTick) >= Hw_TimeBaseUsToTicks(BOOT_HS_DRAIN_MS * 1000UL))
     {
         s_u16HsDrain = 0U;
-        return 1U;
+        return 2U;
     }
 
     return 0U;
@@ -543,6 +547,8 @@ void UpgradeUserHandshakeService(void)
             return;             /* 还在丢弃阶段：现在切速会把首帧当成残留 */
         }
 
+        /* 返回 2（排空超时）也照样切回 19200：失败路径必须让 ARM 能重新握手 */
+
         if (Hw_SciSetBaud(HW_SCI_ID_A, BOOT_HS_BAUD_NORMAL) == 0U)
         {
             return;             /* 切不回去就逐轮重试，绝不在 115200 上等 F0 */
@@ -553,6 +559,37 @@ void UpgradeUserHandshakeService(void)
         return;
     }
 
+    if (s_u16HsState == BOOT_HS_F0_DRAIN)
+    {
+        Uint16 u16Drain;
+
+        BootHsRead();                   /* 排空要靠读推进 */
+
+        u16Drain = BootHsDrainDone();
+
+        if (u16Drain == 0U)
+        {
+            return;                     /* 还在丢弃阶段 */
+        }
+
+        if (u16Drain == 2U)
+        {
+            /* 排空超时：对端还在说话，这轮握手已经乱了。不发应答、回等待态，
+             * 由 ARM 按超时重发 F0，重新走一遍。 */
+            s_u16HsRxLen = 0U;
+            s_u16HsState = BOOT_HS_IDLE;
+            return;
+        }
+
+        if (BootHsSend(&s_au16HsUpReply[0], BOOT_HS_CMD_LEN) == 0U)
+        {
+            return;                     /* 发送环满：下一轮再排入 */
+        }
+
+        s_u16HsState = BOOT_HS_F0_TX;
+        return;
+    }
+
     if (s_u16HsState == BOOT_HS_F0_TX)
     {
         if (SciPortIsTxIdle(HW_SCI_ID_A) == 0U)
@@ -560,13 +597,8 @@ void UpgradeUserHandshakeService(void)
             return;             /* 应答还在环/FIFO/移位寄存器里 */
         }
 
-        BootHsRead();                   /* 排空要靠读推进 */
-
-        if (BootHsDrainDone() == 0U)
-        {
-            return;                     /* 先把 19200 的残留丢干净再切速 */
-        }
-
+        /* 端口已排空并处于 IDLE，这里只切速：此后绝不再 SciPortResync()，
+         * 否则 ARM 紧跟应答发来的第二帧会被当成"旧速率残留"丢掉。 */
         if (Hw_SciSetBaud(HW_SCI_ID_A, BOOT_HS_BAUD_UPGRADE) == 0U)
         {
             BootHsEnterRestore();
@@ -602,11 +634,11 @@ void UpgradeUserHandshakeService(void)
     {
         if (BootHsMatch(&s_au16HsUpCmd[0], BOOT_HS_CMD_LEN) != 0U)
         {
-            if (BootHsSend(&s_au16HsUpReply[0], BOOT_HS_CMD_LEN) != 0U)
-            {
-                BootHsShift(BOOT_HS_CMD_LEN);
-                s_u16HsState = BOOT_HS_F0_TX;
-            }
+            /* 先排空 19200 的接收环，再发应答：应答之后 ARM 会立即切 115200，
+             * 那时端口必须已经在 IDLE 上，中间不能再有重同步窗口。 */
+            BootHsShift(BOOT_HS_CMD_LEN);
+            s_u16HsDrain = 0U;
+            s_u16HsState = BOOT_HS_F0_DRAIN;
             return;
         }
 
