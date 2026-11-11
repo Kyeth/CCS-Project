@@ -2,7 +2,7 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 状态 | r1（2026-11-11）——已实现、两态编译通过，待复核与板测 |
+| 状态 | r2（2026-11-11）——已按复核意见修正报文识别、故障回退、停机时序，两态编译通过，待板测 |
 | 依据 | `EP15K_升级兼容实施说明 (1).md`（旧 ARM 不改；DSP 侧补齐两阶段握手与切速） |
 | 范围 | 只在 APP 侧补旧 ARM 入口：`F0 00 12 03 04` → 切 115200 → `01 10 04 38 00 02` → 准备就绪后才发 `'C'`；不动 XMODEM、Flash、升级流程本身 |
 | 不做 | 不改 BOOT 行为（BOOT 已有掉电重入 `1152 → 115200`）；不改主站工具；不引入新的配置字段 |
@@ -19,33 +19,45 @@
 
 与此前的差异：旧路径（直接在 19200 上发 `01 10`）**保留**，因此 BOOT 救援、新主站直连都还能用；旧 ARM 走新路径时才有 F0 与切速。
 
+### 0.1 复核意见处置（r2）
+
+| 复核意见 | 最小改法 | 落点 |
+| --- | --- | --- |
+| CRC 错的 RTU 帧也会触发升级 | 握手只接受"恰好 6 字节"或"13 字节且字节数 = 4、整帧 CRC 正确"两种帧；其余帧不回应、留在等待态由主站重发。**握手阶段不再预存升级流**（ARM 要等 `'C'` 才发首包，多出来的字节只能是主机重发或噪声） | `AppMbIsTransferRequest()`、`AppMbIsRequestPrefix()`（`AppModbus.c`）；`WAIT_REQ` 与 19200 直连入口都走同一判定 |
+| 发送故障后仍可能切速或擦备份区 | 故障代次变化时若正处于 `F0_TX`/`REQ_TX`，整段取消握手（回 19200、清残留）并本轮返回，不再继续切速/交接 | `AppMbProtoService()` 第 1 步 |
+| 回退不检查切速结果、不同步 `s_au32Baud` | 新增 `AppModbusRestoreBaud()`：`Hw_SciSetBaud()` 成功才同步协议层记录，失败则保持记录与硬件一致；`AppMbLegacyRestore()` 与 `AppUpgradeAbort()` 都改调它 | `AppModbus.c` / `AppUpgrade.c` |
+| 停机触发比说明文档晚 | 新增 `AppUpgradePrepare()`：接受 F0 时校验升级许可（Flash API 就绪、无进行中会话）并请求停机；不许可就不回应答。`AppUpgradeStart()` 的暂停改为"只做一次" | `AppUpgrade.c`、`AppModbus.c` 的 F0 分支 |
+
 ## 1 说明文档的流程契约与本工程落点
 
 | 说明文档要求 | 本工程落点 |
 | --- | --- |
-| 19200：`F0 00 12 03 04` → `F0 00 12 05 06` | `AppMbIsLegacyCmd()` / `AppMbLegacyReply()`（`UserApp/Src/AppModbus.c:399` / `:420`） |
+| 19200：`F0 00 12 03 04` → `F0 00 12 05 06` | `AppMbIsLegacyCmd()` / `AppMbLegacyReply()`；应答前先调 `AppUpgradePrepare()` 请求停机（`AppModbus.c` 的 `AppMbDispatchFrame()` F0 分支） |
 | 切 115200 后再发 `01 10 04 38 00 02` | `AppMbProtoService()` 的"2b) 旧 ARM 兼容状态机"（`AppModbus.c:631`）第 `F0_TX` 分支 |
-| `01 10` 应答 = `01 10 04 38 00 02 C1 35` | `AppMbDispatchFrame()` 的 `WAIT_REQ` 分支：`PackModbusCrc(&pu16Data[0], 6)` + 8 字节 |
+| `01 10` 应答 = `01 10 04 38 00 02 C1 35` | `AppMbDispatchFrame()` 的 `WAIT_REQ` 分支：`AppMbIsTransferRequest()` 通过才 `PackModbusCrc(&pu16Data[0], 6)` + 8 字节 |
 | 应答发完、擦完备份区、写完"接收中"配置后才发 `'C'` | `AppModbus.c:653` 的 `REQ_TX` 分支 → `AppUpgradeStart()` → `AppUpgradeTask()` 三阶段 |
-| 失败统一收尾：停会话、清残留、恢复 19200、交回 Modbus、功率保持关闭 | `AppMbLegacyRestore()`（`AppModbus.c:437`）与 `AppUpgradeAbort()`（`AppUpgrade.c:171`） |
+| 失败统一收尾：停会话、清残留、恢复 19200、交回 Modbus、功率保持关闭 | `AppMbLegacyRestore()` / `AppUpgradeAbort()`，两者都经 `AppModbusRestoreBaud()` 同步硬件与记录 |
 | 掉电重入按配置里的 `1152` 恢复 115200 | `AppUpWriteProgressCfg()` 写 `u16UpgradeBaud = AppUpBaudCode(s_u32UpBaud)`（`AppUpgrade.c:67`），BOOT 的 `PrepareResumeReceive()` 读它 |
 
 ## 2 三条核对项逐条说明
 
-### 2.1 `01 10` 请求帧按前缀识别，兼容 6 字节与 13 字节两种形式
+### 2.1 `01 10` 请求帧只认两种确定形式，握手阶段不预存升级流
 
-- 识别条件：`pstPort == &s_astPort[0]`（SCI-A）、`u16Len >= 6`、前 6 字节逐字节等于 `{从站地址 1, 0x10, 0x04, 0x38, 0x00, 0x02}`。
-- 6 字节形式（说明文档里的写法）与标准 RTU 形式（6 + 数据段 + 2 字节 CRC）都能命中。
-- 尾部字节的判定见 `AppMbLegacyTailLen()`：**整帧 CRC 校验通过**（标准 RTU 形式）时整帧都算请求，尾部为 0；否则请求只占前 6 字节，其余当作升级流交给升级层（上限 64 字节）。这样既不会把请求自己的数据段/CRC 当成 XMODEM 数据喂进去，也不会在"请求后面紧跟首包"时丢掉 SOH。
+- 识别条件：`pstPort == &s_astPort[0]`（SCI-A）、前 6 字节逐字节等于 `{从站地址 1, 0x10, 0x04, 0x38, 0x00, 0x02}`，且整帧只能是下面两种之一：
+  - **恰好 6 字节**（说明文档的写法）；
+  - **13 字节标准 RTU 写多寄存器**：`pu16Data[6] == 4`（字节数）且 `CheckModbusCrc(buff, 13) == 1`（整帧 CRC 正确）。
+- 其余一律**不算请求**：截断帧（例如只有 7 字节）、CRC 错的 13 字节帧、长度不符的帧都不回应，`WAIT_REQ` 与 19200 直连入口都退回等待态，由主站重发。
+- **握手阶段不再预存升级流**：ARM 明确要等 `'C'` 之后才发首包，所以握手帧之后多出来的字节不可能是合法升级数据；把可疑字节交给 XMODEM 只会毁掉传输。`AppUpgradeStart()` 的 `pu16Tail/pu16TailLen` 形参保留（协议层接口不变），实际传 `0, 0`。
+- 标准 RTU 形式的数据段与 2 字节 CRC **全部由握手解析消费**，不下传给 XMODEM。
 - 应答固定 8 字节：`01 10 04 38 00 02` + CRC。CRC 是对**前 6 字节**现算的，`ModbusCRC16()` 得 `0x35C1`，低字节在前落成 `C1 35`，与说明文档一致。
 - 不是标准 Modbus 请求（0x10 声称写 2 个寄存器却没有数据段），所以**不交给参考协议层**，避免被当成 `83 03` 错误帧。
 
 ### 2.2 切速时机
 
 ```
-(19200) 收 F0 命令 ──► 回 5 字节 ──► 等 SciPortIsTxIdle()
+(19200) 收 F0 命令 ──► AppUpgradePrepare()（许可 + 停机）──► 回 5 字节 ──► 等 SciPortIsTxIdle()
                                         │
-                                        ├─ 切速失败 ──► 恢复 19200、交回 Modbus
+                                        ├─ 切速失败 ──► AppMbLegacyRestore()：恢复 19200、交回 Modbus
                                         ▼
                               Hw_SciSetBaud(115200) 成功
                                         ▼
@@ -79,13 +91,20 @@
 
 因此"备份区准备成功后才发 `'C'`"由状态机顺序保证，不是靠上层自觉。
 
+### 2.4 停机时序（r2 修正）
+
+- 接受 F0 的那一刻就调 `AppUpgradePrepare()`：校验 `s_u16FlashReady`（Flash API 就绪）与 `s_u16UpActive`（无进行中会话），通过后立即调暂停钩子并置 `s_u16StopRequested`。
+- 许可不通过就**不回应答**、丢弃候选帧，ARM 会重试；这样不会出现"已回 F0 应答但功率输出还在跑"的窗口。
+- 暂停只做一次：`AppUpgradeStart()` 看到 `s_u16StopRequested` 已置位就不再重复调用；`AppUpgradeInit()` 在开机时清零。
+- 握手失败（切速失败、5 s 超时、故障代次变化）只恢复串口与端口，**不重新打开功率输出**（与 05F 裁定一致），由复位恢复。
+
 ## 3 状态机
 
 | 状态 | 进入条件 | 主要动作 | 离开条件 |
 | --- | --- | --- | --- |
-| `APP_MB_LEGACY_NONE` | 上电/握手完成/收尾 | 正常 Modbus 收帧 | 收到 F0 命令 → `F0_TX` |
+| `APP_MB_LEGACY_NONE` | 上电/握手完成/收尾 | 正常 Modbus 收帧 | 收到 F0 命令且 `AppUpgradePrepare()` 通过 → `F0_TX` |
 | `F0_TX` | 已回 5 字节 | 等应答出环 | 出环且切速成功 → `WAIT_REQ`；切速失败 → 收尾 |
-| `WAIT_REQ` | 已切 115200 | 只认 F0（重探）与 `01 10`，其余帧丢弃 | 收到 `01 10` → `REQ_TX`；超 5 s → 收尾 |
+| `WAIT_REQ` | 已切 115200 | 只认 F0（重探）与两种确定形式的 `01 10`，其余帧丢弃 | 收到 `01 10` → `REQ_TX`；超 5 s → 收尾 |
 | `REQ_TX` | 已回 8 字节 | 等应答出环 | 出环后交接升级 → `NONE`；交接失败 → 收尾 |
 
 `u16Legacy` 与 `u32LegacyTick` 是每端口字段，`AppModbusInit()` 里清零；收尾统一清 `u16Armed`/`bArmPending`，保证升级失败后 Modbus 直接可用。
@@ -97,14 +116,16 @@
 | `UserApp/Src/AppModbus.c` | `:60-82` | 新增兼容常量（5/8 字节、19200/115200、5000 ms、四个状态）与两张命令/应答表 |
 | 同上 | `:94-95` | `ST_APP_MB_PORT` 增 `Uint16 u16Legacy; Uint32 u32LegacyTick;` |
 | 同上 | `:399` / `:420` / `:437` | `AppMbIsLegacyCmd()` / `AppMbLegacyReply()` / `AppMbLegacyRestore()` |
-| 同上 | `:437` | `AppMbLegacyTailLen()`：整帧 CRC 通过 → 尾部 0；否则只取前 6 字节为请求 |
-| 同上 | `:493-521` | `AppMbDispatchFrame()`：F0 分流；`WAIT_REQ` 下识别 `01 10` 并存尾部、回 8 字节 |
-| 同上 | `:631-679` | `AppMbProtoService()` 插入"2b) 旧 ARM 兼容状态机"（F0 出环才切速、8 字节出环才交接、5 s 兜底） |
-| 同上 | `:690` 附近 | 原直连握手交接改为传当前实际速率 `s_au32Baud[...]` |
+| 同上 | `AppMbIsRequestPrefix()` / `AppMbIsTransferRequest()` | 只认"6 字节"与"13 字节 + 字节数 4 + CRC 正确"两种帧；`AppMbIsHandshake()` 转调后者 |
+| 同上 | `AppMbRestoreBaud` 之上 | `void AppModbusRestoreBaud(Uint16 u16SciId, Uint32 u32Baud)`：`Hw_SciSetBaud()` 成功才同步 `s_au32Baud[]`，`AppMbLegacyRestore()` 改调它 |
+| 同上 | `AppMbDispatchFrame()` | F0 分流（先 `AppUpgradePrepare()`）；`WAIT_REQ` 下只认两种确定帧、回 8 字节；直连握手同样不再存尾部，交接传 `0, 0` |
+| 同上 | `AppMbProtoService()` | "2b) 旧 ARM 兼容状态机"（F0 出环才切速、8 字节出环才交接、5 s 兜底）；第 1 步故障代次变化时若在 `F0_TX`/`REQ_TX` 则整段取消 |
 | `UserApp/Src/AppUpgrade.c` | `:33-52` | 新增 `s_u32UpBaud`、`AppUpBaudCode()`（≥115200→1152、≥38400→384、≥19200→192、否则 0） |
 | 同上 | `:67` | `AppUpWriteProgressCfg()` 写 `u16UpgradeBaud = AppUpBaudCode(s_u32UpBaud)`，删掉过时的"0 = 保持 38400" |
 | 同上 | `:98` / `:120` | `AppUpgradeStart()` 增 `Uint32 u32Baud` 形参并记录 |
-| 同上 | `:171` | `AppUpgradeAbort()` 先 `Hw_SciSetBaud(HW_SCI_ID_A, 19200)` 再交回 Modbus |
+| 同上 | `AppUpgradeAbort()` | 改调 `AppModbusRestoreBaud(HW_SCI_ID_A, 19200)`，再交回 Modbus |
+| 同上 | `AppUpgradePrepare()` | 握手许可 + 停机请求：`s_u16FlashReady`/`s_u16UpActive` 校验，首次调 `s_pfPause()` 并置 `s_u16StopRequested` |
+| 同上 | `AppUpgradeStart()` | 暂停改为"`s_u16StopRequested` 未置位才做一次" |
 | `UserApp/Inc/AppUpgrade.h` | `:27` | 同步新签名与注释 |
 | `Platform/Xmodem/Src/XmodemCore.c` | `:151` / `:322` | 删两个从未使用的局部变量，消掉 `#179-D`（与 BOOT 侧 `0bb7e09` 同一处置） |
 
@@ -124,27 +145,29 @@
 
 | 项目 | 生产态 `PORT_BENCH_TEST=0` | 测量态 `PORT_BENCH_TEST=1` |
 | --- | --- | --- |
-| `.out` | 1,031,576 B `19f3f463…` | 1,049,732 B `ad27f514…` |
-| `.map` | 128,594 B | 133,675 B |
-| `.text` | `0x6545`（25,925 字） | `0x68C4`（26,820 字） |
-| `.const` | `0x14C4` | `0x14C6` |
-| `FLASH_APP` 用/余 | `0x85FE` / `0x11A00` | `0x8987` / `0x11677` |
-| `RAMGS0` 余 | 2 字 | 2 字 |
-| `RAMGS1` 余 | `0x124`（292 字） | 6 字 |
-| `RAMGS2` 用/余 | `0x840` / `0x7C0` | `0x852` / `0x7AE` |
-| `.bin` | 68,660 B `33392f34…` | 70,468 B `a643bd16…` |
-| `_UpgradeCRC32.bin` | 68,692 B `22b17634…`，CRC32 `0xD1123BBC` | 70,500 B `616e486f…`，CRC32 `0xAF9EC21F` |
+| `.out` | 1,031,556 B `39384e3a…` | 1,049,536 B `41f67123…` |
+| `.map` | 128,896 B | 133,464 B |
+| `.text` | `0x654E`（25,934 字） | `0x68CD`（26,829 字） |
+| `FLASH_APP` 用/余 | `0x860F` / `0x119EF` | `0x8988` / `0x11676` |
+| `RAMGS0` 余 | 4 字 | 3 字 |
+| `RAMGS1` 用/余 | `0x0A9C` / `0x164` | `0x0BCC` / `0x34` |
+| `.bin` | 68,692 B `c6d7164e…` | 70,468 B `68597f43…` |
+| `_UpgradeCRC32.bin` | 68,724 B `f28cf2e9…`，CRC32 `0x8A25ABEE` | 70,500 B `8757f086…`，CRC32 `0x193F8DCD` |
 
 - 编译单元 63 个、**0 错误 0 告警**；`.out` 在相同源码下两次构建 sha256 一致（`.map` 每次不同，与既往结论一致）。
-- 与上一版（`96e26a2`，`.out` 1,025,964 B、`.bin` 67,680 B、CRC32 `0x92CBED1B`）相比：`.text` +474 字、`FLASH_APP` +494 字、`.bin` +980 B，全部来自兼容状态机、CRC 感知的尾部判定与波特率编码；RAM 余量未变差（`RAMGS0` 仍是 2 字，`RAMGS1` 从 `0x134` 降到 `0x124`）。
+- 与 r1（`.out` 1,031,576 B、`.bin` 68,660 B、CRC32 `0xD1123BBC`）相比：`.out` −20 B、`.text` +9 字、`FLASH_APP` +17 字、`.bin` +32 B——r2 去掉 64 字尾部缓存与相关搬移，同时加了许可/停机与统一帧判定。
 - 一次测量态构建触发过 cl2000 内部错误（`acia2000.exe` 段错误，指向 `Platform/Xmodem/Inc/XmodemTimeOut.h:6`），立即重试即通过；同一源码此后构建稳定，判为编译器偶发，不是源码问题。
 
 ## 7 板测验收（抓包）
 
-1. **完整请求帧**：抓 19200 上的 `F0 00 12 03 04` 与 115200 上的 `01 10 …` 全部字节，确认 DSP 回的 8 字节是 `01 10 04 38 00 02 C1 35`；若 ARM 实际发的是 13 字节标准形式，确认数据段与 CRC 被当作尾部交给升级层而没有丢首包。
+1. **完整请求帧**：抓 19200 上的 `F0 00 12 03 04` 与 115200 上的 `01 10 …` 全部字节，确认 DSP 回的 8 字节是 `01 10 04 38 00 02 C1 35`。
+   - 若 ARM 发的是 13 字节标准 RTU 形式，确认**数据段与 2 字节 CRC 全部由握手解析消费**、不进入 XMODEM：可对比抓到的字节流与首包边界，确认首包从 `SOH` 开始而不是从请求数据段开始。
+   - 若 ARM 发的不是这两种形式（例如 7 字节截断、CRC 错），确认 DSP **不回应**、串口停在 115200 等待重发，且 5 s 后回到 19200。
 2. **切速时机**：确认 `F0` 的 5 字节应答在波特率变化**之前**完整发出（示波器或串口分析仪看最后一字节的位宽），DSP 侧对应"应答出环才切速"。
 3. **`'C'` 时序**：确认 `'C'` 出现在备份区四个扇区擦完之后；人为让擦除失败一次，确认没有 `'C'` 且串口回到 19200、Modbus 可应答。
 4. **首包一致性**：抓首包数据区的 32 字节头与文件前 32 字节比对，并确认 `FileSize`/`CRC32` 与 `_UpgradeCRC32.bin` 头一致。
+   - 当前构建：正文 68,692 B，头部 `FileSize` 应为 **`0x10C54`**；升级包 68,724 B（`0x10C74`）= 正文 + 32 字节头，`CRC32 = 0x8A25ABEE`。
+   - 本次仓库未附升级包，板测以实际发出的文件头为准（正文大小随构建变化，`FileSize` 必须等于正文长度）。
 5. **掉电/超时回退**：115200 上不发 `01 10`，确认 5 s 后回到 19200；升级中途 CAN，确认回到 19200 且功率输出保持关闭。
 
 ## 8 未覆盖与风险
@@ -152,5 +175,6 @@
 - **无主机测试**：本机没有可用的主机 C 编译器，本轮只有编译与台账验证；行为验证依赖板测抓包。
 - **5000 ms 是估算上界**：说明文档留了"115200 下是否重发 F0/是否读 5000"等待抓包项。已实现的对策是：`WAIT_REQ` 期间收到 F0 会重新应答并重置计时，因此 ARM 重试不会失败；若实测 ARM 的间隔更长，只需调 `APP_MB_LEGACY_WAIT_MS`。
 - **115200 下的 F0**：本轮允许（会重回应答并重新计时），但说明文档未确认 ARM 是否会这样做；抓到实际行为后可决定是否收紧。
+- **握手阶段不再预收升级流**：若实测发现 ARM 确实会在收到 8 字节应答之前就发首包（与说明文档矛盾），表现为首包被丢弃、ARM 等 `'C'` 超时；届时再按抓包结果恢复"预存尾部"的做法。
 - **ARM 掉电续传**：说明文档说主站按重新握手结果从首包重发；本工程 BOOT 侧续收前会擦备份区，若 ARM 续传旧包号会得到 `XMODEM_SEQUENCE_ERROR` 并从头再来，属预期，但需要板测确认 ARM 确实会重发首包。
 - **BOOT 里的旧 ARM 入口**：说明文档列为可选项，本轮未做（BOOT 目前只在 19200 接受直连握手）。等抓包确认后再决定。

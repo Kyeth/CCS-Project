@@ -22,6 +22,10 @@ extern void AppUpgradeInit(void);
  * @param u16TailLen  字节数
  * @return 1 = 已接管
  */
+/* 升级许可 + 停机请求：旧 ARM 一发 F0 就要停功率输出，所以握手前调用。
+ * 返回 0 表示当前不能升级（忙、Flash API 未就绪），调用方不应回应答。 */
+extern Uint16 AppUpgradePrepare(void);
+
 /* u32Baud = 本次会话实际使用的 SCI-A 速率，会按 x100 编码写进"接收中"配置，
  * BOOT 掉电重入时据此恢复串口（115200 → 1152）。 */
 extern Uint16 AppUpgradeStart(Uint16 u16SciId, Uint32 u32Baud,

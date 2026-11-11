@@ -32,6 +32,9 @@ static void AppUpgradeAbort(void);
 /* 本次会话的串口速率：决定"接收中"配置里 u16UpgradeBaud 的编码。 */
 static Uint32 s_u32UpBaud = 19200UL;
 
+/* 已按握手请求停机（旧 ARM 一发 F0 就要停功率输出，不能等到交接） */
+static Uint16 s_u16StopRequested = 0U;
+
 
 /**
  * @brief 把实际波特率折算成配置里的编码（x100），BOOT 重入时按它恢复
@@ -82,11 +85,36 @@ static int16 AppUpWriteProgressCfg(void)
 }
 
 
+/**
+ * @brief 升级许可 + 停机请求（在接受 F0 命令时调用）
+ * @return 1 = 许可，可以继续握手；0 = 拒绝（忙或 Flash API 未就绪）
+ * @note  旧 ARM 收到 F0 应答后就会退出业务通信，所以停机必须在这里做；
+ *        之后若握手失败，按既定规则功率输出保持关闭，由复位恢复。
+ */
+Uint16 AppUpgradePrepare(void)
+{
+    if ((s_u16FlashReady == 0U) || (s_u16UpActive != 0U))
+    {
+        return 0U;
+    }
+
+    if ((s_u16StopRequested == 0U) && (s_pfPause != 0))
+    {
+        s_pfPause();
+    }
+
+    s_u16StopRequested = 1U;
+
+    return 1U;
+}
+
+
 void AppUpgradeInit(void)
 {
     s_u16UpActive = 0U;
     s_u16UpPhase = APP_UP_PHASE_WAIT_TX;
     s_u16FlashReady = 0U;
+    s_u16StopRequested = 0U;
 
     /* 顺序同参考工程 PlatformInit()：协议实例 -> Flash API -> 升级句柄 */
     XmodemProcessInit();
@@ -119,11 +147,13 @@ Uint16 AppUpgradeStart(Uint16 u16SciId, Uint32 u32Baud,
     s_u16UpActive = 1U;
     s_u32UpBaud = u32Baud;
 
-    /* 交接即暂停功率输出与控制动作；端口服务、时基、看门狗继续跑 */
-    if (s_pfPause != 0)
+    /* 停机按既定规则只做一次；AppUpgradePrepare() 可能已经做过 */
+    if ((s_u16StopRequested == 0U) && (s_pfPause != 0))
     {
         s_pfPause();
     }
+
+    s_u16StopRequested = 1U;
 
     return 1U;
 }
@@ -167,8 +197,8 @@ static void AppUpgradeAbort(void)
     XmodemRxReset();
     UpgradeUserSessionReset();
 
-    /* 失败收尾：串口恢复业务速率，再把端口还给 Modbus（旧 ARM 超时后会回 19200） */
-    (void)Hw_SciSetBaud(HW_SCI_ID_A, 19200UL);
+    /* 失败收尾：串口恢复业务速率（硬件与协议层记录一起改），再把端口还给 Modbus */
+    AppModbusRestoreBaud(HW_SCI_ID_A, 19200UL);
     AppModbusReleasePort(APP_UP_PORT_INDEX);
 }
 

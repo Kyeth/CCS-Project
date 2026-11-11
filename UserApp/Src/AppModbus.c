@@ -54,7 +54,13 @@
 #define APP_MB_BROADCAST_ADDR  (0x00U)
 #define APP_MB_HANDSHAKE_LEN   (6U)    /* 握手请求长度 */
 #define APP_MB_HANDSHAKE_REPLY (8U)    /* 6 字节回显 + CRC 2；'C' 由升级层擦完备份区后自己发 */
-#define APP_MB_HANDSHAKE_TAIL  (64U)   /* 握手之后紧跟的升级流字节，原样交给升级层 */
+/* 握手只接受两种已确认的帧，其余一律不回应、留在等待态由主站重发：
+ *   1) 恰好 6 字节的短形式（说明文档的写法）；
+ *   2) 标准 RTU 写多寄存器：13 字节、字节数 = 4、整帧 CRC 正确。
+ * 握手阶段不预存升级流——ARM 明确要等 'C' 之后才发首包，多出来的字节必须
+ * 当成"不是握手"，否则 CRC 错或截断的帧会把请求数据喂进 XMODEM。 */
+#define APP_MB_RTU_REQ_LEN     (13U)   /* 标准 RTU 写多寄存器请求总长 */
+#define APP_MB_RTU_BYTE_NUM    (4U)    /* 2 个寄存器的数据字节数 */
 
 /* 旧 ARM 兼容入口（docs/review/steps/06a-legacy-arm.md）：
  *   19200：ARM 发 5 字节 F0 00 12 03 04，本层回 F0 00 12 05 06；应答发完后切到 115200。
@@ -121,10 +127,6 @@ static ST_PROTO_INSTANCE s_astProtoCfg[APP_MB_PORTS];
 static const Uint16 s_au16SciId[APP_MB_PORTS] = {
     HW_SCI_ID_A, HW_SCI_ID_C, HW_SCI_ID_D
 };
-/* 握手候选里超出手握手长度的字节属于升级流，原样交给升级层 */
-static Uint16 s_au16HandshakeTail[APP_MB_HANDSHAKE_TAIL];
-static Uint16 s_u16HandshakeTailLen;
-
 static const Uint16 s_au16SlaveAddr[APP_MB_PORTS] = { 1U, 1U, 2U };
 
 static Uint32 s_au32Baud[APP_MB_PORTS];
@@ -141,7 +143,7 @@ static Uint16 AppMbFrameIdle(const ST_APP_MB_PORT *pstPort);
 static void   AppMbDispatchFrame(ST_APP_MB_PORT *pstPort);
 static Uint16 AppMbIsLegacyCmd(const ST_APP_MB_PORT *pstPort, Uint16 u16Len);
 static void   AppMbLegacyRestore(Uint16 u16SciId, ST_APP_MB_PORT *pstPort);
-static Uint16 AppMbLegacyTailLen(const ST_APP_MB_PORT *pstPort, Uint16 u16Len);
+static Uint16 AppMbIsTransferRequest(const ST_APP_MB_PORT *pstPort, Uint16 u16Len);
 static Uint16 AppMbProtoInit(ST_PROTO_INSTANCE *pstInst);
 static Uint16 AppMbProtoService(ST_PROTO_INSTANCE *pstInst);
 static void   AppMbProtoReset(ST_PROTO_INSTANCE *pstInst);
@@ -433,25 +435,77 @@ static void AppMbLegacyReply(ST_APP_MB_PORT *pstPort, const Uint16 *pu16Src, Uin
 
 
 /**
- * @brief 传输请求之后哪些字节属于升级流
- * @return 尾部字节数
- * @note  整帧带 CRC 且校验通过（标准 RTU 写多寄存器形式）时整帧都是请求，尾部为 0；
- *        否则请求只占前 6 字节，其余是主机在同一批次里带过来的升级流（例如首包 SOH）。
- *        这样两种帧形式都不会把请求自己的数据段/CRC 当成 XMODEM 数据喂进去。
+ * @brief 前 6 字节是否为传输请求前缀（本站地址、0x10、1080、数量 2）
  */
-static Uint16 AppMbLegacyTailLen(const ST_APP_MB_PORT *pstPort, Uint16 u16Len)
+static Uint16 AppMbIsRequestPrefix(const ST_APP_MB_PORT *pstPort)
 {
-    if (u16Len <= APP_MB_HANDSHAKE_LEN)
+    const Uint16 *pu16Req = pstPort->pu16Data;
+
+    if ((pu16Req[0] != s_au16SlaveAddr[0]) ||
+        (pu16Req[1] != APP_MB_CMD_WRITE_MULTI) ||
+        (pu16Req[2] != HI_UINT16(APP_MB_UPGRADE_ADDR)) ||
+        (pu16Req[3] != LO_UINT16(APP_MB_UPGRADE_ADDR)) ||
+        (pu16Req[4] != HI_UINT16(APP_MB_UPGRADE_NUMS)) ||
+        (pu16Req[5] != LO_UINT16(APP_MB_UPGRADE_NUMS)))
     {
         return 0U;
     }
 
-    if (CheckModbusCrc((Uint16 *)&pstPort->pu16Data[0], u16Len) == 1)
+    return 1U;
+}
+
+
+/**
+ * @brief 是否为一次完整的传输请求（只认两种确定形式）
+ * @return 1 = 是；0 = 不是，调用方必须把这一帧当成"还没等到请求"
+ * @note  1) 恰好 6 字节短形式；
+ *        2) 13 字节标准 RTU 写多寄存器：字节数字段 = 4，且整帧 CRC 正确。
+ *        截断帧、CRC 错帧、其它长度都不接受——交给 XMODEM 只会毁掉传输。
+ */
+static Uint16 AppMbIsTransferRequest(const ST_APP_MB_PORT *pstPort, Uint16 u16Len)
+{
+    if (AppMbIsRequestPrefix(pstPort) == 0U)
     {
         return 0U;
     }
 
-    return (Uint16)(u16Len - APP_MB_HANDSHAKE_LEN);
+    if (u16Len == APP_MB_HANDSHAKE_LEN)
+    {
+        return 1U;
+    }
+
+    if ((u16Len == APP_MB_RTU_REQ_LEN) &&
+        (pstPort->pu16Data[APP_MB_HANDSHAKE_LEN] == APP_MB_RTU_BYTE_NUM) &&
+        (CheckModbusCrc((Uint16 *)&pstPort->pu16Data[0], u16Len) == 1))
+    {
+        return 1U;
+    }
+
+    return 0U;
+}
+
+
+/**
+ * @brief 把端口的硬件速率与协议层记录一起改回给定值
+ * @note  只改硬件会让协议层的 t3.5 与端口层缓存对不上，两处必须同步；
+ *        切速失败时保持记录与硬件一致（都停在原速率），由调用方决定后续。
+ */
+void AppModbusRestoreBaud(Uint16 u16SciId, Uint32 u32Baud)
+{
+    Uint16 i;
+
+    for (i = 0U; i < APP_MB_PORTS; i++)
+    {
+        if (s_au16SciId[i] == u16SciId)
+        {
+            if (Hw_SciSetBaud(u16SciId, u32Baud) != 0U)
+            {
+                s_au32Baud[i] = u32Baud;
+            }
+
+            return;
+        }
+    }
 }
 
 
@@ -460,12 +514,7 @@ static Uint16 AppMbLegacyTailLen(const ST_APP_MB_PORT *pstPort, Uint16 u16Len)
  */
 static void AppMbLegacyRestore(Uint16 u16SciId, ST_APP_MB_PORT *pstPort)
 {
-    Uint16 u16Port;
-
-    u16Port = (Uint16)(pstPort - &s_astPort[0]);
-
-    (void)Hw_SciSetBaud(u16SciId, APP_MB_BAUD_NORMAL);
-    s_au32Baud[u16Port] = APP_MB_BAUD_NORMAL;
+    AppModbusRestoreBaud(u16SciId, APP_MB_BAUD_NORMAL);
 
     pstPort->u16Legacy = APP_MB_LEGACY_NONE;
     pstPort->bArmPending = 0U;
@@ -481,23 +530,11 @@ static void AppMbLegacyRestore(Uint16 u16SciId, ST_APP_MB_PORT *pstPort)
 
 static Uint16 AppMbIsHandshake(const ST_APP_MB_PORT *pstPort, Uint16 u16Len)
 {
-    const Uint16 *pu16Req = pstPort->pu16Data;
-
-    /* 前缀匹配：主机可能在握手的同一批数据里紧接着发 SOH */
-    if ((pstPort != &s_astPort[0]) || (u16Len < APP_MB_HANDSHAKE_LEN)) {
+    if (pstPort != &s_astPort[0]) {
         return 0U;
     }
 
-    if ((pu16Req[0] != s_au16SlaveAddr[0]) ||
-        (pu16Req[1] != APP_MB_CMD_WRITE_MULTI) ||
-        (pu16Req[2] != HI_UINT16(APP_MB_UPGRADE_ADDR)) ||
-        (pu16Req[3] != LO_UINT16(APP_MB_UPGRADE_ADDR)) ||
-        (pu16Req[4] != HI_UINT16(APP_MB_UPGRADE_NUMS)) ||
-        (pu16Req[5] != LO_UINT16(APP_MB_UPGRADE_NUMS))) {
-        return 0U;
-    }
-
-    return 1U;
+    return AppMbIsTransferRequest(pstPort, u16Len);
 }
 
 /**
@@ -508,7 +545,6 @@ static void AppMbDispatchFrame(ST_APP_MB_PORT *pstPort)
     ST_MDS_FRAME *pstFrame;
     Uint16 u16ReqLen;
     Uint16 u16ReqAddr;
-    Uint16 i;
 
     u16ReqLen = pstPort->u16RxLen;
     u16ReqAddr = pstPort->pu16Data[0];   /* 组帧后会被回复覆盖，先记下 */
@@ -516,24 +552,21 @@ static void AppMbDispatchFrame(ST_APP_MB_PORT *pstPort)
     /* 旧 ARM 兼容：19200 的 F0 命令与 115200 的等待态都在这里分流，
      * 普通 Modbus 帧不参与这两个分支。 */
     if (AppMbIsLegacyCmd(pstPort, u16ReqLen) != 0U) {
+        /* 旧 ARM 收到 F0 应答就会退出业务通信，停机必须在这里请求，
+         * 不能等第二次应答发完才做。许可不通过就不回应答，让 ARM 重试。 */
+        if (AppUpgradePrepare() == 0U)
+        {
+            AppMbDropRx(pstPort);
+            return;
+        }
+
         AppMbLegacyReply(pstPort, &s_au16LegacyReply[0], APP_MB_LEGACY_REPLY_LEN);
         pstPort->u16Legacy = APP_MB_LEGACY_F0_TX;
         return;
     }
 
     if (pstPort->u16Legacy == APP_MB_LEGACY_WAIT_REQ) {
-        if (AppMbIsHandshake(pstPort, u16ReqLen) != 0U) {
-            Uint16 u16TailLen2;
-
-            u16TailLen2 = AppMbLegacyTailLen(pstPort, u16ReqLen);
-            if (u16TailLen2 > APP_MB_HANDSHAKE_TAIL) {
-                u16TailLen2 = APP_MB_HANDSHAKE_TAIL;
-            }
-            s_u16HandshakeTailLen = u16TailLen2;
-            for (i = 0U; i < u16TailLen2; i++) {
-                s_au16HandshakeTail[i] = pstPort->pu16Data[APP_MB_HANDSHAKE_LEN + i];
-            }
-
+        if (AppMbIsTransferRequest(pstPort, u16ReqLen) != 0U) {
             PackModbusCrc(&pstPort->pu16Data[0], APP_MB_HANDSHAKE_LEN);
             pstPort->u16RxLen = 0U;
             pstPort->u32RxFrames++;
@@ -543,7 +576,8 @@ static void AppMbDispatchFrame(ST_APP_MB_PORT *pstPort)
             return;
         }
 
-        /* 115200 上除了传输请求，其余字节都不回应，只丢弃候选继续等 */
+        /* 115200 上除了确认过的传输请求，其余帧都不回应、丢掉候选继续等：
+         * ARM 收不到应答会重发，比把可疑字节当成升级流安全得多。 */
         AppMbDropRx(pstPort);
         return;
     }
@@ -552,17 +586,6 @@ static void AppMbDispatchFrame(ST_APP_MB_PORT *pstPort)
      * 共 8 字节。'C' 由升级层在备份区擦完、准备好接收之后自己发，所以这里
      * 只把 8 字节应答挂出去，等它真的发完（见服务第 3 步）才交接端口。 */
     if (AppMbIsHandshake(pstPort, u16ReqLen) != 0U) {
-        Uint16 u16TailLen;
-
-        u16TailLen = (Uint16)(u16ReqLen - APP_MB_HANDSHAKE_LEN);
-        if (u16TailLen > APP_MB_HANDSHAKE_TAIL) {
-            u16TailLen = APP_MB_HANDSHAKE_TAIL;
-        }
-        s_u16HandshakeTailLen = u16TailLen;
-        for (i = 0U; i < u16TailLen; i++) {
-            s_au16HandshakeTail[i] = pstPort->pu16Data[APP_MB_HANDSHAKE_LEN + i];
-        }
-
         PackModbusCrc(&pstPort->pu16Data[0], APP_MB_HANDSHAKE_LEN);
         pstPort->u16RxLen = 0U;
         pstPort->u32RxFrames++;
@@ -639,6 +662,15 @@ static Uint16 AppMbProtoService(ST_PROTO_INSTANCE *pstInst)
     u16Gen = SciPortFaultGeneration(u16SciId);
     if (u16Gen != pstPort->u16FaultGen) {
         pstPort->u16FaultGen = u16Gen;
+
+        /* 故障已经把未发回复丢了：这时还留着 F0_TX/REQ_TX，端口一空闲就会在
+         * 应答其实没发出去的情况下继续切速或交接，必须整段取消本次握手。 */
+        if (pstPort->u16Legacy != APP_MB_LEGACY_NONE)
+        {
+            AppMbLegacyRestore(u16SciId, pstPort);
+            return 1U;
+        }
+
         AppMbDropRx(pstPort);
         AppMbDropTx(pstPort);
     }
@@ -681,12 +713,11 @@ static Uint16 AppMbProtoService(ST_PROTO_INSTANCE *pstInst)
 
             /* 传输应答发完才交接：升级层从这里开始擦备份区、写"接收中"配置，再发 'C' */
             if (AppUpgradeStart(u16SciId, APP_MB_BAUD_UPGRADE,
-                                &s_au16HandshakeTail[0], s_u16HandshakeTailLen) == 0U) {
+                                (const Uint16 *)0, 0U) == 0U) {
                 AppMbLegacyRestore(u16SciId, pstPort);
                 return 1U;
             }
 
-            s_u16HandshakeTailLen = 0U;
             pstPort->u16Legacy = APP_MB_LEGACY_NONE;
             pstPort->u16Armed = 1U;
             return 1U;
@@ -713,9 +744,8 @@ static Uint16 AppMbProtoService(ST_PROTO_INSTANCE *pstInst)
          * （例如 Flash API 没初始化好时 AppUpgradeStart() 返回 0，）否则端口会停在
          * 无人接收的状态。接交失败就丢弃握手待发状态并重新同步流。 */
         if (AppUpgradeStart(u16SciId, s_au32Baud[(Uint16)(pstPort - &s_astPort[0])],
-                            &s_au16HandshakeTail[0], s_u16HandshakeTailLen) == 0U)
+                            (const Uint16 *)0, 0U) == 0U)
         {
-            s_u16HandshakeTailLen = 0U;
             pstPort->u32TxDropped++;
             SciPortResync(u16SciId);
             pstPort->u16FaultGen = SciPortFaultGeneration(u16SciId);
