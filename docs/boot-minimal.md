@@ -229,11 +229,11 @@ python tools/build_minimal.py --cgt C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2
 
 | 产物 | CCS 11.1 Debug | 命令行 |
 | --- | --- | --- |
-| `.out` | 669,016 B `01eb6b16…` | 672,448 B `6c7239c9…` |
+| `.out` | 668,996 B `da1a962e…` | 672,428 B `845c398e…` |
 | `.map` | 84,314 B | 81,813 B |
-| `.hex` | 76,863 B `91ec2055…` | 76,863 B `6bfc82b7…` |
-| `.bin`（烧录） | 31,944 B `9bbd0413…` | 31,944 B `d41748c7…` |
-| `_UpgradeCRC32.bin` | 31,976 B `f6483da9…`，CRC32 `0xA1D06C90` | 31,976 B `cb4cb275…`，CRC32 `0xF0032A83` |
+| `.hex` | 76,859 B `a35c20f2…` | 76,859 B `072d75b5…` |
+| `.bin`（烧录） | 31,944 B `d89fc631…` | 31,944 B `3f8e06b0…` |
+| `_UpgradeCRC32.bin` | 31,976 B `13bc67bb…`，CRC32 `0xDB81A579` | 31,976 B `084ed030…`，CRC32 `0x8A52E36A` |
 
 CCS Debug 的一套产物同时登记在 `artifacts/boot-v1/`（`.gitignore` 对这些文件开了
 例外，其余构建输出仍然忽略），可直接取用烧录文件与升级 BIN。
@@ -243,13 +243,13 @@ CCS Debug 的一套产物同时登记在 `artifacts/boot-v1/`（`.gitignore` 对
 sha256 完全一致）。
 
 两份 `.bin` 大小相同（31,944 B）、只差 **5 个字节**，全部是内嵌 `__FILE__` 字符串里的
-`\` 与 `/`（driverlib `ASSERT` 宏），因此两份升级 BIN 的 CRC32 不同（`0xA1D06C90` 与 `0xF0032A83`）。属**实施方核对记录**，未做独立复现，不作为验收依据。
+`\` 与 `/`（driverlib `ASSERT` 宏），因此两份升级 BIN 的 CRC32 不同（`0xDB81A579` 与 `0x8A52E36A`）。属**实施方核对记录**，未做独立复现，不作为验收依据。
 
 内存（两份 map 完全一致）：
 
 | 区 | 用 | 余 |
 | --- | --- | --- |
-| `FLASH_BOOT`（0x080002，0x5FFE 字） | `0x3E51` | `0x21AD` |
+| `FLASH_BOOT`（0x080002，0x5FFE 字） | `0x3E50` | `0x21AE` |
 | `RAMD0`（`.TI.ramfunc`） | `0x00C3` | `0x073D` |
 | `RAMGS0`（`.bss`） | `0x0976` | `0x068A` |
 | `RAMGS1` | `0x000C` | `0x0BF4` |
@@ -261,10 +261,18 @@ LOAD `0x082ED8` RUN `0x00B000`、`.flashfunc` LOAD `0x083010`（`0xA8B` 字）
 RUN `0x00F000`——其中 `FlashFeedWatchDog` @ `0x00F79F`、`FlashForceReset` @ `0x00F7A9`、
 `FlashWaitReady` @ `0x00F7D9`、`VerifyBootArea` @ `0x00F94A`、`StallAfterBootErase` @ `0x00F962`、
 `CopyBootFirmware` @ `0x00FA25`（`EraseBootBank` 的调用点在 `0x00F9A5`）。范围利用率 64.9%
-（31,560 / 49,152 字节）。
+（31,944 / 49,152 字节）。
 
-编译告警 4 条，全在参考 `XmodemCore.c`（未引用局部变量 `u32Sum`/`u16DataLength`、
-两处 `#190-D` 枚举混用），按忠实移植保留。
+编译告警 **0 条**（CCS Debug、CCS Release、命令行三条路线实测）。
+
+参考 `XmodemCore.c` 原本自带 4 条，本轮清理掉，全部是纯清理、不改分支与数值：
+- `#179-D` `Uint32 u32Sum`（`XmodemSinglePacket()`）——声明后从未参与任何计算，直接删除。
+- `#179-D` `Uint16 u16DataLength`（`XmodemReceive()`）——同上，删除。
+- `#190-D` 两处（`STATE_COMPLETE` / `STATE_ERROR`）：`Uint16 bError:8` 位域赋给
+  `E_XMODEM_ERROR`，补显式转换 `eRet = (E_XMODEM_ERROR)pstProtocol->bError;`。
+
+注意：清理后如果 CCS 的 Problems 视图仍显示旧条目，那是上一个构建留下的标记，需要
+Project → Clean 后重新 Build（或直接删掉那两条）才会消失；编译输出里已经没有任何告警。
 
 构建日志：`logs/ccs_boot_build.log`（CCS 11.1 一次完整 Clean Build）、
 `logs/build_minimal.log`（命令行全量，含两路线 `.bin` 的 sha256）。

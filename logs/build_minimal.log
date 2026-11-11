@@ -1,11 +1,7 @@
-"D:\MinMain\CCS-Project-boot\Platform\Xmodem\Src\XmodemCore.c", line 151: warning #179-D: variable "u32Sum" was declared but never referenced
-"D:\MinMain\CCS-Project-boot\Platform\Xmodem\Src\XmodemCore.c", line 540: warning #190-D: enumerated type mixed with another type
-"D:\MinMain\CCS-Project-boot\Platform\Xmodem\Src\XmodemCore.c", line 549: warning #190-D: enumerated type mixed with another type
-"D:\MinMain\CCS-Project-boot\Platform\Xmodem\Src\XmodemCore.c", line 322: warning #179-D: variable "u16DataLength" was declared but never referenced
 <Linking>
 
-D:\MinMain\EP15K_BOOT-build\EP15K_BOOT.out: 672448 bytes sha256=6c7239c9b8168f76839b0e9128ae73def1786376545a2c2bb205cc9f8fd53233
-D:\MinMain\EP15K_BOOT-build\EP15K_BOOT.map: 81813 bytes sha256=e33812acbb55b587b056f1644f38af55ac6e65a4063c9b9b56d99e8c241b0955
+D:\MinMain\EP15K_BOOT-build\EP15K_BOOT.out: 672428 bytes sha256=845c398ec5224ec68da896f9d5f5b58cd7ed36f6a2f1665f23c85e6a3546f50d
+D:\MinMain\EP15K_BOOT-build\EP15K_BOOT.map: 81813 bytes sha256=9f1262b1f8eea668e2dc51b140b250cc8c57ca3b840bec81320e8aff8c286083
 hex
 hex    : D:\MinMain\EP15K_BOOT-build\EP15K_BOOT.hex
 target : boot  0x080000..0x086000  firmware-type 2
@@ -27,9 +23,9 @@ Hex2BinFile conversion completed
 Please check if a. bin file with the same name exists, with a file size of: 31944 Bytes
 Current file size: 31944 bytes
 
-File EP15K_BOOT_UpgradeCRC32.bin CRC32: 0xF0032A83
+File EP15K_BOOT_UpgradeCRC32.bin CRC32: 0x8A52E36A
 File EP15K_BOOT_UpgradeCRC32.bin ChipType: 0x0001(1)
 File EP15K_BOOT_UpgradeCRC32.bin FirmwareType: 0x0002(2)
 File EP15K_BOOT_UpgradeCRC32.bin FileSize: 0x7CE8(31976) bytes
-D:\MinMain\EP15K_BOOT-build\EP15K_BOOT.bin: 31944 bytes sha256=d41748c798c6f6c3d71ece6683475e2d5f15fc5b317a1eec6bfed6daf9a3f281
-D:\MinMain\EP15K_BOOT-build\EP15K_BOOT_UpgradeCRC32.bin: 31976 bytes sha256=cb4cb2758ca0ae488591ddbd281a7d4190e40c9fd4760e920251632c61a6e0d2
+D:\MinMain\EP15K_BOOT-build\EP15K_BOOT.bin: 31944 bytes sha256=3f8e06b03aade6b3f862cdd5845a77d47ac11bc9650b363900ae2e752aab50aa
+D:\MinMain\EP15K_BOOT-build\EP15K_BOOT_UpgradeCRC32.bin: 31976 bytes sha256=084ed030721944e7ec63d6193cd7ea1ecca23094b3510b3514dd7bcc5fd2bb95
