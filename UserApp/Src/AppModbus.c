@@ -141,6 +141,7 @@ static Uint16 AppMbFrameIdle(const ST_APP_MB_PORT *pstPort);
 static void   AppMbDispatchFrame(ST_APP_MB_PORT *pstPort);
 static Uint16 AppMbIsLegacyCmd(const ST_APP_MB_PORT *pstPort, Uint16 u16Len);
 static void   AppMbLegacyRestore(Uint16 u16SciId, ST_APP_MB_PORT *pstPort);
+static Uint16 AppMbLegacyTailLen(const ST_APP_MB_PORT *pstPort, Uint16 u16Len);
 static Uint16 AppMbProtoInit(ST_PROTO_INSTANCE *pstInst);
 static Uint16 AppMbProtoService(ST_PROTO_INSTANCE *pstInst);
 static void   AppMbProtoReset(ST_PROTO_INSTANCE *pstInst);
@@ -432,6 +433,29 @@ static void AppMbLegacyReply(ST_APP_MB_PORT *pstPort, const Uint16 *pu16Src, Uin
 
 
 /**
+ * @brief 传输请求之后哪些字节属于升级流
+ * @return 尾部字节数
+ * @note  整帧带 CRC 且校验通过（标准 RTU 写多寄存器形式）时整帧都是请求，尾部为 0；
+ *        否则请求只占前 6 字节，其余是主机在同一批次里带过来的升级流（例如首包 SOH）。
+ *        这样两种帧形式都不会把请求自己的数据段/CRC 当成 XMODEM 数据喂进去。
+ */
+static Uint16 AppMbLegacyTailLen(const ST_APP_MB_PORT *pstPort, Uint16 u16Len)
+{
+    if (u16Len <= APP_MB_HANDSHAKE_LEN)
+    {
+        return 0U;
+    }
+
+    if (CheckModbusCrc((Uint16 *)&pstPort->pu16Data[0], u16Len) == 1)
+    {
+        return 0U;
+    }
+
+    return (Uint16)(u16Len - APP_MB_HANDSHAKE_LEN);
+}
+
+
+/**
  * @brief 兼容流程收尾：SCI-A 恢复 19200、清残留、把端口还给 Modbus
  */
 static void AppMbLegacyRestore(Uint16 u16SciId, ST_APP_MB_PORT *pstPort)
@@ -501,7 +525,7 @@ static void AppMbDispatchFrame(ST_APP_MB_PORT *pstPort)
         if (AppMbIsHandshake(pstPort, u16ReqLen) != 0U) {
             Uint16 u16TailLen2;
 
-            u16TailLen2 = (Uint16)(u16ReqLen - APP_MB_HANDSHAKE_LEN);
+            u16TailLen2 = AppMbLegacyTailLen(pstPort, u16ReqLen);
             if (u16TailLen2 > APP_MB_HANDSHAKE_TAIL) {
                 u16TailLen2 = APP_MB_HANDSHAKE_TAIL;
             }
