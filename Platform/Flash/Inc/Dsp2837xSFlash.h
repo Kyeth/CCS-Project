@@ -69,6 +69,10 @@ extern void FlashFeedWatchDog(void);
 /* 等待超时且 FSM 仍忙时用看门狗复位整机（RAM 内执行，不返回 Flash 调用者） */
 extern void FlashForceReset(void);
 
+/* 1 = 等待超时后留在 RAM 喂狗、不复位（BOOT 自升级期间必须置 1：此时回 Flash 取指
+ * 会落到已被擦除的扇区）；0 = 默认按看门狗复位整机。 */
+extern void FlashSetStallOnTimeout(Uint16 u16Enable);
+
 extern int16 EraseSingleSector(Uint32 u32SectorAddr);
 
 extern int16 WriteFlashData(Uint32 u32TagAddr, void *pu16DataBuff, Uint32 u32DataLen);

@@ -52,6 +52,22 @@ int32 GetUpgradeFirmwareFlag(ST_UPGRADE_HANDLE *pstUpgradeHandle)
 int32 VerifyFireware(ST_UPGRADE_HANDLE *pstUpgradeHandle)
 {
     Uint32 u32FirmwareCrc = 0;
+    Uint32 u32Size = 0;
+
+    /* 必要适配修正：CRC 读取长度直接来自配置，配置损坏时会读到备份区之外。
+     * 这里按备份区容量自检（两个字节压一个字），调用方仍要按镜像类型限制长度。 */
+    if (pstUpgradeHandle == 0)
+    {
+        return 0;
+    }
+
+    u32Size = pstUpgradeHandle->stUpgradeCfg.u32FileSize;
+    if ((u32Size == 0UL) || ((u32Size & 1UL) != 0UL) ||
+        (u32Size > (Uint32)(FlashBackupAreaWords * 2UL)))
+    {
+        return 0;
+    }
+
     u32FirmwareCrc = UpgradeCrc32((Uint16*)pstUpgradeHandle->u32BackUpAreaAddr, pstUpgradeHandle->stUpgradeCfg.u32FileSize >> 1, 0xFFFFFFFF);
     if (u32FirmwareCrc == pstUpgradeHandle->stUpgradeCfg.u32FileCrc)
     {

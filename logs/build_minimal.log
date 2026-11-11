@@ -4,32 +4,32 @@
 "D:\MinMain\CCS-Project-boot\Platform\Xmodem\Src\XmodemCore.c", line 322: warning #179-D: variable "u16DataLength" was declared but never referenced
 <Linking>
 
-D:\MinMain\EP15K_BOOT-build\EP15K_BOOT.out: 670068 bytes sha256=02c63c654e5a86ab2824b79c80334b5d473aa2c7775ca831b8582d5ee8debef8
-D:\MinMain\EP15K_BOOT-build\EP15K_BOOT.map: 81698 bytes sha256=93dd089122fec7dce5bd774896b32cb4c0f517a37e83c82b355bc50d43185c05
+D:\MinMain\EP15K_BOOT-build\EP15K_BOOT.out: 672068 bytes sha256=dc2ddd957827885650e9e3c472172ec388eea217fbb4ac8e6a2a262a608106a9
+D:\MinMain\EP15K_BOOT-build\EP15K_BOOT.map: 81943 bytes sha256=8c772bb94b0412045dbdb20830e6b58ea476dee1cb10907587e25c54e604af68
 hex
 hex    : D:\MinMain\EP15K_BOOT-build\EP15K_BOOT.hex
 target : boot  0x080000..0x086000  firmware-type 2
 === HEX File address analysis results ===
 Global address range:
   Minnimum address: 0x00080000
-  Maximum address: 0x00083DA4
-  Total size: 31560 Bytes
+  Maximum address: 0x00083E44
+  Total size: 31880 Bytes
 
 Specify address range [0x00080000 - 0x00086000] analysis:
   The minimum address within the range: 0x00080000
-  The maximum address within the range: 0x00083DA4
-  Actual size within the range: 31560 Bytes
-  Scope utilization rate: 64.21%
+  The maximum address within the range: 0x00083E44
+  Actual size within the range: 31880 Bytes
+  Scope utilization rate: 64.86%
 Converting...
 
 Hex2BinFile conversion completed
 
-Please check if a. bin file with the same name exists, with a file size of: 31560 Bytes
-Current file size: 31560 bytes
+Please check if a. bin file with the same name exists, with a file size of: 31880 Bytes
+Current file size: 31880 bytes
 
-File EP15K_BOOT_UpgradeCRC32.bin CRC32: 0xC9B190A8
+File EP15K_BOOT_UpgradeCRC32.bin CRC32: 0xED8A5766
 File EP15K_BOOT_UpgradeCRC32.bin ChipType: 0x0001(1)
 File EP15K_BOOT_UpgradeCRC32.bin FirmwareType: 0x0002(2)
-File EP15K_BOOT_UpgradeCRC32.bin FileSize: 0x7B68(31592) bytes
-D:\MinMain\EP15K_BOOT-build\EP15K_BOOT.bin: 31560 bytes sha256=7db0fe01426a640115665361c9a27dd945c0a078eaa8c437feb2cdbcfd03e0e3
-D:\MinMain\EP15K_BOOT-build\EP15K_BOOT_UpgradeCRC32.bin: 31592 bytes sha256=6a1bf212c2553994e2ca3da4e73712ef6802657ddec43e4959682a7e5285022e
+File EP15K_BOOT_UpgradeCRC32.bin FileSize: 0x7CA8(31912) bytes
+D:\MinMain\EP15K_BOOT-build\EP15K_BOOT.bin: 31880 bytes sha256=245426faba8e07dd7862d2834c977f70fad3c302d2de8167fd2a599682f26321
+D:\MinMain\EP15K_BOOT-build\EP15K_BOOT_UpgradeCRC32.bin: 31912 bytes sha256=74af4a44d3927f8116415c4a7c1e9dbb527ec401996c1a37ff81ef5e99a23910

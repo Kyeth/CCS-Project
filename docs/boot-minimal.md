@@ -159,6 +159,18 @@ APP 侧接线（APP 工程）：8 字节握手应答 → 擦备份区并写"接�
 核验脚本按"找 `EraseBootBank` 调用点 → 之后所有 `LCR/LB` 目标必须落在 RAM 运行区"
 执行，结论 PASS。
 
+### 3.7 第二轮复核追加的 3 条收口
+
+| # | 问题 | 最小改法 |
+| --- | --- | --- |
+| 1 | 接收准备失败仍可能发 `'C'`：掉电重入分支忽略 `Hw_SciSetBaud()` 与 `EraseBackUpBank()` 的结果，`TaskUpgrade()` 仍可能凭旧配置开始接收；空白机与中止重入也丢弃 `StartReceiveFromBoot()` 的返回值 | 统一接收门控 `s_u16ReceiveReady`：新增 `PrepareResumeReceive()`（校验波特率/串口 → `Hw_SciSetBaud` → `EraseBackUpBank`，任一失败即不置位），`StartReceiveFromBoot()` 写完配置后才置位；`TaskUpgrade()` 首行判该标志，未就绪直接返回。三条进入路径（首次、掉电重入、中止重入）都走同一门控 |
+| 2 | 配置校验在第一次备份区 CRC 之后：`CheckUpgrade()` 先 `VerifyFireware()`，CRC 长度直接取自 `u32FileSize`；Type=1 也缺长度上限 | 新增 `IsCfgValid()`：升级标志、芯片类型、镜像类型 ∈ {1,2}、非零偶数长度、按目标分区限长（APP `0x34000` / BOOT `0xC000`），**先于任何备份区读**；`VerifyFireware()` 内部再按备份区容量（`FlashBackupAreaWords * 2`）自检长度。APP 安装成功后清配置的返回值也要检查（清不掉就停下，避免下次上电重复安装） |
+| 3 | Type=2 失败路径仍可能复位、且可能重复编程同一 64 位 ECC 单元 | `FlashWaitReady()` 超时行为改为可切换：`FlashSetStallOnTimeout(1)` 后超时留在 RAM 喂狗而不是 `FlashForceReset()`；`BootSelfUpdateTail()` 在擦除前调用该开关，并把"擦除 → 回拷 → 目标区校验"改成每轮重试**都先重新擦目标扇区**，三次失败后 `StallAfterBootErase()` 驻留 |
+
+第二轮的 RAM 可达性复核（新镜像）：`EraseBootBank` 调用点 `0x00F9A5`，其后 11 条调用全部
+落在 `.flashfunc` 运行区 `0x00F000..0x00FA8B`；`FlashWaitReady` @ `0x00F7D9` 本身就在 RAM，
+超时分支读的是 RAM 里的 `s_u16StallOnTimeout`，不再存在"超时路径回到 Flash 取指"的可能。
+
 ---
 
 ## 4. 构建
@@ -201,11 +213,11 @@ python tools/build_minimal.py --cgt C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2
 
 | 产物 | CCS 11.1 Debug | 命令行 |
 | --- | --- | --- |
-| `.out` | 666,688 B `ae8645d3…` | 670,068 B `02c63c65…` |
-| `.map` | 84,199 B | 81,698 B |
-| `.hex` | 75,906 B `27fc4bd4…` | 75,906 B `cb967fce…` |
-| `.bin`（烧录） | 31,560 B `3252481a…` | 31,560 B `7db0fe01…` |
-| `_UpgradeCRC32.bin` | 31,592 B `45289269…`，CRC32 `0x5AD97964` | 31,592 B `6a1bf212…`，CRC32 `0xC9B190A8` |
+| `.out` | 668,640 B `f6c053ac…` | 672,068 B `dc2ddd95…` |
+| `.map` | 84,444 B | 81,943 B |
+| `.hex` | 76,648 B `07e6bdc1…` | 76,648 B `b8f60e47…` |
+| `.bin`（烧录） | 31,880 B `ebf985cb…` | 31,880 B `245426fa…` |
+| `_UpgradeCRC32.bin` | 31,912 B `f99e356d…`，CRC32 `0xB0B15625` | 31,912 B `74af4a44…`，CRC32 `0xED8A5766` |
 
 CCS Debug 的一套产物同时登记在 `artifacts/boot-v1/`（`.gitignore` 对这些文件开了
 例外，其余构建输出仍然忽略），可直接取用烧录文件与升级 BIN。
@@ -214,26 +226,25 @@ CCS Debug 的一套产物同时登记在 `artifacts/boot-v1/`（`.gitignore` 对
 `.hex`、`.bin`、升级 BIN 在各自路线内可复现（命令行路线连续两次构建，四个产物的
 sha256 完全一致）。
 
-两份 `.bin` 大小相同（31,560 B）、只差 **5 个字节**，全部是内嵌 `__FILE__` 字符串里的
-`\` 与 `/`（driverlib `ASSERT` 宏），因此两份升级 BIN 的 CRC32 不同（`0x5AD97964`
-与 `0xC9B190A8`）。属**实施方核对记录**，未做独立复现，不作为验收依据。
+两份 `.bin` 大小相同（31,880 B）、只差 **5 个字节**，全部是内嵌 `__FILE__` 字符串里的
+`\` 与 `/`（driverlib `ASSERT` 宏），因此两份升级 BIN 的 CRC32 不同（`0xB0B15625` 与 `0xED8A5766`）。属**实施方核对记录**，未做独立复现，不作为验收依据。
 
 内存（两份 map 完全一致）：
 
 | 区 | 用 | 余 |
 | --- | --- | --- |
-| `FLASH_BOOT`（0x080002，0x5FFE 字） | `0x3D8C` | `0x2272` |
+| `FLASH_BOOT`（0x080002，0x5FFE 字） | `0x3E25` | `0x21D9` |
 | `RAMD0`（`.TI.ramfunc`） | `0x00C3` | `0x073D` |
-| `RAMGS0`（`.bss`） | `0x0974` | `0x068C` |
+| `RAMGS0`（`.bss`） | `0x0976` | `0x068A` |
 | `RAMGS1` | `0x000C` | `0x0BF4` |
 | `RAMGS2`（`.upybuf`） | `0x0840` | `0x07C0` |
 | `RAMGS3`（`.flashfunc` 运行区） | 0 | `0x1000` |
 
 关键符号落位：`codestart` @ `0x080000`（`LB 0x082EB3`）、`.TI.ramfunc`
-LOAD `0x082ED8` RUN `0x00B000`、`.flashfunc` LOAD `0x082F80`（`0xA7E` 字）
-RUN `0x00F000`——其中 `EraseBootBank` @ `0x00F92A`、`VerifyBootArea` @ `0x00F943`、
-`BootSelfUpdateTail` @ `0x00F95E`、`CopyBootFirmware` @ `0x00FA18`、
-`UpgradeCrc32` @ `0x00F9B3`、`FlashForceReset` @ `0x00F7A9`。范围利用率 64.2%
+LOAD `0x082ED8` RUN `0x00B000`、`.flashfunc` LOAD `0x083010`（`0xA8B` 字）
+RUN `0x00F000`——其中 `FlashFeedWatchDog` @ `0x00F79F`、`FlashForceReset` @ `0x00F7A9`、
+`FlashWaitReady` @ `0x00F7D9`、`VerifyBootArea` @ `0x00F94A`、`StallAfterBootErase` @ `0x00F962`、
+`CopyBootFirmware` @ `0x00FA25`（`EraseBootBank` 的调用点在 `0x00F9A5`）。范围利用率 64.9%
 （31,560 / 49,152 字节）。
 
 编译告警 4 条，全在参考 `XmodemCore.c`（未引用局部变量 `u32Sum`/`u16DataLength`、
@@ -255,7 +266,12 @@ RUN `0x00F000`——其中 `EraseBootBank` @ `0x00F92A`、`VerifyBootArea` @ `0x
    否则可重新收包；功率输出保持关闭。
 6. BOOT 自升级（FirmwareType=2）能完成"校验 → 清配置 → 擦 A/B/C → 回拷 → 目标区
    CRC 通过 → 复位"，复位后仍是新版本；中途失败应停在 RAM（看门狗喂狗），不得复位。
-7. 单独测自升级失败路径：人为让回拷失败，确认设备不复位、不进半成品 BOOT。
+7. 自升级失败注入两处：①回拷失败（停在 RAM，复位不再发生）；②**FSM 等待超时**——
+   这是最容易绕过 RAM 驻留分支的一条，必须确认它同样停在 RAM 而不是复位。
+8. 接收门控：人为让备份区擦除失败（或在擦除中途断电），确认 BOOT 不会开始发 `'C'`，
+   而是停在 BOOT；恢复后重新上电可再次进入接收。
+9. 配置损坏注入：把配置区改成非法长度（0 或奇数或超上限），确认 BOOT 直接清配置、
+   不读备份区、按 APP 是否有效决定跳转或接收。
 
 ---
 
@@ -267,5 +283,7 @@ RUN `0x00F000`——其中 `EraseBootBank` @ `0x00F92A`、`VerifyBootArea` @ `0x
   备份区校验保证）。
 - APP 安装失败时策略是"保留配置 + 停在 BOOT、下次上电重试安装"；若备份区本身损坏，
   重试时 `VerifyFireware()` 不通过会清配置并重新进入接收。
+- Type=2 自升级本轮仍未上板；"FSM 等待超时驻留"只能通过故障注入确认（正常板测不会
+  触发 0x1FFFF 次等待超时）。
 - `Platform/` 下的 `PortBench.h`/`PortBudget.h` 随端口层带入，`PORT_BENCH_TEST`
   保持 `0U`（生产配置），未提供测量态构建。

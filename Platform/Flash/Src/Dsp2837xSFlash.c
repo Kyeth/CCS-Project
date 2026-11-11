@@ -103,7 +103,18 @@ void FlashRestoreInt(Uint16 u16State)
 }
 
 
-/* 等待 FSM 空闲；超时则从 RAM 强制复位（不返回） */
+/* 超时后是否留在 RAM：BOOT 自升级擦掉 A/B/C 之后置 1，避免超时路径复位回
+ * 已擦除的 Flash；平时保持 0，超时按看门狗复位整机。 */
+static Uint16 s_u16StallOnTimeout = 0U;
+
+
+void FlashSetStallOnTimeout(Uint16 u16Enable)
+{
+    s_u16StallOnTimeout = (u16Enable != 0U) ? 1U : 0U;
+}
+
+
+/* 等待 FSM 空闲；超时后按 s_u16StallOnTimeout 决定复位还是留在 RAM 喂狗（都不返回） */
 static void FlashWaitReady(void)
 {
     Uint32 u32TimeOutCnt = 0;
@@ -114,6 +125,14 @@ static void FlashWaitReady(void)
         u32TimeOutCnt++;
         if (u32TimeOutCnt >= FLASH_WAIT_LIMIT)
         {
+            if (s_u16StallOnTimeout != 0U)
+            {
+                while (1)
+                {
+                    FlashFeedWatchDog();
+                }
+            }
+
             FlashForceReset();
         }
     }

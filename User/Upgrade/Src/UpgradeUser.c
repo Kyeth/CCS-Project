@@ -12,6 +12,10 @@
 
 
 ST_UPGRADE_HANDLE stUpgradeHandle;
+
+/* 接收门控：只有"备份区擦除 + 接收配置"都准备好才允许 TaskUpgrade() 调 XmodemReceive()。
+ * 首次接收、掉电重入、中止重入三条路径统一走这里，避免准备失败却发出 'C'。 */
+static Uint16 s_u16ReceiveReady = 0U;
 //__attribute__((aligned(8))) Uint16 u16DataBuff[16];
 
 void UpgradeUserInit(void)
@@ -23,6 +27,7 @@ void UpgradeUserInit(void)
     stUpgradeHandle.u32AppAreaAddr = 0x086000U;
     stUpgradeHandle.u32BackUpAreaAddr = 0x0A0000U;
     stUpgradeHandle.u32BootAreaAddr = 0x080000U;
+    s_u16ReceiveReady = 0U;
 }
 
 int16 EraseBackUpBank(void)
@@ -108,6 +113,92 @@ void jump_to_app(void);
  * 分支里都直接 jump_to_app()，不检查 APP 区是否有内容。APP 空白时等于跳进擦除态
  * Flash（首字 0xFFFF），整机失去响应。判据：APP 入口 0x086000 的首字（codestart
  * 跳转）不能是 0xFFFF，且次字（APP 入口向量）必须落在 APP 区内（0x086002..0x09FFFF）。 */
+/* 配置自检：升级标志、芯片类型、镜像类型、非零偶数长度、按目标分区的长度上限。
+ * 必要适配修正：参考实现在读备份区 CRC 之前不校验这些字段，配置损坏时 CRC 长度
+ * 直接来自 u32FileSize，会读到备份区之外。 */
+static Uint16 IsCfgValid(void)
+{
+    Uint32 u32Size = stUpgradeHandle.stUpgradeCfg.u32FileSize;
+
+    if (stUpgradeHandle.stUpgradeCfg.u16UpgradeFlag != 0xAAEEU)
+    {
+        return 0U;
+    }
+
+    if (stUpgradeHandle.stUpgradeCfg.bChipType != XMODEM_CHIP_TYPE)
+    {
+        return 0U;
+    }
+
+    if ((stUpgradeHandle.stUpgradeCfg.bFirmwareType != XMODEM_FIRMWARE_APP) &&
+        (stUpgradeHandle.stUpgradeCfg.bFirmwareType != XMODEM_FIRMWARE_BOOT))
+    {
+        return 0U;
+    }
+
+    if ((u32Size == 0UL) || ((u32Size & 1UL) != 0UL))
+    {
+        return 0U;
+    }
+
+    if (stUpgradeHandle.stUpgradeCfg.bFirmwareType == XMODEM_FIRMWARE_APP)
+    {
+        if (u32Size > XMODEM_APP_MAX_BYTES)
+        {
+            return 0U;
+        }
+    }
+    else
+    {
+        if (u32Size > XMODEM_BOOT_MAX_BYTES)
+        {
+            return 0U;
+        }
+    }
+
+    return 1U;
+}
+
+
+/* 掉电重入：沿用已存在的"接收中"配置，重设波特率并擦净备份区。两步都成功才算准备好。 */
+static Uint16 PrepareResumeReceive(void)
+{
+    Uint32 u32Baud = 0UL;
+    Uint16 u16BaudCfg = stUpgradeHandle.stUpgradeCfg.u16UpgradeBaud;
+
+    if ((u16BaudCfg == 96U) || (u16BaudCfg == 192U) || (u16BaudCfg == 384U) ||
+        (u16BaudCfg == 576U) || (u16BaudCfg == 1152U))
+    {
+        u32Baud = (Uint32)u16BaudCfg * 100U;
+    }
+    else if (u16BaudCfg == 0U)
+    {
+        u32Baud = 38400UL;
+    }
+    else
+    {
+        return 0U;
+    }
+
+    if (stUpgradeHandle.stUpgradeCfg.u16UpgradeUart != (Uint16)HW_SCI_ID_A)
+    {
+        return 0U;
+    }
+
+    if (Hw_SciSetBaud(HW_SCI_ID_A, u32Baud) == 0U)
+    {
+        return 0U;
+    }
+
+    if (EraseBackUpBank() != 0)
+    {
+        return 0U;
+    }
+
+    return 1U;
+}
+
+
 static Uint16 IsAppValid(void)
 {
     const volatile Uint16 *pu16App = (const volatile Uint16 *)0x086000U;
@@ -171,6 +262,9 @@ static Uint16 StartReceiveFromBoot(void)
         (void)EraseSingleSector(stUpgradeHandle.u32UpgradeCfgAddr);
         return 0U;
     }
+
+    /* 门控在此打开：只有备份区已擦净、接收配置已落盘，主循环才会调 XmodemReceive()。 */
+    s_u16ReceiveReady = 1U;
 
     return 1U;
 }
@@ -237,25 +331,27 @@ static void BootSelfUpdateTail(void)
         return;
     }
 
+    /* 从这里开始 BOOT 区可能已被破坏：等待 FSM 超时也不许复位回 Flash。 */
+    FlashSetStallOnTimeout(1U);
+
     /* 先清配置：中途掉电也不会留下"已收完"的配置，否则下次上电会把半截镜像再回拷一次。 */
     (void)EraseSingleSector(stUpgradeHandle.u32UpgradeCfgAddr);
 
-    if (EraseBootBank() != 0)
+    /* 每轮重试都先擦目标扇区再编程：同一 64 位 ECC 单元不能被重复编程。 */
+    for (u16Retry = 0U; u16Retry < 3U; u16Retry++)
     {
-        StallAfterBootErase();
-    }
-
-    /* 回拷最多重试三次；仍不成功就停在 RAM，不复位到已被擦除的 BOOT。 */
-    while ((CopyBootFirmware(&stUpgradeHandle) != 0) || (VerifyBootArea() == 0U))
-    {
-        u16Retry++;
-        if (u16Retry >= 3U)
+        if (EraseBootBank() != 0)
         {
             StallAfterBootErase();
         }
+
+        if ((CopyBootFirmware(&stUpgradeHandle) == 0) && (VerifyBootArea() != 0U))
+        {
+            FlashForceReset();
+        }
     }
 
-    FlashForceReset();
+    StallAfterBootErase();
 
     while (1)
     {
@@ -275,86 +371,69 @@ void jump_to_app(void)
 
 void CheckUpgrade(void)
 {
-    Uint32 u32Baud = 0;
     int16 i16Temp = 0;
 
     i16Temp = ReadUpgradeCfg(&stUpgradeHandle);
-    if (i16Temp)
-    {
-        // 如果没有接收到完整的升级固件，则需要重新接收
-        if (GetUpgradeFirmwareFlag(&stUpgradeHandle) == 0)
-        {
-            if (((stUpgradeHandle.stUpgradeCfg.u16UpgradeBaud == 96)
-                    || (stUpgradeHandle.stUpgradeCfg.u16UpgradeBaud == 192)
-                    || (stUpgradeHandle.stUpgradeCfg.u16UpgradeBaud == 384)
-                    || (stUpgradeHandle.stUpgradeCfg.u16UpgradeBaud == 576)
-                    || (stUpgradeHandle.stUpgradeCfg.u16UpgradeBaud == 1152)) &&
-                    (stUpgradeHandle.stUpgradeCfg.u16UpgradeUart == HW_SCI_ID_A))
-            {
-                u32Baud = stUpgradeHandle.stUpgradeCfg.u16UpgradeBaud * 100;
-                // 这里需要重新初始化串口波特率
-                (void)Hw_SciSetBaud(HW_SCI_ID_A, u32Baud);
-
-                EraseBackUpBank();
-            }
-            else if (stUpgradeHandle.stUpgradeCfg.u16UpgradeBaud == 0)
-            {
-                u32Baud = 38400;
-                // 这里需要重新初始化串口波特率
-                (void)Hw_SciSetBaud(HW_SCI_ID_A, u32Baud);
-
-                EraseBackUpBank();
-            }
-            else
-            {
-                EraseSingleSector(stUpgradeHandle.u32UpgradeCfgAddr);
-                BootToAppOrReceive();
-            }
-        }
-        else    // 这里接收到完整的固件，需要进行固件校验与拷贝
-        {
-            if (VerifyFireware(&stUpgradeHandle))
-            {
-
-                if (stUpgradeHandle.stUpgradeCfg.bFirmwareType == 1)
-                {
-                    /* 必要适配修正：参考实现不看擦除/复制/目标区校验的结果，一律清配置
-                     * 后跳转——装了一半的 APP 也会被当成成品。这里三步全部通过才清配置
-                     * 并跳转；失败则保留"已收完"配置（下次上电重试安装）停在 BOOT。 */
-                    if ((EraseAppBank() == 0) &&
-                        (CopyAppFirmware(&stUpgradeHandle) == 0) &&
-                        (VerifyAppArea(&stUpgradeHandle) == 1))
-                    {
-                        (void)EraseSingleSector(stUpgradeHandle.u32UpgradeCfgAddr);
-                        BootToAppOrReceive();
-                    }
-                    else
-                    {
-                        return;
-                    }
-                }
-                else if (stUpgradeHandle.stUpgradeCfg.bFirmwareType == 2)
-                {
-                    // 升级Boot程序：清配置 -> 擦 BOOT -> 回拷 -> 复位（全程 RAM）
-                    BootSelfUpdateTail();
-                }
-
-            }
-            else
-            {
-                EraseSingleSector(stUpgradeHandle.u32UpgradeCfgAddr);
-                BootToAppOrReceive();
-            }
-        }
-    }
-    else
+    if (i16Temp == 0)
     {
         BootToAppOrReceive();
+        return;
     }
 
+    /* 必要适配修正：先做配置自检，再碰备份区（参考实现直接拿 u32FileSize 算 CRC）。 */
+    if (IsCfgValid() == 0U)
+    {
+        (void)EraseSingleSector(stUpgradeHandle.u32UpgradeCfgAddr);
+        BootToAppOrReceive();
+        return;
+    }
+
+    if (GetUpgradeFirmwareFlag(&stUpgradeHandle) == 0)
+    {
+        /* 掉电重入：准备好才允许继续接收；准备失败就清配置重走门控，不能让旧配置
+         * 带着没擦净的备份区直接开始收包。 */
+        if (PrepareResumeReceive() != 0U)
+        {
+            s_u16ReceiveReady = 1U;
+            return;
+        }
+
+        (void)EraseSingleSector(stUpgradeHandle.u32UpgradeCfgAddr);
+        BootToAppOrReceive();
+        return;
+    }
+
+    if (VerifyFireware(&stUpgradeHandle) != 1)
+    {
+        (void)EraseSingleSector(stUpgradeHandle.u32UpgradeCfgAddr);
+        BootToAppOrReceive();
+        return;
+    }
+
+    if (stUpgradeHandle.stUpgradeCfg.bFirmwareType == XMODEM_FIRMWARE_APP)
+    {
+        /* 擦除 → 回拷 → 目标区 CRC 三步全过才清配置跳转；失败保留"已收完"配置
+         * （下次上电重试安装）并停在 BOOT。 */
+        if ((EraseAppBank() != 0) ||
+            (CopyAppFirmware(&stUpgradeHandle) != 0) ||
+            (VerifyAppArea(&stUpgradeHandle) != 1))
+        {
+            return;
+        }
+
+        /* 清配置也要看结果：清不掉的话下次上电会重复安装一遍。 */
+        if (EraseSingleSector(stUpgradeHandle.u32UpgradeCfgAddr) != 0)
+        {
+            return;
+        }
+
+        BootToAppOrReceive();
+        return;
+    }
+
+    /* FirmwareType == 2：自升级尾部在 RAM 里一次做完（成功复位 / 失败驻留） */
+    BootSelfUpdateTail();
 }
-
-
 
 
 /* 已收完、只等发送排空后写配置的标志（本工程发送由主循环推进，不能阻塞等） */
@@ -372,6 +451,12 @@ Uint16 TaskUpgrade(void)
     Uint32 u32Sum = 0;
     E_XMODEM_ERROR eXmodemError = XMODEM_OK;
     int16 i16Ret = 0;
+
+    /* 门控：接收准备（擦备份区 + 写接收配置）没成功就不碰 XmodemReceive()。 */
+    if (s_u16ReceiveReady == 0U)
+    {
+        return 0U;
+    }
 
     if ((ReadUpgradeCfg(&stUpgradeHandle) != 1) || (GetUpgradeFirmwareFlag(&stUpgradeHandle) != 0))
     {
@@ -464,6 +549,7 @@ Uint16 TaskUpgrade(void)
  * 清会话与适配层残留，APP 有效就启动它，APP 空白则重新准备接收。 */
 void UpgradeUserAbort(void)
 {
+    s_u16ReceiveReady = 0U;
     UpgradeUserSessionReset();
     XmodemProcessInit();
     XmodemRxReset();
