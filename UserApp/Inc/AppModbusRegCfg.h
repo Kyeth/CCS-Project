@@ -22,12 +22,16 @@
 
 /* 寄存器表项数。 */
 #define APP_MODBUS_REG_COUNT (440U)
+#define MACHINE_MODBUS_REG_COUNT (100U)
+#define ATS_MODBUS_REG_COUNT (10U)
 
 /* 寄存器表（Flash 常量，按地址严格升序）。 */
 extern const ST_REG_SLAVE_ITEM g_astAppRegSlaveItem[APP_MODBUS_REG_COUNT];
 
 /* 从站寄存器配置：表头 + 项数，直接交给 ModbusSlaveTableRegister()。 */
 extern const ST_REG_SLAVE_CFG stRegSlaveCfg_App;
+extern const ST_REG_SLAVE_CFG stRegSlaveCfg_C;
+extern const ST_REG_SLAVE_CFG stRegSlaveCfg_D;
 
 /* 把占位寄存器清零。.mbregs 不参与 C 运行时清零，上电必须显式调一次。 */
 void AppRegCfgReset(void);

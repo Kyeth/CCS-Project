@@ -364,13 +364,17 @@ int16 CheckRegValByType(const ST_REG_SLAVE_ITEM *pstRegDrc, const ST_REG_SLAVE_I
             break;
 
         case TYPE_FLOAT:
-            /* 浮点数不能直接比较需要转化成整数 */
-            if (((int64)pstRegSrc->puRegVal->fVal <= (int64)pstRegDrc->u32UpLimitVal) &&
-                ((int64)pstRegSrc->puRegVal->fVal >= (int64)pstRegDrc->i32DownLimitVal))
+        {
+            const float f32Val = pstRegSrc->puRegVal->fVal;
+            const float f32Min = (float)pstRegDrc->i32DownLimitVal;
+            const float f32Max = (float)pstRegDrc->u32UpLimitVal;
+
+            if ((f32Val >= f32Min) && (f32Val <= f32Max))
             {
                 i16Ret = 1;
             }
             break;
+        }
 
         default :
             i16Ret = -3;

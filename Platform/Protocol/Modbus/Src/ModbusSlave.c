@@ -333,6 +333,7 @@ static E_MDS_ERROR_TYPE ProcMbReadRegMsg(ST_MODBUS_SLAVE_TABLE_CRTL *pstMdsSlave
     Uint16 u16RegNums = 0;
     Uint16 u16CrcIndex = 0;
     Uint16 *pu16Buff = pstMdsSlaveCtrl->stMdsFrame.pstMdsData->pu16DataBuff;
+    Uint16 u16Width = 0;
 
     memset(&stRegTemp, 0, sizeof(stRegTemp));
     stRegTemp.puRegVal = (U_REG_VAL *)&uRegVal;
@@ -371,7 +372,12 @@ static E_MDS_ERROR_TYPE ProcMbReadRegMsg(ST_MODBUS_SLAVE_TABLE_CRTL *pstMdsSlave
             return ERROR_ADDRESS;
         }
 
-        i = (Uint16)(i + ModbusRegWidthOf(stRegTemp.bValType));
+        u16Width = ModbusRegWidthOf(stRegTemp.bValType);
+        if (u16Width > (Uint16)(pstMdsSlaveCtrl->stMdsFrame.u16RegNums - i))
+        {
+            return ERROR_ADDRESS;
+        }
+        i = (Uint16)(i + u16Width);
     }
 
     // 清空接收Buff，为后续打包数据留出干净的空间
@@ -459,6 +465,11 @@ static E_MDS_ERROR_TYPE ProcMbWriteSingleRegMsg(ST_MODBUS_SLAVE_TABLE_CRTL *pstM
     if (stDrcRegTemp.bRWType == READ_ONLY)
     {
         return ERROR_ADDRESS;
+    }
+
+    if (ModbusRegWidthOf(stDrcRegTemp.bValType) != 1U)
+    {
+        return ERROR_DATA;
     }
 
     u16RegNum = LoadRegValFromMdsMsg(pu16Buff, &stSrcRegTemp, stDrcRegTemp.bValType,
@@ -583,15 +594,16 @@ static E_MDS_ERROR_TYPE ProcMbWriteMultiRegMsg(ST_MODBUS_SLAVE_TABLE_CRTL *pstMd
             return ERROR_ADDRESS;
         }
 
+        u16RegNum = ModbusRegWidthOf(stDrcRegTemp.bValType);
+        if (u16RegNum > (Uint16)(pstMdsSlaveCtrl->stMdsFrame.u16RegNums - i))
+        {
+            return ERROR_DATA;
+        }
+
         u16RegNum = LoadRegValFromMdsMsg(pu16Buff, &stSrcRegTemp, stDrcRegTemp.bValType,
                                          i, MDS_MULTI_WD_REG_VAL_INDEX);
         if ((u16RegNum != 1U) && (u16RegNum != 2U))
         {
-            return ERROR_DATA;
-        }
-        if ((Uint16)(i + u16RegNum) > pstMdsSlaveCtrl->stMdsFrame.u16RegNums)
-        {
-            /* 32 位类型放不下（数量字段不够它占两个寄存器） */
             return ERROR_DATA;
         }
 

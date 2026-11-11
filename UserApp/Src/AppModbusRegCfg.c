@@ -16,11 +16,14 @@
  * 访问，主机上第二个元素就越界
  * 放进 .mbregs（RAMGS1），让可写的 RAM 与 Flash 里的表分离。 */
 static U_REG_VAL s_auRegVal[APP_MODBUS_REG_COUNT];
-
+static U_REG_VAL s_stRegValC[ATS_MODBUS_REG_COUNT];
+static U_REG_VAL s_stRegValD[MACHINE_MODBUS_REG_COUNT];
 #ifdef __TMS320C28XX__
 #pragma DATA_SECTION(s_auRegVal, ".mbregs")
+#pragma DATA_SECTION(s_stRegValC, ".mbregs")
+#pragma DATA_SECTION(s_stRegValD, ".mbregs")
 #endif
-
+// 点表1 ARM通信协议维护表 所有与ARM通信的应用数据在下表维护
 const ST_REG_SLAVE_ITEM g_astAppRegSlaveItem[APP_MODBUS_REG_COUNT] = {
     /*     0  L1相直流分量 */
     {     0U, READ_WRITE, TYPE_UINT16, NOT_SAVE, &s_auRegVal[  0],       0,  65535U },
@@ -904,9 +907,33 @@ const ST_REG_SLAVE_ITEM g_astAppRegSlaveItem[APP_MODBUS_REG_COUNT] = {
     {  8032U, READ_ONLY , TYPE_UINT16, NOT_SAVE, &s_auRegVal[439],       0,  65535U }
 };
 
+
+
+// 点表2 ATS通信协议维护表 所有与ATS通信的应用数据在下表维护
+static const ST_REG_SLAVE_ITEM s_astRegC[] = {
+    { 0U, READ_WRITE, TYPE_UINT16, NOT_SAVE, &s_stRegValC[0], 0, 65535U }
+};
+
+// 点表3 自用上位机通信协议维护表 所有与上位机通信的应用数据在下表维护
+static const ST_REG_SLAVE_ITEM s_astRegD[] = {
+    { 0U, READ_WRITE, TYPE_UINT16, NOT_SAVE, &s_stRegValD[0], 0, 65535U },
+    { 1U, READ_WRITE, TYPE_FLOAT, NOT_SAVE, &s_stRegValD[1], 0, 65535U },
+    { 3U, READ_WRITE, TYPE_INT16, NOT_SAVE, &s_stRegValD[3], 0, 65535U }
+};
+
 const ST_REG_SLAVE_CFG stRegSlaveCfg_App = {
     (ST_REG_SLAVE_ITEM *)&g_astAppRegSlaveItem[0],
     (Uint16)(sizeof(g_astAppRegSlaveItem) / sizeof(g_astAppRegSlaveItem[0]))
+};
+
+const ST_REG_SLAVE_CFG stRegSlaveCfg_C = {
+    (ST_REG_SLAVE_ITEM *)&s_astRegC[0],
+    (Uint16)(sizeof(s_astRegC) / sizeof(s_astRegC[0]))
+};
+
+const ST_REG_SLAVE_CFG stRegSlaveCfg_D = {
+    (ST_REG_SLAVE_ITEM *)&s_astRegD[0],
+    (Uint16)(sizeof(s_astRegD) / sizeof(s_astRegD[0]))
 };
 
 void AppRegCfgReset(void)
@@ -923,5 +950,20 @@ void AppRegCfgReset(void)
      * （0x0007B05C）。这两项是指定值，不是业务变量，不能等业务层去写。 */
     s_auRegVal[365].u16Val = 0x0007U;
     s_auRegVal[366].u16Val = 0xB05CU;
+    /* 放在 .mbregs 的 NOINIT 段，上电时 C 运行库不会自动清零，所以这里要显式初始化。
+     * U_REG_VAL是联合体，用 u32Val = 0UL 可以清掉整个 32 位存储*/
+    for (u16Index = 0U; u16Index < ATS_MODBUS_REG_COUNT; u16Index++)
+    {
+        s_stRegValC[u16Index].u32Val = 0UL;
+    }
+
+    for (u16Index = 0U; u16Index < MACHINE_MODBUS_REG_COUNT; u16Index++)
+    {
+        s_stRegValD[u16Index].u32Val = 0UL;
+    }
+    /* SCIC 地址 0 为 TYPE_UINT16，联调初值 */
+    s_stRegValD[0].u16Val = 1234U;
+    s_stRegValD[1].fVal = 0.01F;
+    s_stRegValD[3].i16Val = (int16)(-12);
 }
 
