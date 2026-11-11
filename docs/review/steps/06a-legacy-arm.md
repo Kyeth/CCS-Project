@@ -111,11 +111,28 @@
 - `AppUpgradeAbort()` 也走同一条门（`AppModbusRestorePort()`），不再直接 `AppModbusReleasePort()`。
 - 诊断：`AppModbusBaudErrors(u16Port)` 暴露失败次数，上板时可用它确认是否出现过切速失败。
 
+### 2.6 ARM 自身升级通知（r6 新增）
+
+说明文档追加了一条 ARM 自有协议：SCIA 19200 上 `F0 00 12 07 08` → 回 `F0 00 12 09 0A`，
+用于"ARM 自身升级"。DSP 侧只做两件事：关驱动、回应答。
+
+| 项 | 取值 | 说明 |
+| --- | --- | --- |
+| 请求 | `F0 00 12 07 08` | 第 4/5 字节与 DSP 升级请求 `F0 00 12 03 04` 不同，必须按完整 5 字节区分 |
+| 应答 | `F0 00 12 09 0A` | 5 字节，原样回，不追加 CRC |
+| 动作 | `AppUpgradeArmNotify()` → `s_pfPause()` | 现有"关闭驱动"入口（`main.c:582` 的 `AppUpgradePause()`） |
+| 不做 | 切速 / 擦 Flash / 写配置 / 复位 / 发 `'C'` | SCIA 保持 19200，Modbus 继续工作 |
+| 重复 | 允许 | 再收到就再回一次；`s_u16StopRequested` 保证停机只做一次 |
+
+落地位置：`UserApp/Src/AppModbus.c` 的 `s_au16ArmNotifyCmd/Reply`、`AppMbIsArmNotifyCmd()`
+（只认 SCI-A 且恰好 5 字节）、`AppMbDispatchFrame()` 最前面的分流；`UserApp/Src/AppUpgrade.c`
+的 `AppUpgradeArmNotify()`。BOOT 侧同一指令只应答（见 `docs/boot-minimal.md` §3.9）。
+
 ## 3 状态机
 
 | 状态 | 进入条件 | 主要动作 | 离开条件 |
 | --- | --- | --- | --- |
-| `APP_MB_LEGACY_NONE` | 上电/握手完成/收尾 | 正常 Modbus 收帧 | 收到 F0 命令且 `AppUpgradePrepare()` 通过 → `F0_TX` |
+| `APP_MB_LEGACY_NONE` | 上电/握手完成/收尾 | 正常 Modbus 收帧 | 收到 ARM 通知 → 回 5 字节、保持本态；收到 F0 命令且 `AppUpgradePrepare()` 通过 → `F0_TX` |
 | `F0_TX` | 已回 5 字节 | 等应答出环 | 出环且切速成功 → `WAIT_REQ`；切速失败 → 收尾 |
 | `WAIT_REQ` | 已切 115200 | 只认 F0（重探）与恰好 6 字节的 `01 10`，其余帧丢弃 | 收到 `01 10` → `REQ_TX`；超 5 s → `RESTORE` |
 | `APP_MB_LEGACY_RESTORE` | 任何收尾路径 | 等发送空闲 + 逐轮重试切回业务速率 | 发送空闲且切速成功 → `NONE`（交还 Modbus）；未空闲或切速失败 → 停在本态重试 |
@@ -145,6 +162,10 @@
 | `Platform/Port/Inc/SciPort.h` / `Src/SciPort.c` | `:217` / `:1121` | 新增只读访问器 `SciPortIsTxResetLoss()`：区分"强制复位丢过内容"与"恢复期间临时挂起" |
 | `UserApp/Src/AppModbus.c` | `:689-703` | `RESTORE` 分支按 `SciPortIsTxResetLoss()` 分路：丢过内容才 `AppMbDropTx()`+`SciPortTxResume()`，临时挂起只等；之后统一过 `SciPortIsTxIdle()` 再切速 |
 | `Platform/Xmodem/Src/XmodemCore.c` | `:151` / `:322` | 删两个从未使用的局部变量，消掉 `#179-D`（与 BOOT 侧 `0bb7e09` 同一处置） |
+| `UserApp/Src/AppModbus.c` | `:90-97` | 新增 `s_au16ArmNotifyCmd`/`s_au16ArmNotifyReply` 两张 5 字节表 |
+| 同上 | `AppMbIsArmNotifyCmd()` | 只认 SCI-A 且恰好 5 字节；与 `AppMbIsLegacyCmd()` 分别比对，互不覆盖 |
+| 同上 | `AppMbDispatchFrame()` 最前面 | ARM 通知分流：回 5 字节、调 `AppUpgradeArmNotify()`、不改 `u16Legacy`、不切速 |
+| `UserApp/Src/AppUpgrade.c` / `Inc/AppUpgrade.h` | `AppUpgradeArmNotify()` | 只调暂停钩子并置 `s_u16StopRequested`；`AppUpgradePrepare()` 之后不会再重复停机 |
 
 `XmodemCore.c` 只是告警清理，不改逻辑；此前 APP 侧一直带着这两条 `#179-D`。
 
@@ -156,23 +177,29 @@
 | 串口 | `u16UpgradeUart = 0`（SCI-A） | 只认 `HW_SCI_ID_A` |
 | 标志 | `u16UpgradeFlag = 0xAAEE`、`u16FirmwareOver = 0` | `GetUpgradeFlag()==1 && GetUpgradeFirmwareFlag()==0` → 续收 |
 
+BOOT 侧本轮也补齐了同一套握手（`docs/boot-minimal.md` §3.9）：APP 无效时 BOOT 自己完成
+19200 的 F0 段与 115200 的 `01 10` 段，再擦备份区、写"接收中"（`u16UpgradeBaud = 1152`）并发 `'C'`；
+失败或取消时等控制字节发完才切回 19200。`F0 00 12 07 08` 在 BOOT 只应答，不切速。
+
 本轮把"0 档"从 38400 的旧解释统一成 19200，与 BOOT 侧 `UPGRADE_DEFAULT_BAUD` 一致；只有当调用方没给速率时才会落到 0 档，正常路径一律写实际速率。
 
 ## 6 两态构建台账
 
 | 项目 | 生产态 `PORT_BENCH_TEST=0` | 测量态 `PORT_BENCH_TEST=1` |
 | --- | --- | --- |
-| `.out` | 1,033,256 B `2492de6a…` | 1,051,224 B `4cca24e9…` |
-| `.map` | 129,162 B | 133,794 B |
-| `.text` | `0x65D9`（26,073 字） | `0x6958`（26,968 字） |
-| `FLASH_APP` 用/余 | `0x8699` / `0x11965` | `0x8A13` / `0x115EB` |
+| `.out` | 1,036,580 B `37acca0c…` | 1,054,476 B `4e7d2dfb…` |
+| `.map` | 129,418 B | 133,986 B |
+| `.text` | `0x6629`（26,153 字） | `0x69A8`（27,048 字） |
+| `FLASH_APP` 用/余 | `0x8722` / `0x118DC` | `0x8A9B` / `0x11563` |
 | `RAMGS0` 余 | 4 字 | 3 字 |
-| `RAMGS1` 用/余 | `0x0AA8` / `0x158` | `0x0BD8` / `0x28` |
-| `.bin` | 68,980 B `6ced274c…` | 70,740 B |
-| `_UpgradeCRC32.bin` | 69,012 B `2a4000f7…`，头部 `FileSize 0x10D74`、`CRC32 0x5EE9518B` | 70,772 B |
+| `RAMGS1` 用/余 | `0x0B84` / `0x07C` | `0x0C00` / `0x000` |
+| `.bin` | 69,252 B `df602bcd…` | 71,012 B `90f5c700…` |
+| `_UpgradeCRC32.bin` | 69,284 B，头部 `FileSize 0x10EA4`、`CRC32 0x328DA413` | 71,044 B，头部 `FileSize 0x11584`、`CRC32 0xC9EED708` |
 
 - 编译单元 63 个、**0 错误 0 告警**；`.out` 在相同源码下两次构建 sha256 一致（`.map` 每次不同，与既往结论一致）。
-- 与 r4（`.out` 1,032,776 B、`.bin` 68,932 B、升级包 68,964 B）相比：`.text` +23 字、`.bin` +48 B——r5 把挂起拆成"强制复位丢过内容"与"临时挂起"两条路径，并新增只读访问器 `SciPortIsTxResetLoss()`。
+- 与 r5（`.out` 1,033,256 B、`.bin` 68,980 B、升级包 69,012 B）相比：`.text` +80 字、`.bin` +272 B——r6 新增 ARM 通知的两张 5 字节表、`AppMbIsArmNotifyCmd()` 与 `AppUpgradeArmNotify()`。
+- **台账口径提醒**：本轮构建的工作树里另有尚未提交的点表改动（`AppModbusRegCfg.c` 的 `s_stRegValC/s_stRegValD` 与 `stRegSlaveCfg_C/D`、`AppModbusRegCfg.h` 的计数宏）以及参考 Modbus 层的边界检查（`ModbusSlave.c`、`ModbusRegProcess.c` 的浮点比较）。它们不是本轮范围，但**已包含在上述数字里**；提交时只提交本轮的三个文件，这些改动留待单独确认。
+- 测量态 `RAMGS1` 现在**刚好占满**（`0x0C00/0x000`），再加任何 RAM 数据都会链接失败，后续改点表要先腾出空间。
 - 一次测量态构建触发过 cl2000 内部错误（`acia2000.exe` 段错误，指向 `Platform/Xmodem/Inc/XmodemTimeOut.h:6`），立即重试即通过；同一源码此后构建稳定，判为编译器偶发，不是源码问题。
 
 ## 7 板测验收（抓包）
@@ -200,6 +227,10 @@
      - `SciPortTxResetDrop(HW_SCI_ID_A)`：端口层因强制复位实际清掉的 TX 字节数，与上面两个互不重叠。
    - 相关只读访问器：`SciPortIsTxSuspended()`（是否挂起）、`SciPortIsTxResetLoss()`（挂起是否因强制复位丢过内容）、`SciPortIsTxIdle()`（是否可切速）。
 
+7. **ARM 自身升级通知**：19200 上发 `F0 00 12 07 08`，确认回 `F0 00 12 09 0A`（5 字节、无 CRC），
+   功率级/PWM 已停（抓 GPIO 88 与 PWM 输出），且随后一条普通 Modbus 读帧仍能在 19200 上得到应答；
+   重复发同一条应重复应答，不得出现切速、擦写或复位。BOOT 侧同一条只应答（见 `docs/boot-minimal.md` §6 第 5 条）。
+
 ## 8 未覆盖与风险
 
 - **无主机测试**：本机没有可用的主机 C 编译器，本轮只有编译与台账验证；行为验证依赖板测抓包。
@@ -209,4 +240,7 @@
 - **只认 6 字节**：若 ARM 实际发的是 13 字节标准 RTU 形式，本轮会一直等不到应答（5 s 后回 19200）。这是按复核意见刻意收紧的结果，抓包确认后再决定是否放开。
 - **恢复态可能长期停留**：`Hw_SciSetBaud()` 持续失败时端口停在 `RESTORE` 重试，Modbus 不接管（宁可不通也不在半速上错通）。失败次数可由 `AppModbusBaudErrors()` 读出。
 - **ARM 掉电续传**：说明文档说主站按重新握手结果从首包重发；本工程 BOOT 侧续收前会擦备份区，若 ARM 续传旧包号会得到 `XMODEM_SEQUENCE_ERROR` 并从头再来，属预期，但需要板测确认 ARM 确实会重发首包。
-- **BOOT 里的旧 ARM 入口**：说明文档列为可选项，本轮未做（BOOT 目前只在 19200 接受直连握手）。等抓包确认后再决定。
+- **BOOT 里的旧 ARM 入口**：本轮已按说明文档补齐（BOOT 侧救援握手，见 `docs/boot-minimal.md` §3.9），
+  但**未上板**：帧识别、切速时序、`'C'` 时机都只有静态核验。
+- **ARM 通知后没有恢复入口**：`AppUpgradeArmNotify()` 关驱动后不复位也不恢复，这是实施说明的约定；
+  若现场需要"通知后继续跑业务"，要另外定义恢复动作。

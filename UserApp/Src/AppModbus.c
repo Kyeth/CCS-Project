@@ -30,7 +30,7 @@
 #include "SciPort.h"
 #include "DrvCfg_EP15K.h"
 
-/* 参考层的数据空间长度（与参考工程 ModbusSlaveComm.c 的 MdsBuff_1[256] 一致）。 */
+/* 数据空间长度 */
 #define APP_MB_DATA_MAX        (256U)
 
 /* 每轮取批次的配额：段数与字节数都要有上限，1 ms 任务不能被一路读下去。 */
@@ -47,7 +47,7 @@
 /* 升级握手：上位机在 ARM 端口（SCI-A）上发 01 10 04 38 00 02 这六个字节——
  * 地址 1、功能码 0x10、起始地址 1080、数量 2，没有数据段也没有 CRC。
  * 这是与上位机约定的兼容入口，不是标准 Modbus 请求，所以由本文件直接识别；
- * 交给参考层只会被当成“声称写 2 个寄存器却没带数据”的错误帧。 */
+ * 交给参考层只会被当成声称写 2 个寄存器却没带数据的错误帧。 */
 #define APP_MB_UPGRADE_ADDR    (1080U)
 #define APP_MB_UPGRADE_NUMS    (2U)
 #define APP_MB_CMD_WRITE_MULTI (0x10U)
@@ -58,7 +58,7 @@
  * 多于或少于 6 字节都不回应、留在等待态由主站重发；握手阶段也不预存升级流
  * ——ARM 要等 'C' 之后才发首包，多出来的字节只能是重发或噪声。 */
 
-/* 旧 ARM 兼容入口（docs/review/steps/06a-legacy-arm.md）：
+/* ARM 兼容入口：
  *   19200：ARM 发 5 字节 F0 00 12 03 04，本层回 F0 00 12 05 06；应答发完后切到 115200。
  *   115200：ARM 发 01 10 04 38 00 02 开头的传输请求，回 8 字节；回复发完后才把端口交给
  *           升级层（擦备份区 → 写"接收中"配置 → 发 'C'），所以准备失败时不会发 'C'。
@@ -82,6 +82,18 @@ static const Uint16 s_au16LegacyCmd[APP_MB_LEGACY_CMD_LEN] =
 static const Uint16 s_au16LegacyReply[APP_MB_LEGACY_REPLY_LEN] =
 {
     0xF0U, 0x00U, 0x12U, 0x05U, 0x06U
+};
+
+/* ARM 自身升级通知：只回 5 字节，DSP 不切速、不擦 Flash、不写升级配置、
+ * 不复位、也不发 'C'，SCIA 保持 19200 继续做 Modbus。
+ * 第二字节是 00：旧参考代码的 ARM 升级分支写 01，以本次协议说明为准。 */
+static const Uint16 s_au16ArmNotifyCmd[APP_MB_LEGACY_CMD_LEN] =
+{
+    0xF0U, 0x00U, 0x12U, 0x07U, 0x08U
+};
+static const Uint16 s_au16ArmNotifyReply[APP_MB_LEGACY_CMD_LEN] =
+{
+    0xF0U, 0x00U, 0x12U, 0x09U, 0x0AU
 };
 
 /** 一个从站实例的全部现场：参考层控制块 + 它要的数据空间 + 桥接状态。 */
@@ -125,6 +137,11 @@ static ST_PROTO_INSTANCE s_astProtoCfg[APP_MB_PORTS];
 
 static const Uint16 s_au16SciId[APP_MB_PORTS] = {
     HW_SCI_ID_A, HW_SCI_ID_C, HW_SCI_ID_D
+};
+static const ST_REG_SLAVE_CFG * const s_apstRegCfg[APP_MB_PORTS] = {
+    &stRegSlaveCfg_App,
+    &stRegSlaveCfg_C,
+    &stRegSlaveCfg_D
 };
 static const Uint16 s_au16SlaveAddr[APP_MB_PORTS] = { 1U, 1U, 2U };
 
@@ -417,6 +434,32 @@ static Uint16 AppMbIsLegacyCmd(const ST_APP_MB_PORT *pstPort, Uint16 u16Len)
 
 
 /**
+ * @brief 是否为 ARM 自身升级通知（只认 SCI-A、长度必须恰好 5 字节）
+ * @note  与 DSP 升级的 F0 命令只差第 4/5 字节，必须按完整 5 字节区分，
+ *        不能只比前 3 字节。
+ */
+static Uint16 AppMbIsArmNotifyCmd(const ST_APP_MB_PORT *pstPort, Uint16 u16Len)
+{
+    Uint16 i;
+
+    if ((pstPort != &s_astPort[0]) || (u16Len != APP_MB_LEGACY_CMD_LEN))
+    {
+        return 0U;
+    }
+
+    for (i = 0U; i < APP_MB_LEGACY_CMD_LEN; i++)
+    {
+        if (pstPort->pu16Data[i] != s_au16ArmNotifyCmd[i])
+        {
+            return 0U;
+        }
+    }
+
+    return 1U;
+}
+
+
+/**
  * @brief 把兼容应答挂到发送侧（内容原样，不追加 CRC）
  */
 static void AppMbLegacyReply(ST_APP_MB_PORT *pstPort, const Uint16 *pu16Src, Uint16 u16Len)
@@ -542,6 +585,15 @@ static void AppMbDispatchFrame(ST_APP_MB_PORT *pstPort)
 
     u16ReqLen = pstPort->u16RxLen;
     u16ReqAddr = pstPort->pu16Data[0];   /* 组帧后会被回复覆盖，先记下 */
+
+    /* ARM 自身升级通知：只关驱动 + 应答，SCIA 保持 19200，不进入 DSP 升级流程。
+     * 放在 DSP 升级的 F0 分支之前，两条指令共用同一个 5 字节长度约束。 */
+    if (AppMbIsArmNotifyCmd(pstPort, u16ReqLen) != 0U) {
+        (void)AppUpgradeArmNotify();
+        AppMbLegacyReply(pstPort, &s_au16ArmNotifyReply[0], APP_MB_LEGACY_CMD_LEN);
+        pstPort->u32RxFrames++;
+        return;
+    }
 
     /* 旧 ARM 兼容：19200 的 F0 命令与 115200 的等待态都在这里分流，
      * 普通 Modbus 帧不参与这两个分支。 */
@@ -867,6 +919,7 @@ void AppModbusInit(void)
     for (u16Port = 0U; u16Port < APP_MB_PORTS; u16Port++) {
         ST_APP_MB_PORT *pstPort = &s_astPort[u16Port];
         ST_PROTO_INSTANCE *pstCfg = &s_astProtoCfg[u16Port];
+        const ST_REG_SLAVE_CFG *pstRegCfg = s_apstRegCfg[u16Port];
 
         pstPort->pu16Data = &s_au16DataSpace[u16Port][0];
         pstPort->stMds.pu16DataBuff = &pstPort->pu16Data[0];
@@ -891,9 +944,9 @@ void AppModbusInit(void)
         s_au32Baud[u16Port] = AppMbBaudOf(s_au16SciId[u16Port]);
 
         /* 三步与参考工程的 ModbusSlaveInit() 同序：登记表 → 选表 → 设从机地址。
-         * 表是 Flash 常量，参考层的接口是"非 const 指针"，与参考工程一样强转。 */
+         * 表是 Flash 常量，参考层的接口是非 const 指针 */
         if (ModbusSlaveTableRegister(&pstPort->stCtl, MODBUS_SLAVE_DEFAULT,
-                                     (ST_REG_SLAVE_CFG *)&stRegSlaveCfg_App,
+                                     (ST_REG_SLAVE_CFG *)pstRegCfg,
                                      s_apfnCallBack[u16Port]) != 0) {
             s_u32InitErrors++;
         }
@@ -906,9 +959,9 @@ void AppModbusInit(void)
         pstCfg->u16Type = PROTO_TYPE_MODBUS;
         pstCfg->u16SlaveAddr = s_au16SlaveAddr[u16Port];
         pstCfg->u16Enabled = 1U;
-        pstCfg->u16TblCount = (Uint16)APP_MODBUS_REG_COUNT;
+        pstCfg->u16TblCount = pstRegCfg->u16Num;
         pstCfg->u32Baud = s_au32Baud[u16Port];
-        pstCfg->pstTbl = (const void *)&stRegSlaveCfg_App;
+        pstCfg->pstTbl = pstRegCfg;
         pstCfg->pCtx = (void *)pstPort;
 
         u16Ok = ProtocolAddInstance(pstCfg);

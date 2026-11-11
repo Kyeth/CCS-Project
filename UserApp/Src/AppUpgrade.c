@@ -109,6 +109,25 @@ Uint16 AppUpgradePrepare(void)
 }
 
 
+/**
+ * @brief ARM 自身升级通知：只关驱动，不进入 DSP 升级流程
+ * @return 1 = 已处理（重复收到可以重复回复）
+ * @note  不切速、不擦 Flash、不写升级配置、不复位、不发 'C'；
+ *        之后若真的收到 DSP 升级握手，AppUpgradePrepare() 不会再重复停机。
+ */
+Uint16 AppUpgradeArmNotify(void)
+{
+    if ((s_u16StopRequested == 0U) && (s_pfPause != 0))
+    {
+        s_pfPause();
+    }
+
+    s_u16StopRequested = 1U;
+
+    return 1U;
+}
+
+
 void AppUpgradeInit(void)
 {
     s_u16UpActive = 0U;

@@ -26,6 +26,10 @@ extern void AppUpgradeInit(void);
  * 返回 0 表示当前不能升级（忙、Flash API 未就绪），调用方不应回应答。 */
 extern Uint16 AppUpgradePrepare(void);
 
+/* ARM 自身升级通知（SCIA 19200 上的 F0 00 12 07 08）：只关驱动 + 应答，
+ * 不切速、不擦 Flash、不写配置、不复位、不发 'C'。 */
+extern Uint16 AppUpgradeArmNotify(void);
+
 /* u32Baud = 本次会话实际使用的 SCI-A 速率，会按 x100 编码写进"接收中"配置，
  * BOOT 掉电重入时据此恢复串口（115200 → 1152）。 */
 extern Uint16 AppUpgradeStart(Uint16 u16SciId, Uint32 u32Baud,
