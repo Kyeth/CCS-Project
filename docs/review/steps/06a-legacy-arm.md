@@ -198,7 +198,7 @@ BOOT 侧本轮也补齐了同一套握手（`docs/boot-minimal.md` §3.9）：AP
 | `_UpgradeCRC32.bin` | 69,284 B `1376138c…`，头部 `FileSize 0x10EA4`、`CRC32 0xDB672216` | 71,044 B `b2dc8c45…`，头部 `FileSize 0x11584`、`CRC32 0xC1B1087F` |
 
 - 编译单元 63 个、**0 错误 0 告警**；`.out` 同源码同目录重编 sha256 一致（`.map` 每次不同，与既往结论一致）。
-- **本地构建记录（非提交对应，仅历史）**：r6 首次构建时工作树里带着尚未提交的点表改动，得到生产 `.out` `37acca0c…`、`.bin` `df602bcd…`、升级包 `CRC32 0x328DA413`，测量 `.out` `4e7d2dfb…`、`.bin` `90f5c700…`、`CRC32 0xC9EED708`。字节数与上表相同，但提交时把 `s_astRegD` 的 INT16 项从 `&s_stRegValD[2]` 改到 `[3]`（原来那格是占两个寄存器的 FLOAT 的高字），内容因此变化，那组数字不再作为交付口径。
+- **本地构建记录（非提交对应，仅历史）**：r6 首次构建时工作树里带着尚未提交的点表改动，得到生产 `.out` `37acca0c…`、`.bin` `df602bcd…`、升级包 `CRC32 0x328DA413`，测量 `.out` `4e7d2dfb…`、`.bin` `90f5c700…`、`CRC32 0xC9EED708`。字节数与上表相同，但提交时把 `s_astRegD` 的 INT16 项从 `&s_stRegValD[2]` 改到 `[3]`，内容因此变化，那组数字不再作为交付口径。改槽位的理由是 **布局对照**：`TYPE_FLOAT` 占两个 Modbus 地址，但在 `U_REG_VAL s_stRegValD[]` 里只占一个数组元素（每个元素就是 32 位），`s_stRegValD[1].fVal` 与 `s_stRegValD[2].i16Val` 是两个互不重叠的对象，原来的 `[2]` 并不会覆盖 FLOAT 的高字；改到 `[3]` 只是让「地址 3 ↔ 槽位 `[3]`」一一对上，便于查表，不是修缺陷。
 - 与 r5（`.out` 1,033,256 B、`.bin` 68,980 B）相比：`.text` +80 字、`.bin` +272 B——r6 新增 ARM 通知的两张 5 字节表、`AppMbIsArmNotifyCmd()` 与 `AppUpgradeArmNotify()`；另有 `fad30f7` 引入的 C/D 点表（`ATS_MODBUS_REG_COUNT 10`、`MACHINE_MODBUS_REG_COUNT 100`，110 个 `U_REG_VAL` 占 `.mbregs` 220 字）。
 - 测量态 `RAMGS1` **刚好占满**（`0x0C00/0x000`）：再往 `.mbregs` 加任何数据都会链接失败，需要先缩 `s_stRegValC/s_stRegValD` 的数组长度或改段分配。联调先用生产态。
 - 一次测量态构建触发过 cl2000 内部错误（`acia2000.exe` 段错误，指向 `Platform/Xmodem/Inc/XmodemTimeOut.h:6`），立即重试即通过；同一源码此后构建稳定，判为编译器偶发，不是源码问题。
