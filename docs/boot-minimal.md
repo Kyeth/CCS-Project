@@ -178,6 +178,12 @@ APP 侧接线（APP 工程）：8 字节握手应答 → 擦备份区并写"接�
 | 1 | 合法的"接收中"记录被判无效：APP 与 BOOT 写接收配置时 `bChipType`/`bFirmwareType`/`u32FileSize`/`u32FileCrc` 都是 0，`CheckUpgrade()` 却用完整镜像规则校验，记录在进 `PrepareResumeReceive()` 之前就被清掉（有有效 APP 时直接跳 APP，掉电续收失效） | 校验拆成两套：`IsReceiveCfgValid()` 只查升级标志 + 串口 + 波特率档位（供"接收中"分支），`IsImageCfgValid()` 查芯片类型/镜像类型/非零偶数长度/按分区限长（供"已收完"分支）。`CheckUpgrade()` 先按 `GetUpgradeFirmwareFlag()` 分流再校验。同时统一波特率：新增 `UPGRADE_DEFAULT_BAUD (19200UL)`，`u16UpgradeBaud = 0` 一律解释为 19200（原来重入路径写成 38400，与首次接收的 SCI-A 19200 不一致） |
 | 2 | Type=2 清配置失败后仍自擦：`BootSelfUpdateTail()` 忽略配置扇区擦除结果 | 清配置的返回值纳入判定：失败直接 `return`（停在 BOOT、下次上电重试），**清成功后才 `FlashSetStallOnTimeout(1U)` 并开始擦 A/B/C**，避免旧"已收完"配置留到复位后被再装一次 |
 
+**Type=2 的两个故障注入位置要分开看**（复核意见）：
+- **清配置函数返回失败** → 不擦 A/B/C、不回拷、不复位（已由探针确认调用次数为 0）。
+- **清配置阶段自身发生 FSM 等待超时** → 此时 `FlashSetStallOnTimeout()` 还没被置 1，仍按原有策略
+  `FlashForceReset()` 复位；复位后配置若还在，下次上电会重新走一遍自升级（可接受）。
+- **自擦开始之后的 FSM 等待超时** → `s_u16StallOnTimeout == 1`，停在 RAM 喂狗，不复位回已擦除的 Flash。
+
 第三轮 RAM 可达性复核（新镜像）：`EraseBootBank` 调用点之后的可达调用仍全部落在
 `.flashfunc` 运行区 `0x00F000..0x00FA8B`，`FlashWaitReady` @ `0x00F7D9` 在 RAM。
 
@@ -284,6 +290,9 @@ RUN `0x00F000`——其中 `FlashFeedWatchDog` @ `0x00F79F`、`FlashForceReset` 
    不读备份区、按 APP 是否有效决定跳转或接收。
 10. 掉电续收：接收中途断电，重新上电后应凭"接收中"记录继续接收（芯片类型/镜像类型/
     长度此时都是 0，不能被当成坏配置清掉），且波特率与首次接收一致（19200）。
+    **主机侧约定：重新握手后必须从首包（包号 1）重发。** BOOT 在续收前会先 `EraseBackUpBank()`，
+    备份区被清空、写地址从 `0x0A0000` 重新开始，续传旧包号会被 `XmodemSinglePacket()` 判成
+    序号错（`XMODEM_SEQUENCE_ERROR`）而 NAK。
 11. Type=2 清配置失败注入：让配置扇区擦除失败，确认 BOOT 不擦 A/B/C、不回拷、不复位。
 
 ---
