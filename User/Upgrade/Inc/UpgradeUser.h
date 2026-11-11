@@ -29,8 +29,11 @@ extern void UpgradeUserSessionReset(void);
 
 
 extern void CheckUpgrade(void);
-/* 中止收尾：清会话与接收残留，APP 有效则跳转，否则重新准备接收 */
+/* 中止收尾：清会话与接收残留，APP 有效则跳转，否则回到 19200 重新握手 */
 extern void UpgradeUserAbort(void);
+
+/* APP 无效时的救援握手（旧 ARM 协议）：主循环逐轮调用，握手成功前接收门控关闭 */
+extern void UpgradeUserHandshakeService(void);
 
 
 extern void TaskUpgradeHandle(void);

@@ -184,8 +184,50 @@ APP 侧接线（APP 工程）：8 字节握手应答 → 擦备份区并写"接�
   `FlashForceReset()` 复位；复位后配置若还在，下次上电会重新走一遍自升级（可接受）。
 - **自擦开始之后的 FSM 等待超时** → `s_u16StallOnTimeout == 1`，停在 RAM 喂狗，不复位回已擦除的 Flash。
 
-第三轮 RAM 可达性复核（新镜像）：`EraseBootBank` 调用点之后的可达调用仍全部落在
-`.flashfunc` 运行区 `0x00F000..0x00FA8B`，`FlashWaitReady` @ `0x00F7D9` 在 RAM。
+第四轮 RAM 可达性复核（脚本 `_tmp/check_ram_chain4.py`，读 `.map` 取 LOAD/RUN、反汇编取调用目标）：
+`.flashfunc` LOAD `0x083190`（`0xAB0` 字）RUN `0x00F000..0x00FAB0`；`FlashFeedWatchDog` @ `0x00F79F`、
+`FlashForceReset` @ `0x00F7A9`、`FlashWaitReady` @ `0x00F7D9`、`EraseBackUpBank` @ `0x00F931`、
+`EraseBootBank` @ `0x00F952`、`VerifyBootArea` @ `0x00F96B`、`StallAfterBootErase` @ `0x00F983`、
+`CopyBootFirmware` @ `0x00FA4A` 全在 RAM。`BootSelfUpdateTail` 共 19 条调用：**擦除起点**
+（`EraseBootBank` @ 调用点 `0x00F9C8`）之后的 15 条全部落在 RAM，含新增的 `EraseBackUpBank` @ `0x00F9D8`；
+起点之前 4 条（`GetUpgradeFlag` / `GetUpgradeFirmwareFlag` / `VerifyFireware` / `FlashSetStallOnTimeout`）
+仍在 Flash，它们在擦 A/B/C 之前执行，安全。
+
+### 3.9 第四轮：救援握手、ARM 自身升级通知、安装与自升级收尾
+
+复核意见要求把"旧 ARM 兼容"补齐到 BOOT 侧，并把安装收尾做干净：
+
+| # | 需求 | 落地 |
+| --- | --- | --- |
+| 1 | APP 正常升级路径保持不变 | APP 侧不动：`F0 00 12 03 04` → `F0 00 12 05 06` → 115200 → `01 10 04 38 00 02` → 8 字节应答 → 擦备份区 → 写"接收中" → `'C'` |
+| 2 | APP 无效时 BOOT 也要能握手 | `User/Upgrade/Src/UpgradeUser.c` 新增 `UpgradeUserHandshakeService()`（主循环逐轮推进）；`BootToAppOrReceive()`、`CheckUpgrade()` 的"接收中"分支、`UpgradeUserAbort()` 三处都改为先握手再接收 |
+| 3 | 安装与自升级收尾 | Type=1 回拷后校验新 APP 入口，成功后清配置 + 擦备份区再跳；Type=2 回拷与目标校验通过后清备份再复位，`EraseBackUpBank()` 转入 `.flashfunc` |
+| 4 | ARM 自身升级通知 | SCIA 19200 上 `F0 00 12 07 08` → `F0 00 12 09 0A`；APP 关驱动 + 应答，BOOT 只应答 |
+
+**握手状态机**（`BOOT_HS_*`，全部在 Flash 里跑，握手期间不擦写 Flash）：
+
+| 阶段 | BOOT 行为 |
+| --- | --- |
+| `IDLE`（19200） | 收满 5 字节后比对两条 F0 指令：升级请求命中回 5 字节进 `F0_TX`；ARM 通知命中回 5 字节继续等 |
+| `F0_TX` | 等 `SciPortIsTxIdle()` —— 最后一个停止位发完才 `Hw_SciSetBaud(115200)`、`SciPortResync()`、记时基 |
+| `WAIT_REQ`（115200） | 只认恰好 6 字节 `01 10 04 38 00 02`；命中回 8 字节进 `REQ_TX`；5 s 超时进 `RESTORE` |
+| `REQ_TX` | 等 8 字节应答发完才 `StartReceiveFromBoot(1152)`；准备成功置 `BOOT_HS_STOPPED`，之后由 `TaskUpgrade()` 发 `'C'` |
+| `RESTORE` | 先解冻发送（`SciPortTxResume`），再等 `SciPortIsTxIdle()`，最后才切回 19200 并 `SciPortResync()`；任一步没成功就下一轮重试 |
+| `STOPPED` | 不碰端口（已交给 XMODEM 或已跳 APP） |
+
+三个细节：
+- `StartReceiveFromBoot()` 增加速率码入参：握手路径写 `1152`（115200×100），掉电重入仍按配置里的编码恢复。
+- 帧识别只认整帧：先丢掉首字节不匹配的噪声，够一整帧长仍不匹配就滑一个字节再看；19200 认 `0xF0` 开头，115200 认 `0x01` 开头。握手阶段没有可靠帧边界，宁可不回也不把可疑字节当升级流。
+- 失败/中止（第二次握手超时、接收准备失败、XMODEM 会话被取消）一律走 `RESTORE`：NAK/CAN 按当前速率发完再切速，避免线上出现半截帧。
+
+**掉电重入分流**：
+- 配置是"接收中"且 APP 无效 → 清掉记录、重新从 19200 等 F0（旧 ARM 重新握手并从首包重传）。
+- 配置是"接收中"且 APP 有效 → 沿用原实现（按配置速率恢复、擦备份区、直接收包）。
+- 配置是"已收完" → 不论 APP 是否有效都优先安装（`CheckUpgrade()` 先看配置再看 APP）。
+
+**安装与自升级收尾**：
+- Type=1：`EraseAppBank()` → `CopyAppFirmware()` → `VerifyAppArea()` → **`IsAppValid()`** → 清配置 → `EraseBackUpBank()` → 跳 APP。任一步失败停在 BOOT 并保留镜像与配置，下次上电重试；新增的 `IsAppValid()` 是给"装进去却跳不进去"兜底。
+- Type=2：`EraseBackUpBank()` 加 `#pragma CODE_SECTION(EraseBackUpBank, ".flashfunc")`，与整条擦写链一起驻 RAM；顺序是"清配置 → 擦 A/B/C → 回拷 → `VerifyBootArea()` → 清备份 → 复位"，之后由新 BOOT 决定是否跳 APP。
 
 ---
 
@@ -229,11 +271,11 @@ python tools/build_minimal.py --cgt C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2
 
 | 产物 | CCS 11.1 Debug | 命令行 |
 | --- | --- | --- |
-| `.out` | 668,996 B `da1a962e…` | 672,428 B `845c398e…` |
-| `.map` | 84,314 B | 81,813 B |
-| `.hex` | 76,859 B `a35c20f2…` | 76,859 B `072d75b5…` |
-| `.bin`（烧录） | 31,944 B `d89fc631…` | 31,944 B `3f8e06b0…` |
-| `_UpgradeCRC32.bin` | 31,976 B `13bc67bb…`，CRC32 `0xDB81A579` | 31,976 B `084ed030…`，CRC32 `0x8A52E36A` |
+| `.out` | 675,260 B `6495ccc1…` | 678,860 B `032e94a0…` |
+| `.map` | 85,139 B | 82,638 B |
+| `.hex` | 78,852 B `9aeb2856…` | 78,852 B `850cf154…` |
+| `.bin`（烧录） | 32,788 B `9aaeff3d…` | 32,788 B `7f4c1e55…` |
+| `_UpgradeCRC32.bin` | 32,820 B `87ba416c…`，CRC32 `0x1B72A5F7` | 32,820 B `714f6b3b…`，CRC32 `0x12FF229F` |
 
 CCS Debug 的一套产物同时登记在 `artifacts/boot-v1/`（`.gitignore` 对这些文件开了
 例外，其余构建输出仍然忽略），可直接取用烧录文件与升级 BIN。
@@ -242,26 +284,26 @@ CCS Debug 的一套产物同时登记在 `artifacts/boot-v1/`（`.gitignore` 对
 `.hex`、`.bin`、升级 BIN 在各自路线内可复现（命令行路线连续两次构建，四个产物的
 sha256 完全一致）。
 
-两份 `.bin` 大小相同（31,944 B）、只差 **5 个字节**，全部是内嵌 `__FILE__` 字符串里的
-`\` 与 `/`（driverlib `ASSERT` 宏），因此两份升级 BIN 的 CRC32 不同（`0xDB81A579` 与 `0x8A52E36A`）。属**实施方核对记录**，未做独立复现，不作为验收依据。
+两份 `.bin` 大小相同（32,788 B）、只差 **5 个字节**，全部是内嵌 `__FILE__` 字符串里的
+`\` 与 `/`（driverlib `ASSERT` 宏），因此两份升级 BIN 的 CRC32 不同（`0x1B72A5F7` 与 `0x12FF229F`）。属**实施方核对记录**，未做独立复现，不作为验收依据。
 
 内存（两份 map 完全一致）：
 
 | 区 | 用 | 余 |
 | --- | --- | --- |
-| `FLASH_BOOT`（0x080002，0x5FFE 字） | `0x3E50` | `0x21AE` |
+| `FLASH_BOOT`（0x080002，0x5FFE 字） | `0x3FF1` | `0x200D` |
 | `RAMD0`（`.TI.ramfunc`） | `0x00C3` | `0x073D` |
-| `RAMGS0`（`.bss`） | `0x0976` | `0x068A` |
+| `RAMGS0`（`.bss`） | `0x098A` | `0x0676` |
 | `RAMGS1` | `0x000C` | `0x0BF4` |
 | `RAMGS2`（`.upybuf`） | `0x0840` | `0x07C0` |
-| `RAMGS3`（`.flashfunc` 运行区） | 0 | `0x1000` |
+| `RAMGS3`（`.flashfunc` 运行区） | `0x0AB0` | `0x0550` |
 
-关键符号落位：`codestart` @ `0x080000`（`LB 0x082EB3`）、`.TI.ramfunc`
-LOAD `0x082ED8` RUN `0x00B000`、`.flashfunc` LOAD `0x083010`（`0xA8B` 字）
+关键符号落位：`codestart` @ `0x080000`、`.flashfunc` LOAD `0x083190`（`0xAB0` 字）
 RUN `0x00F000`——其中 `FlashFeedWatchDog` @ `0x00F79F`、`FlashForceReset` @ `0x00F7A9`、
-`FlashWaitReady` @ `0x00F7D9`、`VerifyBootArea` @ `0x00F94A`、`StallAfterBootErase` @ `0x00F962`、
-`CopyBootFirmware` @ `0x00FA25`（`EraseBootBank` 的调用点在 `0x00F9A5`）。范围利用率 64.9%
-（31,944 / 49,152 字节）。
+`FlashWaitReady` @ `0x00F7D9`、`EraseBackUpBank` @ `0x00F931`、`EraseBootBank` @ `0x00F952`、
+`VerifyBootArea` @ `0x00F96B`、`StallAfterBootErase` @ `0x00F983`、`CopyBootFirmware` @ `0x00FA4A`
+（`EraseBootBank` 的调用点在 `0x00F9C8`，`EraseBackUpBank` 的在 `0x00F9D8`）。范围利用率 66.7%
+（32,788 / 49,152 字节）。
 
 编译告警 **0 条**（CCS Debug、CCS Release、命令行三条路线实测）。
 
@@ -279,29 +321,39 @@ Project → Clean 后重新 Build（或直接删掉那两条）才会消失；�
 
 ---
 
-## 6. 上板必须确认的 7 条
+## 6. 上板必须确认的 15 条
 
 1. 上电后 APP 有效（`0x086000` 处为 `LB` 且目标落在 `0x086002..0x09FFFF`）时直接跳转，
    LED/串口无输出属正常。
-2. APP 空白或半成品时 BOOT 擦备份区、写"接收中"配置后留在 BOOT，发 `'C'` 能收包。
-3. 擦除 H/I/J/K 期间看门狗不误复位（`FlashFeedWatchDog` 走 RAM）。
-4. 收包成功 → 备份区 CRC 通过 → 写配置 `0xAAEE` → 复位 → 再次上电回拷 APP 并跳转。
-5. 中止（两次 CAN / 重试超限 / CRC 不符）后配置被清、会话残留被清，APP 有效则启动，
-   否则可重新收包；功率输出保持关闭。
-6. BOOT 自升级（FirmwareType=2）能完成"校验 → 清配置 → 擦 A/B/C → 回拷 → 目标区
-   CRC 通过 → 复位"，复位后仍是新版本；中途失败应停在 RAM（看门狗喂狗），不得复位。
-7. 自升级失败注入两处：①回拷失败（停在 RAM，复位不再发生）；②**FSM 等待超时**——
-   这是最容易绕过 RAM 驻留分支的一条，必须确认它同样停在 RAM 而不是复位。
-8. 接收门控：人为让备份区擦除失败（或在擦除中途断电），确认 BOOT 不会开始发 `'C'`，
-   而是停在 BOOT；恢复后重新上电可再次进入接收。
-9. 配置损坏注入：把配置区改成非法长度（0 或奇数或超上限），确认 BOOT 直接清配置、
-   不读备份区、按 APP 是否有效决定跳转或接收。
-10. 掉电续收：接收中途断电，重新上电后应凭"接收中"记录继续接收（芯片类型/镜像类型/
-    长度此时都是 0，不能被当成坏配置清掉），且波特率与首次接收一致（19200）。
-    **主机侧约定：重新握手后必须从首包（包号 1）重发。** BOOT 在续收前会先 `EraseBackUpBank()`，
-    备份区被清空、写地址从 `0x0A0000` 重新开始，续传旧包号会被 `XmodemSinglePacket()` 判成
-    序号错（`XMODEM_SEQUENCE_ERROR`）而 NAK。
+2. **救援握手第一段**：APP 无效时 BOOT 在 19200 等 `F0 00 12 03 04`，收到回 `F0 00 12 05 06`；
+   抓包确认这个 5 字节应答**最后一个停止位以 19200 发完**之后才出现 115200 的后续字节。
+3. **救援握手第二段**：115200 上收到恰好 6 字节 `01 10 04 38 00 02`，回 8 字节
+   `01 10 04 38 00 02 C1 35`；确认这 8 字节真的发完，随后才擦备份区、写"接收中"
+   （`u16UpgradeBaud = 0x0480`，即 1152），再由 XMODEM 发 `'C'`。
+4. **失败可重来**：115200 上不发第二次握手，5 s 后应回 19200 继续等 F0；XMODEM 传输中断
+   或被取消后同样回 19200，旧 ARM 重新发 F0 并能从首包重传（备份区已被清空，续传旧包号会 NAK）。
+5. **ARM 自身升级通知**：APP 在 19200 收 `F0 00 12 07 08` 回 `F0 00 12 09 0A`，只关驱动、
+   SCIA 保持 19200，之后普通 Modbus 帧仍能应答；BOOT 收到同一条只应答，不切速、不擦写、不复位。
+6. 擦除 H/I/J/K 期间看门狗不误复位（`FlashFeedWatchDog` 走 RAM）。
+7. 收包成功 → 备份区 CRC 通过 → 写"已收完"配置 `0xAAEE` → 复位 → 回拷 APP → **新 APP 入口校验**
+   → 清配置 → 擦备份区 → 跳转；安装成功后 `0x0A0000..0x0B9FFF` 应全为 `0xFFFF`。
+8. 中止（两次 CAN / 重试超限 / CRC 不符）后配置被清、会话残留被清，APP 有效则启动，
+   否则回到 19200 重新握手；功率输出保持关闭。
+9. BOOT 自升级（FirmwareType=2）能完成"校验 → 清配置 → 擦 A/B/C → 回拷 → 目标区 CRC 通过
+   → 清备份区 → 复位"，复位后仍是新版本；中途失败应停在 RAM（喂狗），不得复位。
+10. 自升级失败注入两处：①回拷失败（停在 RAM，不再复位）；②**FSM 等待超时**——最容易绕过
+    RAM 驻留分支的一条，必须确认它同样停在 RAM 而不是复位。
 11. Type=2 清配置失败注入：让配置扇区擦除失败，确认 BOOT 不擦 A/B/C、不回拷、不复位。
+12. 接收门控：人为让备份区擦除失败（或在擦除中途断电），确认 BOOT 不会发 `'C'`，
+    而是停在 BOOT；恢复后重新上电可再次进入握手。
+13. 配置损坏注入：把配置区改成非法长度（0 或奇数或超上限），确认 BOOT 直接清配置、
+    不读备份区、按 APP 是否有效决定跳转或握手。
+14. 掉电续收（APP 有效路径）：接收中途断电，重新上电后应凭"接收中"记录继续接收
+    （芯片类型/镜像类型/长度此时都是 0，不能被当成坏配置清掉），波特率与首次接收一致。
+    **主机侧约定：重新握手后必须从首包（包号 1）重发**——BOOT 续收前会先 `EraseBackUpBank()`，
+    写地址从 `0x0A0000` 重新开始。
+15. 掉电重入（APP 无效路径）：接收中途断电且 APP 无效时，重新上电应回到 19200 等 F0，
+    而不是直接续收。
 
 ---
 
@@ -317,3 +369,7 @@ Project → Clean 后重新 Build（或直接删掉那两条）才会消失；�
   触发 0x1FFFF 次等待超时）。
 - `Platform/` 下的 `PortBench.h`/`PortBudget.h` 随端口层带入，`PORT_BENCH_TEST`
   保持 `0U`（生产配置），未提供测量态构建。
+- 救援握手与 ARM 自身升级通知都**未上板**：帧识别、切速时序、`'C'` 时机只有主机侧阅读与
+  静态核验，验收以上板抓包为准（见第 6 节 2~5 条）。
+- APP 侧收到 ARM 通知后会关闭驱动并保持关闭（没有恢复入口），这是实施说明的约定；
+  DSP 自身升级完成后能否恢复业务由复位决定，未做"通知后恢复"的设计。

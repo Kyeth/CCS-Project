@@ -3,9 +3,11 @@
  * @brief EP15K_BOOT 最小 Bootloader 主程序（F28374S，入口 0x080000）
  * @version 1.0
  * @date 2026-11-10
- *
- * @note 本工程按参考工程 IB800U_BootLoader（commit 68701bd）移植，只保留 BOOT
- *       需要的模块：SCI 驱动、RingBuff、端口层（SciPort/PortTask/PortCritical）、
+ * @author yetingheng (004182)
+ * @date 2026-10-22
+ * @copyright Copyright (c) 2026
+ * @note 本工程只保留 BOOT需要的模块：SCI 驱动、RingBuff、
+ *       端口层（SciPort/PortTask/PortCritical）、
  *       XMODEM、Flash（F021）与 Upgrade（升级配置/回拷/CRC）。
  *       控制功能（ADC/PWM/CLA/CAN/采样/Modbus）与主机测试代码不在本工程内。
  *
@@ -30,6 +32,7 @@
 #include "Dsp2837xSFlash.h"
 #include "XmodemSlaveProcess.h"
 #include "sysctl.h"
+#include "Hw_GpioDriver.h"
 
 /* .TI.ramfunc / .flashfunc 的搬运符号，由 CMD/2837xS_FLASH_BOOT_CLA_lnk.cmd 定义 */
 extern Uint16 RamfuncsLoadStart;
@@ -179,7 +182,12 @@ void main(void)
     while (1)
     {
         Hw_FeedWatchDog();
+        Hw_GpioTogglePin(75);
         (void)PortTaskService();
+
+        /* 救援握手：APP 无效时在 19200/115200 上与旧 ARM 完成两段握手；
+         * 握手成功之前 TaskUpgrade() 的接收门控是关着的。 */
+        UpgradeUserHandshakeService();
 
         /* 2 = 本次会话被中止：由升级层收尾（清残留；APP 有效则启动，空白则重新收包） */
         if (TaskUpgrade() == 2U)
