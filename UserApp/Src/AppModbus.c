@@ -1,12 +1,12 @@
 /**
  * @file AppModbus.c
  * @brief Modbus RTU 从机应用层：三路 SCI 从站实例 + 参考协议层与端口层的桥接。
+ * @author yetingheng (004182)
+ * @version 0.1
+ * @date 2026-10-22
  *
- * 05E 的分工：
- *   - Platform/Protocol/Modbus 是参考工程的原文件，逐字照搬，只换了设备头。
- *     本文件不猜它的内部结构，只用它公开的四个入口：
- *     ModbusSlaveTableRegister / SetModbusSlaveTableType / SetModbusSlaveAddr /
- *     ModbusSlaveHandle。
+ * @copyright Copyright (c) 2026
+ *
  *   - 本文件只做三件事：建三个 ST_MODBUS_SLAVE_TABLE_CRTL 实例；把端口层的
  *     字节批次拼成一条完整帧交给 ModbusSlaveHandle()；把返回的回复交给
  *     SciPortWriteTx()。
@@ -46,7 +46,7 @@
 
 /* 升级握手：上位机在 ARM 端口（SCI-A）上发 01 10 04 38 00 02 这六个字节——
  * 地址 1、功能码 0x10、起始地址 1080、数量 2，没有数据段也没有 CRC。
- * 这是 05D 与上位机约定的兼容入口，不是标准 Modbus 请求，所以由本文件直接识别；
+ * 这是与上位机约定的兼容入口，不是标准 Modbus 请求，所以由本文件直接识别；
  * 交给参考层只会被当成“声称写 2 个寄存器却没带数据”的错误帧。 */
 #define APP_MB_UPGRADE_ADDR    (1080U)
 #define APP_MB_UPGRADE_NUMS    (2U)
@@ -55,6 +55,31 @@
 #define APP_MB_HANDSHAKE_LEN   (6U)    /* 握手请求长度 */
 #define APP_MB_HANDSHAKE_REPLY (8U)    /* 6 字节回显 + CRC 2；'C' 由升级层擦完备份区后自己发 */
 #define APP_MB_HANDSHAKE_TAIL  (64U)   /* 握手之后紧跟的升级流字节，原样交给升级层 */
+
+/* 旧 ARM 兼容入口（docs/review/steps/06a-legacy-arm.md）：
+ *   19200：ARM 发 5 字节 F0 00 12 03 04，本层回 F0 00 12 05 06；应答发完后切到 115200。
+ *   115200：ARM 发 01 10 04 38 00 02 开头的传输请求，回 8 字节；回复发完后才把端口交给
+ *           升级层（擦备份区 → 写"接收中"配置 → 发 'C'），所以准备失败时不会发 'C'。
+ * 任何一步失败或被超时兜住，都恢复 19200 并把端口还给 Modbus。 */
+#define APP_MB_LEGACY_CMD_LEN   (5U)
+#define APP_MB_LEGACY_REPLY_LEN (5U)
+#define APP_MB_BAUD_NORMAL      (19200UL)
+#define APP_MB_BAUD_UPGRADE     (115200UL)
+#define APP_MB_LEGACY_WAIT_MS   (5000UL)   /* 等 115200 传输请求的上界，按 ARM 重发间隔留余量 */
+
+#define APP_MB_LEGACY_NONE      (0U)
+#define APP_MB_LEGACY_F0_TX     (1U)   /* F0 应答正在发 */
+#define APP_MB_LEGACY_WAIT_REQ  (2U)   /* 已切到 115200，等 01 10 请求 */
+#define APP_MB_LEGACY_REQ_TX    (3U)   /* 传输应答正在发，发完交接升级 */
+
+static const Uint16 s_au16LegacyCmd[APP_MB_LEGACY_CMD_LEN] =
+{
+    0xF0U, 0x00U, 0x12U, 0x03U, 0x04U
+};
+static const Uint16 s_au16LegacyReply[APP_MB_LEGACY_REPLY_LEN] =
+{
+    0xF0U, 0x00U, 0x12U, 0x05U, 0x06U
+};
 
 /** 一个从站实例的全部现场：参考层控制块 + 它要的数据空间 + 桥接状态。 */
 typedef struct {
@@ -66,6 +91,8 @@ typedef struct {
     Uint16 u16TxOff;                  /* 已交给端口环的回复字节数 */
     Uint16 u16Armed;                  /* 升级通道已交接：本端口不再收新请求 */
     Uint16 bArmPending;               /* 握手回复已挂上发送侧，等它真正发完 */
+    Uint16 u16Legacy;                 /* 旧 ARM 兼容状态（见 APP_MB_LEGACY_*） */
+    Uint32 u32LegacyTick;             /* 进入 115200 等待的时刻 */
     Uint16 u16FaultGen;               /* 已处理的故障代次 */
     Uint32 u32RxTick;                 /* 最后一批请求字节被观察到的时刻 */
     Uint32 u32RxFrames;
@@ -112,6 +139,8 @@ static const ModbusCallBack s_apfnCallBack[APP_MB_PORTS] = {
 
 static Uint16 AppMbFrameIdle(const ST_APP_MB_PORT *pstPort);
 static void   AppMbDispatchFrame(ST_APP_MB_PORT *pstPort);
+static Uint16 AppMbIsLegacyCmd(const ST_APP_MB_PORT *pstPort, Uint16 u16Len);
+static void   AppMbLegacyRestore(Uint16 u16SciId, ST_APP_MB_PORT *pstPort);
 static Uint16 AppMbProtoInit(ST_PROTO_INSTANCE *pstInst);
 static Uint16 AppMbProtoService(ST_PROTO_INSTANCE *pstInst);
 static void   AppMbProtoReset(ST_PROTO_INSTANCE *pstInst);
@@ -364,6 +393,68 @@ static Uint16 AppMbFrameIdle(const ST_APP_MB_PORT *pstPort)
 }
 
 /** 六字节升级握手：01 10 04 38 00 02，只认 ARM 端口（SCI-A）。 */
+/**
+ * @brief 是否为旧 ARM 的 5 字节 F0 命令（只认 SCI-A、长度必须恰好 5 字节）
+ */
+static Uint16 AppMbIsLegacyCmd(const ST_APP_MB_PORT *pstPort, Uint16 u16Len)
+{
+    Uint16 i;
+
+    if ((pstPort != &s_astPort[0]) || (u16Len != APP_MB_LEGACY_CMD_LEN)) {
+        return 0U;
+    }
+
+    for (i = 0U; i < APP_MB_LEGACY_CMD_LEN; i++) {
+        if (pstPort->pu16Data[i] != s_au16LegacyCmd[i]) {
+            return 0U;
+        }
+    }
+
+    return 1U;
+}
+
+
+/**
+ * @brief 把兼容应答挂到发送侧（内容原样，不追加 CRC）
+ */
+static void AppMbLegacyReply(ST_APP_MB_PORT *pstPort, const Uint16 *pu16Src, Uint16 u16Len)
+{
+    Uint16 i;
+
+    for (i = 0U; i < u16Len; i++) {
+        pstPort->pu16Data[i] = pu16Src[i];
+    }
+
+    pstPort->u16RxLen = 0U;
+    pstPort->u16TxLen = u16Len;
+    pstPort->u16TxOff = 0U;
+}
+
+
+/**
+ * @brief 兼容流程收尾：SCI-A 恢复 19200、清残留、把端口还给 Modbus
+ */
+static void AppMbLegacyRestore(Uint16 u16SciId, ST_APP_MB_PORT *pstPort)
+{
+    Uint16 u16Port;
+
+    u16Port = (Uint16)(pstPort - &s_astPort[0]);
+
+    (void)Hw_SciSetBaud(u16SciId, APP_MB_BAUD_NORMAL);
+    s_au32Baud[u16Port] = APP_MB_BAUD_NORMAL;
+
+    pstPort->u16Legacy = APP_MB_LEGACY_NONE;
+    pstPort->bArmPending = 0U;
+    pstPort->u16Armed = 0U;
+
+    AppMbDropRx(pstPort);
+    AppMbDropTx(pstPort);
+    SciPortResync(u16SciId);
+    pstPort->u16FaultGen = SciPortFaultGeneration(u16SciId);
+    pstPort->u32RxTick = Hw_TimeBaseTicks();
+}
+
+
 static Uint16 AppMbIsHandshake(const ST_APP_MB_PORT *pstPort, Uint16 u16Len)
 {
     const Uint16 *pu16Req = pstPort->pu16Data;
@@ -397,6 +488,41 @@ static void AppMbDispatchFrame(ST_APP_MB_PORT *pstPort)
 
     u16ReqLen = pstPort->u16RxLen;
     u16ReqAddr = pstPort->pu16Data[0];   /* 组帧后会被回复覆盖，先记下 */
+
+    /* 旧 ARM 兼容：19200 的 F0 命令与 115200 的等待态都在这里分流，
+     * 普通 Modbus 帧不参与这两个分支。 */
+    if (AppMbIsLegacyCmd(pstPort, u16ReqLen) != 0U) {
+        AppMbLegacyReply(pstPort, &s_au16LegacyReply[0], APP_MB_LEGACY_REPLY_LEN);
+        pstPort->u16Legacy = APP_MB_LEGACY_F0_TX;
+        return;
+    }
+
+    if (pstPort->u16Legacy == APP_MB_LEGACY_WAIT_REQ) {
+        if (AppMbIsHandshake(pstPort, u16ReqLen) != 0U) {
+            Uint16 u16TailLen2;
+
+            u16TailLen2 = (Uint16)(u16ReqLen - APP_MB_HANDSHAKE_LEN);
+            if (u16TailLen2 > APP_MB_HANDSHAKE_TAIL) {
+                u16TailLen2 = APP_MB_HANDSHAKE_TAIL;
+            }
+            s_u16HandshakeTailLen = u16TailLen2;
+            for (i = 0U; i < u16TailLen2; i++) {
+                s_au16HandshakeTail[i] = pstPort->pu16Data[APP_MB_HANDSHAKE_LEN + i];
+            }
+
+            PackModbusCrc(&pstPort->pu16Data[0], APP_MB_HANDSHAKE_LEN);
+            pstPort->u16RxLen = 0U;
+            pstPort->u32RxFrames++;
+            pstPort->u16TxLen = APP_MB_HANDSHAKE_REPLY;
+            pstPort->u16TxOff = 0U;
+            pstPort->u16Legacy = APP_MB_LEGACY_REQ_TX;
+            return;
+        }
+
+        /* 115200 上除了传输请求，其余字节都不回应，只丢弃候选继续等 */
+        AppMbDropRx(pstPort);
+        return;
+    }
 
     /* 升级握手是兼容入口，不是标准 Modbus 请求：原样回去 6 字节 + 现算 CRC，
      * 共 8 字节。'C' 由升级层在备份区擦完、准备好接收之后自己发，所以这里
@@ -502,6 +628,55 @@ static Uint16 AppMbProtoService(ST_PROTO_INSTANCE *pstInst)
         }
     }
 
+    /* 2b) 旧 ARM 兼容状态机（只在 SCI-A 上跑） */
+    if (pstPort->u16Legacy != APP_MB_LEGACY_NONE) {
+        Uint16 u16PortIdx = (Uint16)(pstPort - &s_astPort[0]);
+
+        if (pstPort->u16Legacy == APP_MB_LEGACY_F0_TX) {
+            /* F0 应答必须真的上线之后才能切速，否则 ARM 收不到应答 */
+            if (SciPortIsTxIdle(u16SciId) == 0U) {
+                return 1U;
+            }
+
+            if (Hw_SciSetBaud(u16SciId, APP_MB_BAUD_UPGRADE) == 0U) {
+                AppMbLegacyRestore(u16SciId, pstPort);
+                return 1U;
+            }
+
+            s_au32Baud[u16PortIdx] = APP_MB_BAUD_UPGRADE;
+            AppMbDropRx(pstPort);      /* 只清 19200 阶段的残留，别把高速首帧一起清掉 */
+            pstPort->u16Legacy = APP_MB_LEGACY_WAIT_REQ;
+            pstPort->u32LegacyTick = Hw_TimeBaseTicks();
+            return 1U;
+        }
+
+        if (pstPort->u16Legacy == APP_MB_LEGACY_REQ_TX) {
+            if (SciPortIsTxIdle(u16SciId) == 0U) {
+                return 1U;
+            }
+
+            /* 传输应答发完才交接：升级层从这里开始擦备份区、写"接收中"配置，再发 'C' */
+            if (AppUpgradeStart(u16SciId, APP_MB_BAUD_UPGRADE,
+                                &s_au16HandshakeTail[0], s_u16HandshakeTailLen) == 0U) {
+                AppMbLegacyRestore(u16SciId, pstPort);
+                return 1U;
+            }
+
+            s_u16HandshakeTailLen = 0U;
+            pstPort->u16Legacy = APP_MB_LEGACY_NONE;
+            pstPort->u16Armed = 1U;
+            return 1U;
+        }
+
+        /* WAIT_REQ：有界等待，超时就恢复 19200 交回 Modbus */
+        if ((Hw_TimeBaseIsReady() != 0U) &&
+            (Hw_TimeBaseElapsed(pstPort->u32LegacyTick) >=
+             Hw_TimeBaseUsToTicks(APP_MB_LEGACY_WAIT_MS * 1000UL))) {
+            AppMbLegacyRestore(u16SciId, pstPort);
+            return 1U;
+        }
+    }
+
     /* 3) 握手回复真正发完了才交接升级：此后该端口不再收新请求。 */
     if (pstPort->bArmPending != 0U) {
         if (SciPortIsTxIdle(u16SciId) == 0U) {
@@ -513,7 +688,8 @@ static Uint16 AppMbProtoService(ST_PROTO_INSTANCE *pstInst)
         /* 必要修正：只有升级层真正接下这个端口才能停止 Modbus 收帧。
          * （例如 Flash API 没初始化好时 AppUpgradeStart() 返回 0，）否则端口会停在
          * 无人接收的状态。接交失败就丢弃握手待发状态并重新同步流。 */
-        if (AppUpgradeStart(u16SciId, &s_au16HandshakeTail[0], s_u16HandshakeTailLen) == 0U)
+        if (AppUpgradeStart(u16SciId, s_au32Baud[(Uint16)(pstPort - &s_astPort[0])],
+                            &s_au16HandshakeTail[0], s_u16HandshakeTailLen) == 0U)
         {
             s_u16HandshakeTailLen = 0U;
             pstPort->u32TxDropped++;
@@ -620,6 +796,8 @@ void AppModbusInit(void)
         pstPort->u32CallBacks = 0UL;
         pstPort->u16Armed = 0U;
         pstPort->bArmPending = 0U;
+        pstPort->u16Legacy = APP_MB_LEGACY_NONE;
+        pstPort->u32LegacyTick = 0UL;
         /* 初始化到当前代次：启动本身不能被当成一次故障 */
         pstPort->u16FaultGen = SciPortFaultGeneration(s_au16SciId[u16Port]);
         s_au32Baud[u16Port] = AppMbBaudOf(s_au16SciId[u16Port]);

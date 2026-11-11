@@ -147,8 +147,9 @@ E_XMODEM_ERROR XmodemInit(ST_XMODEM_PROTOCOL *pstProtocol, ST_XMODEM_CONFIG *pst
 
 E_XMODEM_ERROR XmodemSinglePacket(ST_XMODEM_PROTOCOL *pstProtocol)
 {
+    /* 参考原样保留两个局部变量的语义；u32Sum 在参考里就没用过，直接删掉以消除
+     * `#179-D declared but never referenced`。 */
     Uint16 u16DataLength = 0;
-    Uint32 u32Sum;
 
     switch (pstProtocol->u16xBuff[0])
     {
@@ -319,7 +320,6 @@ E_XMODEM_ERROR XmodemReceive(ST_XMODEM_PROTOCOL *pstProtocol)
 {
     Uint16 u16SkipReply = 0;
     Uint16 u16TryChar = 'C';
-    Uint16 u16DataLength = 0;
     int16 i16ReceiveNum = 0;
     E_XMODEM_ERROR eRet = XMODEM_OK;
 
@@ -537,7 +537,7 @@ E_XMODEM_ERROR XmodemReceive(ST_XMODEM_PROTOCOL *pstProtocol)
 
         case STATE_COMPLETE:
             // 传输完成
-            eRet = pstProtocol->bError;
+            eRet = (E_XMODEM_ERROR)pstProtocol->bError;
             pstProtocol->bRetryCount = 0;
             pstProtocol->bIsFirstPack = 0;
             pstProtocol->stXmodemStateMachine = STATE_IDLE;
@@ -546,7 +546,7 @@ E_XMODEM_ERROR XmodemReceive(ST_XMODEM_PROTOCOL *pstProtocol)
         case STATE_ERROR:
             // 可做一些错误处理
 
-            eRet = pstProtocol->bError;
+            eRet = (E_XMODEM_ERROR)pstProtocol->bError;
             pstProtocol->bRetryCount = 0;
             pstProtocol->stXmodemStateMachine = STATE_IDLE;
             break;

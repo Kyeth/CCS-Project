@@ -29,11 +29,31 @@ extern ST_UPGRADE_HANDLE stUpgradeHandle;
 
 static void AppUpgradeAbort(void);
 
+/* 本次会话的串口速率：决定"接收中"配置里 u16UpgradeBaud 的编码。 */
+static Uint32 s_u32UpBaud = 19200UL;
+
 
 /**
- * @brief 写一份"升级进行中"的配置，让参考工程的 TaskUpgrade() 守卫
- *        （ReadUpgradeCfg == 1 && GetUpgradeFirmwareFlag == 0）通过。
- *        参考工程的 APP 侧是由 Modbus 升级命令写这份配置，本工程在交接时写。
+ * @brief 把实际波特率折算成配置里的编码（x100），BOOT 重入时按它恢复
+ */
+static Uint16 AppUpBaudCode(Uint32 u32Baud)
+{
+    if (u32Baud >= 115200UL) {
+        return 1152U;
+    }
+    if (u32Baud >= 38400UL) {
+        return 384U;
+    }
+    if (u32Baud >= 19200UL) {
+        return 192U;
+    }
+
+    return 0U;
+}
+
+
+/**
+ * @brief
  * @return 0 = 成功，其他 = 擦除/写入失败码
  */
 static int16 AppUpWriteProgressCfg(void)
@@ -42,8 +62,9 @@ static int16 AppUpWriteProgressCfg(void)
 
     memset(&stUpgradeHandle.stUpgradeCfg, 0, sizeof(ST_UPGRADE_CFG));
     stUpgradeHandle.stUpgradeCfg.u16UpgradeFlag = 0xAAEEU;
-    stUpgradeHandle.stUpgradeCfg.u16UpgradeUart = 0U;   /* SCI_ID0，与参考工程一致 */
-    stUpgradeHandle.stUpgradeCfg.u16UpgradeBaud = 0U;   /* 0 = 保持 38400 */
+    stUpgradeHandle.stUpgradeCfg.u16UpgradeUart = 0U;   /* SCI-A */
+    /* 编码按本次实际速率写：掉电重入时 BOOT 用它恢复串口（115200 → 1152） */
+    stUpgradeHandle.stUpgradeCfg.u16UpgradeBaud = AppUpBaudCode(s_u32UpBaud);
     stUpgradeHandle.stUpgradeCfg.u16FirmwareOver = 0U;
     stUpgradeHandle.stUpgradeCfg.u32UpgradeCfgSum = CalcUpgradeCfgSum(&stUpgradeHandle);
 
@@ -74,7 +95,8 @@ void AppUpgradeInit(void)
 }
 
 
-Uint16 AppUpgradeStart(Uint16 u16SciId, const Uint16 *pu16Tail, Uint16 u16TailLen)
+Uint16 AppUpgradeStart(Uint16 u16SciId, Uint32 u32Baud,
+                       const Uint16 *pu16Tail, Uint16 u16TailLen)
 {
     if (u16SciId != HW_SCI_ID_A)
     {
@@ -95,6 +117,7 @@ Uint16 AppUpgradeStart(Uint16 u16SciId, const Uint16 *pu16Tail, Uint16 u16TailLe
 
     s_u16UpPhase = APP_UP_PHASE_WAIT_TX;
     s_u16UpActive = 1U;
+    s_u32UpBaud = u32Baud;
 
     /* 交接即暂停功率输出与控制动作；端口服务、时基、看门狗继续跑 */
     if (s_pfPause != 0)
@@ -127,6 +150,11 @@ Uint32 AppUpgradeAbortCount(void)
 /**
  * @brief 中止收尾：停止接收、清本次会话状态、把端口交还 Modbus
  * @note  功率输出保持关闭（暂停钩子没有恢复动作），主机重新握手即可再升级。
+ * @author yetingheng (004182)
+ * @version 0.1
+ * @date 2026-10-22
+ *
+ * @copyright Copyright (c) 2026
  */
 static void AppUpgradeAbort(void)
 {
@@ -139,7 +167,8 @@ static void AppUpgradeAbort(void)
     XmodemRxReset();
     UpgradeUserSessionReset();
 
-    /* 把端口还给 Modbus：丢弃候选/未发完的回复，重新同步流 */
+    /* 失败收尾：串口恢复业务速率，再把端口还给 Modbus（旧 ARM 超时后会回 19200） */
+    (void)Hw_SciSetBaud(HW_SCI_ID_A, 19200UL);
     AppModbusReleasePort(APP_UP_PORT_INDEX);
 }
 
@@ -178,7 +207,7 @@ void AppUpgradeTask(void)
             break;
 
         case APP_UP_PHASE_RECEIVE:
-            /* 参考工程自己的收包流程：XmodemReceive + 收完后校验、写配置、复位 */
+            /* 自己的收包流程：XmodemReceive + 收完后校验、写配置、复位 */
             u16Ret = TaskUpgrade();
             if (u16Ret == 2U)
             {

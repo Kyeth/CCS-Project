@@ -8,7 +8,7 @@
  *   {addr, READ_WRITE/READ_ONLY, TYPE_UINT16/TYPE_INT16, NOT_SAVE,
  *    (U_REG_VAL *)&变量, i32DownLimitVal, u32UpLimitVal}
  *
- * 约定（所有者 m07729）：所有点只有 int16 与 Uint16 两种类型；
+ * 所有点只有 int16 与 Uint16 两种类型；
  * 缩放由业务层单独处理，寄存器表只负责类型与上下限；
  * 地址必须严格升序——ReadModbusRegisterData() 用二分查找，乱序会查不到；
  * 当前没有业务变量，全部绑定到占位数组 s_auRegVal[]（段 .mbregs）。

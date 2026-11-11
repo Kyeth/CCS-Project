@@ -22,7 +22,10 @@ extern void AppUpgradeInit(void);
  * @param u16TailLen  字节数
  * @return 1 = 已接管
  */
-extern Uint16 AppUpgradeStart(Uint16 u16SciId, const Uint16 *pu16Tail, Uint16 u16TailLen);
+/* u32Baud = 本次会话实际使用的 SCI-A 速率，会按 x100 编码写进"接收中"配置，
+ * BOOT 掉电重入时据此恢复串口（115200 → 1152）。 */
+extern Uint16 AppUpgradeStart(Uint16 u16SciId, Uint32 u32Baud,
+                              const Uint16 *pu16Tail, Uint16 u16TailLen);
 
 /**
  * @brief 升级任务（周期调用）：等发送排空 -> 擦备份区 -> 收包

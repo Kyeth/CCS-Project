@@ -1,8 +1,11 @@
 /*
  * AppModbusRegCfg.c
- *
  * Modbus 寄存器表（按 ARM/DSP 协议表生成，共 440 项）。
- * 由 _tmp/gen_proto_tbl.py 生成，不要手工修改。
+ * @author yetingheng (004182)
+ * @version 0.1
+ * @date 2026-10-22
+ *
+ * @copyright Copyright (c) 2026
  */
 
 #include "AppModbusRegCfg.h"
@@ -10,7 +13,7 @@
 /* 占位存储：参考层要求每个寄存器绑定一个 U_REG_VAL；本工程尚未接入业务
  * 变量，先按项占位。每项都是真正的 U_REG_VAL，不能把 Uint16 数组的元素地址
  * 强转成 U_REG_VAL *——联合体里含 32 位与 float 成员，强转会按更宽的对齐要求
- * 访问，主机上第二个元素就越界（UBSan: member access within misaligned address）。
+ * 访问，主机上第二个元素就越界
  * 放进 .mbregs（RAMGS1），让可写的 RAM 与 Flash 里的表分离。 */
 static U_REG_VAL s_auRegVal[APP_MODBUS_REG_COUNT];
 
