@@ -180,6 +180,11 @@ void main(void)
     {
         Hw_FeedWatchDog();
         (void)PortTaskService();
-        (void)TaskUpgrade();
+
+        /* 2 = 本次会话被中止：由升级层收尾（清残留；APP 有效则启动，空白则重新收包） */
+        if (TaskUpgrade() == 2U)
+        {
+            UpgradeUserAbort();
+        }
     }
 }

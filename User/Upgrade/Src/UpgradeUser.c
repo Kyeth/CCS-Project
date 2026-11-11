@@ -7,6 +7,8 @@
 #include "XmodemCore.h"
 #include "XmodemSlaveProcess.h"
 #include "Dsp2837xSFlash.h"
+#include "DspUpgradeCrc.h"
+#include "XmodemTramsports.h"
 
 
 ST_UPGRADE_HANDLE stUpgradeHandle;
@@ -48,13 +50,29 @@ int16 EraseBackUpBank(void)
     return EraseSingleSector(SectorK_start);
 }
 
-void EraseAppBank(void)
+int16 EraseAppBank(void)
 {
-    /* APP 区 = D（8K 字节）+ E/F/G（各 32K 字节） */
-    (void)EraseSingleSector(SectorD_start);
-    (void)EraseSingleSector(SectorE_start);
-    (void)EraseSingleSector(SectorF_start);
-    (void)EraseSingleSector(SectorG_start);
+    int16 i16Ret = 0;
+
+    /* APP 区 = D（8K 字节）+ E/F/G（各 32K 字节）。
+     * 必要适配修正：参考实现丢弃四次擦除的返回值，回拷失败后仍清配置跳转。 */
+    i16Ret = EraseSingleSector(SectorD_start);
+    if (i16Ret != 0)
+    {
+        return i16Ret;
+    }
+    i16Ret = EraseSingleSector(SectorE_start);
+    if (i16Ret != 0)
+    {
+        return i16Ret;
+    }
+    i16Ret = EraseSingleSector(SectorF_start);
+    if (i16Ret != 0)
+    {
+        return i16Ret;
+    }
+
+    return EraseSingleSector(SectorG_start);
 }
 
 
@@ -63,13 +81,24 @@ void EraseAppBank(void)
  * 函数返回要回到已被擦除的 Flash 取指，必然跑飞。这里把两者及自升级尾部一起放进
  * .flashfunc（LOAD = FLASH_BOOT，RUN = RAMGS3），整段在 RAM 里执行。 */
 #pragma CODE_SECTION(EraseBootBank, ".flashfunc")
-#pragma CODE_SECTION(BootSelfUpdateTail, ".flashfunc")
-void EraseBootBank(void)
+int16 EraseBootBank(void)
 {
-    /* BOOT 区 = A/B/C（各 8K 字节） */
-    (void)EraseSingleSector(SectorA_start);
-    (void)EraseSingleSector(SectorB_start);
-    (void)EraseSingleSector(SectorC_start);
+    int16 i16Ret = 0;
+
+    /* BOOT 区 = A/B/C（各 8K 字节）。自升级时这里擦掉的正是本文件所在扇区，
+     * 因此三个返回值都必须检查：擦失败后不能继续回拷。 */
+    i16Ret = EraseSingleSector(SectorA_start);
+    if (i16Ret != 0)
+    {
+        return i16Ret;
+    }
+    i16Ret = EraseSingleSector(SectorB_start);
+    if (i16Ret != 0)
+    {
+        return i16Ret;
+    }
+
+    return EraseSingleSector(SectorC_start);
 }
 
 /* 前向声明：下面几个跳转辅助函数定义在 jump_to_app() 之前。 */
@@ -82,15 +111,28 @@ void jump_to_app(void);
 static Uint16 IsAppValid(void)
 {
     const volatile Uint16 *pu16App = (const volatile Uint16 *)0x086000U;
-    Uint16 u16Entry;
+    Uint16 u16Word0;
+    Uint16 u16Word1;
+    Uint32 u32Target;
 
-    if (pu16App[0] == 0xFFFFU)
+    u16Word0 = pu16App[0];
+    u16Word1 = pu16App[1];
+
+    if ((u16Word0 == 0xFFFFU) || (u16Word1 == 0xFFFFU))
     {
         return 0U;
     }
 
-    u16Entry = pu16App[1];
-    if ((u16Entry < 0x086002U) || (u16Entry >= 0x0A0000U))
+    /* C28x 的 LB 指令占两个字：word0 的高 10 位是操作码（(word0 & 0xFFC0) == 0x0040），
+     * 低 6 位是目标地址的高 6 位，word1 是低 16 位。先前把 word1 直接当入口地址与
+     * 0x086002 比较，Uint16 永远小于该下界，正常 APP 也会被判无效——必须解析完整目标。 */
+    if ((u16Word0 & 0xFFC0U) != 0x0040U)
+    {
+        return 0U;
+    }
+
+    u32Target = ((Uint32)(u16Word0 & 0x003FU) << 16) | (Uint32)u16Word1;
+    if ((u32Target < 0x086002UL) || (u32Target >= 0x0A0000UL))
     {
         return 0U;
     }
@@ -100,18 +142,37 @@ static Uint16 IsAppValid(void)
 
 /* APP 无效时留在 BOOT 收升级：写一份"接收中"配置，让主循环 TaskUpgrade() 的
  * 守卫（ReadUpgradeCfg == 1 && GetUpgradeFirmwareFlag == 0）通过。 */
-static void StartReceiveFromBoot(void)
+static Uint16 StartReceiveFromBoot(void)
 {
+    /* 必要适配修正：参考工程进入接收前不擦备份区，中途掉电会与上一轮半截镜像混在一起；
+     * 也不看配置擦写结果，写失败后仍然发 'C'，收下的数据无处安放。这里两步都成功
+     * 才允许进入接收。返回 1 = 可以收包。 */
+    if (EraseBackUpBank() != 0)
+    {
+        return 0U;
+    }
+
     memset(&stUpgradeHandle.stUpgradeCfg, 0, sizeof(ST_UPGRADE_CFG));
     stUpgradeHandle.stUpgradeCfg.u16UpgradeFlag = 0xAAEEU;
     stUpgradeHandle.stUpgradeCfg.u16UpgradeUart = (Uint16)HW_SCI_ID_A;
     stUpgradeHandle.stUpgradeCfg.u16UpgradeBaud = 0U;
     stUpgradeHandle.stUpgradeCfg.u16FirmwareOver = 0U;
     stUpgradeHandle.stUpgradeCfg.u32UpgradeCfgSum = CalcUpgradeCfgSum(&stUpgradeHandle);
-    (void)EraseSingleSector(stUpgradeHandle.u32UpgradeCfgAddr);
-    (void)WriteFlashData(stUpgradeHandle.u32UpgradeCfgAddr,
-                         &stUpgradeHandle.stUpgradeCfg,
-                         (Uint32)sizeof(ST_UPGRADE_CFG));
+
+    if (EraseSingleSector(stUpgradeHandle.u32UpgradeCfgAddr) != 0)
+    {
+        return 0U;
+    }
+
+    if (WriteFlashData(stUpgradeHandle.u32UpgradeCfgAddr,
+                       &stUpgradeHandle.stUpgradeCfg,
+                       (Uint32)sizeof(ST_UPGRADE_CFG)) != 0)
+    {
+        (void)EraseSingleSector(stUpgradeHandle.u32UpgradeCfgAddr);
+        return 0U;
+    }
+
+    return 1U;
 }
 
 /* 跳 APP 或留在 BOOT：APP 有效才跳，无效则进入接收态并返回。 */
@@ -128,12 +189,73 @@ static void BootToAppOrReceive(void)
 /* BOOT 自升级尾部：清配置 -> 擦 A/B/C -> 从备份区回拷 BOOT -> 复位。
  * 全程在 RAM 里跑（.flashfunc），执行期间不再回到 Flash 取指。先清配置，保证中途
  * 掉电也不会留下"已收完"的配置，否则下次上电会把半截镜像当成品再回拷一次。 */
+/* 自擦后不能回 Flash：验证目标区与驻留都必须跑在 RAM 里。 */
+#pragma CODE_SECTION(VerifyBootArea, ".flashfunc")
+static Uint16 VerifyBootArea(void)
+{
+    Uint32 u32Crc;
+
+    u32Crc = UpgradeCrc32((Uint16 *)0x080000U,
+                          stUpgradeHandle.stUpgradeCfg.u32FileSize >> 1,
+                          0xFFFFFFFFUL);
+    if (u32Crc == stUpgradeHandle.stUpgradeCfg.u32FileCrc)
+    {
+        return 1U;
+    }
+
+    return 0U;
+}
+
+/* 已经擦掉 BOOT、但回拷失败：BOOT 镜像没了，绝不能复位回 Flash 取指。
+ * 留在 RAM 里喂狗，等调试器重新烧写；本函数只在 .flashfunc 里调用。 */
+#pragma CODE_SECTION(StallAfterBootErase, ".flashfunc")
+static void StallAfterBootErase(void)
+{
+    while (1)
+    {
+        FlashFeedWatchDog();
+    }
+}
+
+#pragma CODE_SECTION(BootSelfUpdateTail, ".flashfunc")
 static void BootSelfUpdateTail(void)
 {
+    Uint16 u16Retry = 0U;
+
+    /* 自擦前能验的都验一遍：配置标志、芯片类型、镜像类型、长度、备份区 CRC。
+     * 任何一项不成立都不许动 BOOT 区，清掉配置退回正常流程。 */
+    if ((GetUpgradeFlag(&stUpgradeHandle) != 1) ||
+        (GetUpgradeFirmwareFlag(&stUpgradeHandle) != 1) ||
+        (stUpgradeHandle.stUpgradeCfg.bChipType != XMODEM_CHIP_TYPE) ||
+        (stUpgradeHandle.stUpgradeCfg.bFirmwareType != 2U) ||
+        (stUpgradeHandle.stUpgradeCfg.u32FileSize == 0UL) ||
+        ((stUpgradeHandle.stUpgradeCfg.u32FileSize & 1UL) != 0UL) ||
+        (stUpgradeHandle.stUpgradeCfg.u32FileSize > XMODEM_BOOT_MAX_BYTES) ||
+        (VerifyFireware(&stUpgradeHandle) != 1))
+    {
+        (void)EraseSingleSector(stUpgradeHandle.u32UpgradeCfgAddr);
+        return;
+    }
+
+    /* 先清配置：中途掉电也不会留下"已收完"的配置，否则下次上电会把半截镜像再回拷一次。 */
     (void)EraseSingleSector(stUpgradeHandle.u32UpgradeCfgAddr);
-    EraseBootBank();
-    (void)CopyBootFirmware(&stUpgradeHandle);
-    SysCtl_resetDevice();
+
+    if (EraseBootBank() != 0)
+    {
+        StallAfterBootErase();
+    }
+
+    /* 回拷最多重试三次；仍不成功就停在 RAM，不复位到已被擦除的 BOOT。 */
+    while ((CopyBootFirmware(&stUpgradeHandle) != 0) || (VerifyBootArea() == 0U))
+    {
+        u16Retry++;
+        if (u16Retry >= 3U)
+        {
+            StallAfterBootErase();
+        }
+    }
+
+    FlashForceReset();
 
     while (1)
     {
@@ -196,14 +318,20 @@ void CheckUpgrade(void)
 
                 if (stUpgradeHandle.stUpgradeCfg.bFirmwareType == 1)
                 {
-                    // 升级APP程序
-                    EraseAppBank();
-                    CopyAppFirmware(&stUpgradeHandle);
-                    VerifyAppArea(&stUpgradeHandle);
-
-                    EraseSingleSector(stUpgradeHandle.u32UpgradeCfgAddr);
-                    BootToAppOrReceive();
-
+                    /* 必要适配修正：参考实现不看擦除/复制/目标区校验的结果，一律清配置
+                     * 后跳转——装了一半的 APP 也会被当成成品。这里三步全部通过才清配置
+                     * 并跳转；失败则保留"已收完"配置（下次上电重试安装）停在 BOOT。 */
+                    if ((EraseAppBank() == 0) &&
+                        (CopyAppFirmware(&stUpgradeHandle) == 0) &&
+                        (VerifyAppArea(&stUpgradeHandle) == 1))
+                    {
+                        (void)EraseSingleSector(stUpgradeHandle.u32UpgradeCfgAddr);
+                        BootToAppOrReceive();
+                    }
+                    else
+                    {
+                        return;
+                    }
                 }
                 else if (stUpgradeHandle.stUpgradeCfg.bFirmwareType == 2)
                 {
@@ -330,4 +458,20 @@ Uint16 TaskUpgrade(void)
     }
 
     return 0U;
+}
+
+/* 一次升级会话被中止（两次 CAN、CRC 不符、写 Flash 失败、重试超限）后的收尾：
+ * 清会话与适配层残留，APP 有效就启动它，APP 空白则重新准备接收。 */
+void UpgradeUserAbort(void)
+{
+    UpgradeUserSessionReset();
+    XmodemProcessInit();
+    XmodemRxReset();
+
+    if (IsAppValid() != 0U)
+    {
+        jump_to_app();
+    }
+
+    (void)StartReceiveFromBoot();
 }

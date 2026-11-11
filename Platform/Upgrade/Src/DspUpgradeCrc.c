@@ -1,5 +1,7 @@
 #include "DspUpgradeCrc.h"
 
+/* 自升级擦掉 BOOT 之后仍要校验目标区，CRC 必须在 RAM 里可调用 */
+#pragma CODE_SECTION(UpgradeCrc32, ".flashfunc")
 Uint32 UpgradeCrc32(Uint16 *pu16Data, Uint32 u32Length, Uint32 u32LastCrc)
 {
     Uint32 i = 0;

@@ -66,6 +66,9 @@ extern int16 Dsp2837xSFlashInit(void);
  * 因为 Hw_FeedWatchDog() 链接在 Flash。 */
 extern void FlashFeedWatchDog(void);
 
+/* 等待超时且 FSM 仍忙时用看门狗复位整机（RAM 内执行，不返回 Flash 调用者） */
+extern void FlashForceReset(void);
+
 extern int16 EraseSingleSector(Uint32 u32SectorAddr);
 
 extern int16 WriteFlashData(Uint32 u32TagAddr, void *pu16DataBuff, Uint32 u32DataLen);

@@ -52,21 +52,14 @@
 									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/device/headers/include"/>
 									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/Broad/inc"/>
 									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/Drivers/inc"/>
-									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/Platform/Schedule/Inc"/>
-									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/Platform/Status/Inc"/>
-									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/Platform/Sample/Inc"/>
-									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/Platform/Pll/Inc"/>
 									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/Platform/Common/Inc"/>
 									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/Platform/Port/Inc"/>
-									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/Platform/Protocol/Inc"/>
-									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/Platform/Protocol/Modbus/Inc"/>
 									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/Platform/Xmodem/Inc"/>
 									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/Platform/Flash/Inc"/>
 									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/Platform/Upgrade/Inc"/>
 									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/User/Upgrade/Inc"/>
 									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/User/XmodemSlaveProcess/Inc"/>
 									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/libraries/flash_api/f2837xs/include"/>
-									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/UserApp/Inc"/>
 									<listOptionValue builtIn="false" value="${CG_TOOL_ROOT}/include"/>
 								</option>
 								<option id="com.ti.ccstudio.buildDefinitions.C2000_22.6.compilerID.ABI.1661857823" name="Application binary interface [See 'General' page to edit] (--abi)" superClass="com.ti.ccstudio.buildDefinitions.C2000_22.6.compilerID.ABI" useByScannerDiscovery="false" value="com.ti.ccstudio.buildDefinitions.C2000_22.6.compilerID.ABI.eabi" valueType="enumerated"/>
@@ -107,7 +100,7 @@
 								<option id="com.ti.ccstudio.buildDefinitions.C2000_22.6.hex.ROMWIDTH.1973742215" name="Specify rom width (--romwidth, -romwidth=width)" superClass="com.ti.ccstudio.buildDefinitions.C2000_22.6.hex.ROMWIDTH" value="16" valueType="string"/>
 								<option id="com.ti.ccstudio.buildDefinitions.C2000_22.6.hex.IMAGE.1973742215" name="Select image mode (--image, -image)" superClass="com.ti.ccstudio.buildDefinitions.C2000_22.6.hex.IMAGE" value="false" valueType="boolean"/>
 								<option id="com.ti.ccstudio.buildDefinitions.C2000_22.6.hex.OUTPUT_FILE.1973742215" name="Specify output file names (--outfile, -o=file)" superClass="com.ti.ccstudio.buildDefinitions.C2000_22.6.hex.OUTPUT_FILE" value="${BuildArtifactFileBaseName}.hex" valueType="string"/>
-								<option id="com.ti.ccstudio.buildDefinitions.C2000_22.6.hex.ENTRYPOINT.1973742215" name="Specify entrypoint address or symbol name (--entrypoint, -e=addr)" superClass="com.ti.ccstudio.buildDefinitions.C2000_22.6.hex.ENTRYPOINT" value="0x86000" valueType="string"/>
+								<option id="com.ti.ccstudio.buildDefinitions.C2000_22.6.hex.ENTRYPOINT.1973742215" name="Specify entrypoint address or symbol name (--entrypoint, -e=addr)" superClass="com.ti.ccstudio.buildDefinitions.C2000_22.6.hex.ENTRYPOINT" value="0x80000" valueType="string"/>
 								<outputType id="com.ti.ccstudio.buildDefinitions.C2000_22.6.hex.outputType__BIN.1973742215" name="Binary File" superClass="com.ti.ccstudio.buildDefinitions.C2000_22.6.hex.outputType__BIN"/>
 							</tool>
 						</toolChain>
@@ -168,21 +161,14 @@
 									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/device/headers/include"/>
 									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/Broad/inc"/>
 									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/Drivers/inc"/>
-									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/Platform/Schedule/Inc"/>
-									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/Platform/Status/Inc"/>
-									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/Platform/Sample/Inc"/>
-									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/Platform/Pll/Inc"/>
 									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/Platform/Common/Inc"/>
 									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/Platform/Port/Inc"/>
-									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/Platform/Protocol/Inc"/>
-									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/Platform/Protocol/Modbus/Inc"/>
 									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/Platform/Xmodem/Inc"/>
 									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/Platform/Flash/Inc"/>
 									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/Platform/Upgrade/Inc"/>
 									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/User/Upgrade/Inc"/>
 									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/User/XmodemSlaveProcess/Inc"/>
 									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/libraries/flash_api/f2837xs/include"/>
-									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/UserApp/Inc"/>
 									<listOptionValue builtIn="false" value="${CG_TOOL_ROOT}/include"/>
 								</option>
 								<option id="com.ti.ccstudio.buildDefinitions.C2000_22.6.compilerID.ABI.1473868968" superClass="com.ti.ccstudio.buildDefinitions.C2000_22.6.compilerID.ABI" useByScannerDiscovery="false" value="com.ti.ccstudio.buildDefinitions.C2000_22.6.compilerID.ABI.eabi" valueType="enumerated"/>
@@ -217,7 +203,7 @@
 								<option id="com.ti.ccstudio.buildDefinitions.C2000_22.6.hex.ROMWIDTH.203968625" name="Specify rom width (--romwidth, -romwidth=width)" superClass="com.ti.ccstudio.buildDefinitions.C2000_22.6.hex.ROMWIDTH" value="16" valueType="string"/>
 								<option id="com.ti.ccstudio.buildDefinitions.C2000_22.6.hex.IMAGE.203968625" name="Select image mode (--image, -image)" superClass="com.ti.ccstudio.buildDefinitions.C2000_22.6.hex.IMAGE" value="false" valueType="boolean"/>
 								<option id="com.ti.ccstudio.buildDefinitions.C2000_22.6.hex.OUTPUT_FILE.203968625" name="Specify output file names (--outfile, -o=file)" superClass="com.ti.ccstudio.buildDefinitions.C2000_22.6.hex.OUTPUT_FILE" value="${BuildArtifactFileBaseName}.hex" valueType="string"/>
-								<option id="com.ti.ccstudio.buildDefinitions.C2000_22.6.hex.ENTRYPOINT.203968625" name="Specify entrypoint address or symbol name (--entrypoint, -e=addr)" superClass="com.ti.ccstudio.buildDefinitions.C2000_22.6.hex.ENTRYPOINT" value="0x86000" valueType="string"/>
+								<option id="com.ti.ccstudio.buildDefinitions.C2000_22.6.hex.ENTRYPOINT.203968625" name="Specify entrypoint address or symbol name (--entrypoint, -e=addr)" superClass="com.ti.ccstudio.buildDefinitions.C2000_22.6.hex.ENTRYPOINT" value="0x80000" valueType="string"/>
 								<outputType id="com.ti.ccstudio.buildDefinitions.C2000_22.6.hex.outputType__BIN.203968625" name="Binary File" superClass="com.ti.ccstudio.buildDefinitions.C2000_22.6.hex.outputType__BIN"/>
 							</tool>
 						</toolChain>
