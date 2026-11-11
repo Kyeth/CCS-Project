@@ -687,9 +687,16 @@ static Uint16 AppMbProtoService(ST_PROTO_INSTANCE *pstInst)
              * 发完：它还留在发送环、FIFO 或移位寄存器里的话，切速之后这些字节会以
              * 19200 的位宽上线，主站收到的是一条半截帧，比丢掉它更难查。 */
             if (SciPortIsTxSuspended(u16SciId) != 0U) {
-                /* 发送侧被强制复位后冻住：旧数据已经作废，明确丢掉并等端口允许恢复 */
-                AppMbDropTx(pstPort);
-                if (SciPortTxResume(u16SciId) == 0U) {
+                if (SciPortIsTxResetLoss(u16SciId) != 0U) {
+                    /* 强制复位确实丢了发送内容：旧的待发回复已经作废，明确丢掉
+                     * 并请求解冻；解冻还要等 RX 回到 IDLE，未允许就留在本态。 */
+                    AppMbDropTx(pstPort);
+                    if (SciPortTxResume(u16SciId) == 0U) {
+                        return 1U;
+                    }
+                } else {
+                    /* 只是恢复期间的临时挂起（没有丢字节）：不强行解冻、也不丢
+                     * 待发，等端口层排空后自行解除，再把控制字节按旧速率发完。 */
                     return 1U;
                 }
             }

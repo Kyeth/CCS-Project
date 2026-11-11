@@ -105,7 +105,9 @@
 - **失败**（`Hw_SciSetBaud()` 返回 0）就 `return 1U` 停在恢复态继续重试，`u32BaudErrors++`；期间不收帧、不回 Modbus。理由：硬件可能还在 115200，若此时交还端口，主站按 19200 发来的帧永远收不到，症状是"升级失败后再也不通信"。
 - 切速之前还有一道**发送门控**（r4）：取消或传输错误时 XMODEM 可能刚把 NAK/CAN 放进发送队列，若此时切速，这些字节会以 19200 的位宽上线，主站收到半截帧。
   - 正常中止：先等 `SciPortIsTxIdle()` 为真（软件环 + FIFO + 移位寄存器都空，即最后一个控制字节确实按 115200 发完），再切回 19200。
-  - 发送故障（`SciPortIsTxSuspended()` 为真）：先 `AppMbDropTx()` 明确丢掉旧数据，再 `SciPortTxResume()`；端口未允许恢复就留在本态继续等，恢复后同样要过 `SciPortIsTxIdle()`。
+  - `SciPortIsTxSuspended()` 为真时要先分两种挂起（r5）：
+    - **强制复位丢过内容**（`SciPortIsTxResetLoss()` 为真）：旧字节已作废，`AppMbDropTx()` 丢掉协议层待发，再 `SciPortTxResume()` 请求解冻；该函数只在 **RX 已回到 `SCI_RX_IDLE` 且 `bTxResetLoss` 确实置位** 时才成功并清该标志，未允许就留在本态继续等。
+    - **恢复期间的临时挂起**（`SciPortIsTxResetLoss()` 为假）：端口层排空后自行解除（TX 服务在 `bTxResetLoss == 0` 时清 `bTxSuspended`），协议层**不强行解冻、也不丢待发**，等它解除后再过 `SciPortIsTxIdle()`，让控制字节按 115200 发完。
 - `AppUpgradeAbort()` 也走同一条门（`AppModbusRestorePort()`），不再直接 `AppModbusReleasePort()`。
 - 诊断：`AppModbusBaudErrors(u16Port)` 暴露失败次数，上板时可用它确认是否出现过切速失败。
 
@@ -131,15 +133,17 @@
 | 同上 | `AppMbIsRequestPrefix()` / `AppMbIsTransferRequest()` | 只认"整帧恰好 6 字节"；`AppMbIsHandshake()` 转调后者 |
 | 同上 | `AppModbusRestoreBaud()` | 返回 1/0；成功才同步 `s_au32Baud[]`，失败累计 `u32BaudErrors` |
 | 同上 | `AppModbusRestorePort()` / `AppModbusBaudErrors()` | 升级结束后"切速成功才交还端口"的入口与诊断计数 |
-| 同上 | `AppMbDispatchFrame()` | F0 分流（先 `AppUpgradePrepare()`）；`WAIT_REQ` 下只认两种确定帧、回 8 字节；直连握手同样不再存尾部，交接传 `0, 0` |
+| 同上 | `AppMbDispatchFrame()` | F0 分流（先 `AppUpgradePrepare()`）；`WAIT_REQ` 与直连握手都只认整帧恰好 6 字节、回 8 字节，交接传 `0, 0` |
 | 同上 | `AppMbProtoService()` | "2b) 旧 ARM 兼容状态机"（F0 出环才切速、8 字节出环才交接、5 s 兜底）；第 1 步故障代次变化时若在 `F0_TX`/`REQ_TX` 则整段取消 |
 | `UserApp/Src/AppUpgrade.c` | `:33-52` | 新增 `s_u32UpBaud`、`AppUpBaudCode()`（≥115200→1152、≥38400→384、≥19200→192、否则 0） |
 | 同上 | `:67` | `AppUpWriteProgressCfg()` 写 `u16UpgradeBaud = AppUpBaudCode(s_u32UpBaud)`，删掉过时的"0 = 保持 38400" |
 | 同上 | `:98` / `:120` | `AppUpgradeStart()` 增 `Uint32 u32Baud` 形参并记录 |
-| 同上 | `AppUpgradeAbort()` | 改调 `AppModbusRestoreBaud(HW_SCI_ID_A, 19200)`，再交回 Modbus |
+| 同上 | `AppUpgradeAbort()` | 改调 `AppModbusRestorePort(APP_UP_PORT_INDEX, 19200)`：切速成功才交还端口，失败停在恢复态重试 |
 | 同上 | `AppUpgradePrepare()` | 握手许可 + 停机请求：`s_u16FlashReady`/`s_u16UpActive` 校验，首次调 `s_pfPause()` 并置 `s_u16StopRequested` |
 | 同上 | `AppUpgradeStart()` | 暂停改为"`s_u16StopRequested` 未置位才做一次" |
 | `UserApp/Inc/AppUpgrade.h` | `:27` | 同步新签名与注释 |
+| `Platform/Port/Inc/SciPort.h` / `Src/SciPort.c` | `:217` / `:1121` | 新增只读访问器 `SciPortIsTxResetLoss()`：区分"强制复位丢过内容"与"恢复期间临时挂起" |
+| `UserApp/Src/AppModbus.c` | `:689-703` | `RESTORE` 分支按 `SciPortIsTxResetLoss()` 分路：丢过内容才 `AppMbDropTx()`+`SciPortTxResume()`，临时挂起只等；之后统一过 `SciPortIsTxIdle()` 再切速 |
 | `Platform/Xmodem/Src/XmodemCore.c` | `:151` / `:322` | 删两个从未使用的局部变量，消掉 `#179-D`（与 BOOT 侧 `0bb7e09` 同一处置） |
 
 `XmodemCore.c` 只是告警清理，不改逻辑；此前 APP 侧一直带着这两条 `#179-D`。
@@ -158,17 +162,17 @@
 
 | 项目 | 生产态 `PORT_BENCH_TEST=0` | 测量态 `PORT_BENCH_TEST=1` |
 | --- | --- | --- |
-| `.out` | 1,032,776 B `aefbf65a…` | 1,050,736 B `9d6c2d91…` |
-| `.map` | 129,114 B | 133,682 B |
-| `.text` | `0x65C2`（26,050 字） | `0x6941`（26,945 字） |
-| `FLASH_APP` 用/余 | `0x8683` / `0x1197B` | `0x89FC` / `0x11602` |
+| `.out` | 1,033,256 B `2492de6a…` | 1,051,224 B `4cca24e9…` |
+| `.map` | 129,162 B | 133,794 B |
+| `.text` | `0x65D9`（26,073 字） | `0x6958`（26,968 字） |
+| `FLASH_APP` 用/余 | `0x8699` / `0x11965` | `0x8A13` / `0x115EB` |
 | `RAMGS0` 余 | 4 字 | 3 字 |
 | `RAMGS1` 用/余 | `0x0AA8` / `0x158` | `0x0BD8` / `0x28` |
-| `.bin` | 68,932 B `8ef83236…` | 70,708 B `e1e7476c…` |
-| `_UpgradeCRC32.bin` | 68,964 B `07e1d842…`，头部 `FileSize 0x10D44`、`CRC32 0x832B15B2` | 70,740 B `a291ed75…`，头部 `FileSize 0x11434` |
+| `.bin` | 68,980 B `6ced274c…` | 70,740 B |
+| `_UpgradeCRC32.bin` | 69,012 B `2a4000f7…`，头部 `FileSize 0x10D74`、`CRC32 0x5EE9518B` | 70,772 B |
 
 - 编译单元 63 个、**0 错误 0 告警**；`.out` 在相同源码下两次构建 sha256 一致（`.map` 每次不同，与既往结论一致）。
-- 与 r3（`.out` 1,032,588 B、`.bin` 68,884 B、升级包 68,916 B）相比：`.text` +24 字、`.bin` +48 B——r4 只在恢复态加了发送门控（`SciPortIsTxSuspended`/`SciPortTxResume`/`SciPortIsTxIdle`）。
+- 与 r4（`.out` 1,032,776 B、`.bin` 68,932 B、升级包 68,964 B）相比：`.text` +23 字、`.bin` +48 B——r5 把挂起拆成"强制复位丢过内容"与"临时挂起"两条路径，并新增只读访问器 `SciPortIsTxResetLoss()`。
 - 一次测量态构建触发过 cl2000 内部错误（`acia2000.exe` 段错误，指向 `Platform/Xmodem/Inc/XmodemTimeOut.h:6`），立即重试即通过；同一源码此后构建稳定，判为编译器偶发，不是源码问题。
 
 ## 7 板测验收（抓包）
@@ -179,12 +183,13 @@
 2. **切速时机**：确认 `F0` 的 5 字节应答在波特率变化**之前**完整发出（示波器或串口分析仪看最后一字节的位宽），DSP 侧对应"应答出环才切速"。
 3. **`'C'` 时序**：确认 `'C'` 出现在备份区四个扇区擦完之后；人为让擦除失败一次，确认没有 `'C'` 且串口回到 19200、Modbus 可应答。
 4. **首包一致性**：抓首包数据区的 32 字节头与文件前 32 字节比对，并确认 `FileSize`/`CRC32` 与 `_UpgradeCRC32.bin` 头一致。
-   - 当前构建：正文 68,932 B，头部 `FileSize` 应为 **`0x10D44`**；升级包 68,964 B（`0x10D64`）= 正文 + 32 字节头，`CRC32 = 0x832B15B2`（头部第 6..9 字节，小端）。
+   - 当前构建：正文 68,980 B，头部 `FileSize` 应为 **`0x10D74`**；升级包 69,012 B = 正文 + 32 字节头，`CRC32 = 0x5EE9518B`（头部第 6..9 字节，小端）。
    - 本次仓库未附升级包，板测以实际发出的文件头为准（正文大小随构建变化，`FileSize` 必须等于正文长度）。
 5. **掉电/超时回退**：115200 上不发 `01 10`，确认 5 s 后回到 19200；升级中途 CAN，确认回到 19200 且功率输出保持关闭。
 6. **恢复门控**：升级失败后确认 19200 的 Modbus 恢复应答；`AppModbusBaudErrors(0)` 为 0 只说明**本次没有记录到切速调用失败**，不能单独作为"已切回 19200"的证据。
    - 若 19200 无应答、且波特率错误计数没增加：先确认是否仍停在 `RESTORE`，再区分两种情形——
-     - **发送冻结未解除**：`SciPortIsTxSuspended()` 仍为真（`SciPortTxResume()` 一直失败，通常是 RX 未回到 `SCI_RX_IDLE` 或 reset-loss 尚未清掉），此时根本没走到切速那一步；
+     - **强制复位后的冻结未解除**：`SciPortIsTxSuspended()` 与 `SciPortIsTxResetLoss()` 同时为真，`SciPortTxResume()` 要等 RX 回到 `SCI_RX_IDLE` 才成功，此时根本没走到切速那一步；
+     - **临时挂起未自行解除**：`SciPortIsTxSuspended()` 为真但 `SciPortIsTxResetLoss()` 为假，端口层排空后会自己解除，期间协议层只是等；
      - **TX 尚未空闲**：冻结已解除但 `SciPortIsTxIdle()` 仍为假，最后一个字节还在环/FIFO/移位寄存器里。
      这两种都在等，计数自然是 0；只有走过门控、真正调用 `Hw_SciSetBaud()` 失败时计数才会增长。
    - **正常取消**：要求看到实际发出的最后一个 NAK/CAN 以 **115200** 完整发完（含停止位），随后 19200 上一条普通 Modbus 请求得到正确应答。
@@ -193,6 +198,7 @@
      - `AppModbusBaudErrors(0)`：只累计 `Hw_SciSetBaud()` 调用失败；停在"等发送空闲"期间它一直是 0，所以为 0 **不等于**已经切回 19200，要连同"Modbus 是否恢复应答"一起判断。
      - `AppModbusTxDropped(0)`：只累计协议层丢掉的待发回复（`AppMbDropTx()`，且仅在确有 `u16TxLen` 或 `bArmPending` 时才加一）。
      - `SciPortTxResetDrop(HW_SCI_ID_A)`：端口层因强制复位实际清掉的 TX 字节数，与上面两个互不重叠。
+   - 相关只读访问器：`SciPortIsTxSuspended()`（是否挂起）、`SciPortIsTxResetLoss()`（挂起是否因强制复位丢过内容）、`SciPortIsTxIdle()`（是否可切速）。
 
 ## 8 未覆盖与风险
 

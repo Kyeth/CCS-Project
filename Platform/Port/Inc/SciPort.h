@@ -212,6 +212,9 @@ Uint32 SciPortTimeSrcFail(Uint16 u16PortId);
 /* 发送侧：恢复期间挂起，强制复位后保持冻结，直到协议层确认。
  * SciPortTxResume() 只在 IDLE 且确实发生过强制复位丢弃时解除冻结。 */
 Uint16 SciPortIsTxSuspended(Uint16 u16PortId);
+/** 1 = 挂起的原因是强制复位丢过 TX 内容（需协议层裁定后才能解冻）；
+ *  0 = 只是恢复期间的临时挂起，端口层排空后会自行解除。 */
+Uint16 SciPortIsTxResetLoss(Uint16 u16PortId);
 Uint16 SciPortTxResume(Uint16 u16PortId);
 Uint16 SciPortTxResetQueue(Uint16 u16PortId);
 Uint32 SciPortTxResetDrop(Uint16 u16PortId);

@@ -1118,6 +1118,13 @@ Uint16 SciPortIsTxSuspended(Uint16 u16PortId)
     return (p == (ST_SCI_PORT *)0) ? 1U : p->bTxSuspended;
 }
 
+Uint16 SciPortIsTxResetLoss(Uint16 u16PortId)
+{
+    ST_SCI_PORT *p = SciPortFind(u16PortId);
+
+    return (p == (ST_SCI_PORT *)0) ? 0U : p->bTxResetLoss;
+}
+
 Uint16 SciPortIsTxIdle(Uint16 u16PortId)
 {
     ST_SCI_PORT *p = SciPortFind(u16PortId);
