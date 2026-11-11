@@ -683,6 +683,21 @@ static Uint16 AppMbProtoService(ST_PROTO_INSTANCE *pstInst)
         Uint16 u16PortIdx = (Uint16)(pstPort - &s_astPort[0]);
 
         if (pstPort->u16Legacy == APP_MB_LEGACY_RESTORE) {
+            /* 切回 19200 之前必须确认最后一条控制字节（NAK/CAN/ACK）已经按 115200
+             * 发完：它还留在发送环、FIFO 或移位寄存器里的话，切速之后这些字节会以
+             * 19200 的位宽上线，主站收到的是一条半截帧，比丢掉它更难查。 */
+            if (SciPortIsTxSuspended(u16SciId) != 0U) {
+                /* 发送侧被强制复位后冻住：旧数据已经作废，明确丢掉并等端口允许恢复 */
+                AppMbDropTx(pstPort);
+                if (SciPortTxResume(u16SciId) == 0U) {
+                    return 1U;
+                }
+            }
+
+            if (SciPortIsTxIdle(u16SciId) == 0U) {
+                return 1U;
+            }
+
             /* 恢复 19200 成功才算收尾完成：失败说明硬件可能还在 115200，此时把端口
              * 还给 Modbus 会让主站按 19200 发来的帧永远收不到，所以逐轮重试。 */
             if (AppModbusRestoreBaud(u16SciId, pstPort->u32RestoreBaud) == 0U) {
