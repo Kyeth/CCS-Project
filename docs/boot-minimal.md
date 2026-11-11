@@ -204,6 +204,12 @@ APP 侧接线（APP 工程）：8 字节握手应答 → 擦备份区并写"接�
 | 3 | 安装与自升级收尾 | Type=1 回拷后校验新 APP 入口，成功后清配置 + 擦备份区再跳；Type=2 回拷与目标校验通过后清备份再复位，`EraseBackUpBank()` 转入 `.flashfunc` |
 | 4 | ARM 自身升级通知 | SCIA 19200 上 `F0 00 12 07 08` → `F0 00 12 09 0A`；APP 关驱动 + 应答，BOOT 只应答 |
 
+**切速时序**（`BootHsDrainDone()`）：切速前先在本速率下把接收环排空，再调 `Hw_SciSetBaud()`。
+`SciPortResync()` 会让端口进入丢弃阶段（`SCI_RX_SW_RESYNC`），只有某一轮 `SciPortPopBatch()`
+读到空才回 `SCI_RX_IDLE`；如果先切速再重同步，ARM 收完 `F0` 应答立刻切 115200 发来的首帧会
+被当成"19200 残留"一起丢掉。排空有 100 ms 上限（`BOOT_HS_DRAIN_MS`）：对端持续发送（取消时）
+就带着残留切速，交给 `BootHsTrim()` 的滑动匹配兜底。`RESTORE` 分支同样先排空再切回 19200。
+
 **握手状态机**（`BOOT_HS_*`，全部在 Flash 里跑，握手期间不擦写 Flash）：
 
 | 阶段 | BOOT 行为 |
@@ -271,11 +277,11 @@ python tools/build_minimal.py --cgt C:/Users/86130/Downloads/ti-cgt-c2000_22.6.2
 
 | 产物 | CCS 11.1 Debug | 命令行 |
 | --- | --- | --- |
-| `.out` | 675,260 B `6495ccc1…` | 678,860 B `032e94a0…` |
+| `.out` | 675,916 B `2b5946f7…` | 679,520 B `3c410eea…` |
 | `.map` | 85,139 B | 82,638 B |
-| `.hex` | 78,852 B `9aeb2856…` | 78,852 B `850cf154…` |
-| `.bin`（烧录） | 32,788 B `9aaeff3d…` | 32,788 B `7f4c1e55…` |
-| `_UpgradeCRC32.bin` | 32,820 B `87ba416c…`，CRC32 `0x1B72A5F7` | 32,820 B `714f6b3b…`，CRC32 `0x12FF229F` |
+| `.hex` | 79,152 B `1f7d1152…` | 79,152 B `0024aa0e…` |
+| `.bin`（烧录） | 32,900 B `9bb1025d…` | 32,900 B `141728e6…` |
+| `_UpgradeCRC32.bin` | 32,932 B `f8975a49…`，正文 32,900 B、CRC32 `0xA3B9266E` | 32,932 B `f2f60f43…`，正文 32,900 B、CRC32 `0x471AF817` |
 
 CCS Debug 的一套产物同时登记在 `artifacts/boot-v1/`（`.gitignore` 对这些文件开了
 例外，其余构建输出仍然忽略），可直接取用烧录文件与升级 BIN。
@@ -284,26 +290,26 @@ CCS Debug 的一套产物同时登记在 `artifacts/boot-v1/`（`.gitignore` 对
 `.hex`、`.bin`、升级 BIN 在各自路线内可复现（命令行路线连续两次构建，四个产物的
 sha256 完全一致）。
 
-两份 `.bin` 大小相同（32,788 B）、只差 **5 个字节**，全部是内嵌 `__FILE__` 字符串里的
-`\` 与 `/`（driverlib `ASSERT` 宏），因此两份升级 BIN 的 CRC32 不同（`0x1B72A5F7` 与 `0x12FF229F`）。属**实施方核对记录**，未做独立复现，不作为验收依据。
+两份 `.bin` 大小相同（32,900 B）、只差 **5 个字节**，全部是内嵌 `__FILE__` 字符串里的
+`\` 与 `/`（driverlib `ASSERT` 宏），因此两份升级 BIN 的 CRC32 不同（`0xA3B9266E` 与 `0x471AF817`）。属**实施方核对记录**，未做独立复现，不作为验收依据。
 
 内存（两份 map 完全一致）：
 
 | 区 | 用 | 余 |
 | --- | --- | --- |
-| `FLASH_BOOT`（0x080002，0x5FFE 字） | `0x3FF1` | `0x200D` |
+| `FLASH_BOOT`（0x080002，0x5FFE 字） | `0x402F` | `0x1FCF` |
 | `RAMD0`（`.TI.ramfunc`） | `0x00C3` | `0x073D` |
-| `RAMGS0`（`.bss`） | `0x098A` | `0x0676` |
+| `RAMGS0`（`.bss`） | `0x098E` | `0x0672` |
 | `RAMGS1` | `0x000C` | `0x0BF4` |
 | `RAMGS2`（`.upybuf`） | `0x0840` | `0x07C0` |
 | `RAMGS3`（`.flashfunc` 运行区） | `0x0AB0` | `0x0550` |
 
-关键符号落位：`codestart` @ `0x080000`、`.flashfunc` LOAD `0x083190`（`0xAB0` 字）
+关键符号落位：`codestart` @ `0x080000`、`.flashfunc` LOAD `0x0831C8`（`0xAB0` 字）
 RUN `0x00F000`——其中 `FlashFeedWatchDog` @ `0x00F79F`、`FlashForceReset` @ `0x00F7A9`、
 `FlashWaitReady` @ `0x00F7D9`、`EraseBackUpBank` @ `0x00F931`、`EraseBootBank` @ `0x00F952`、
 `VerifyBootArea` @ `0x00F96B`、`StallAfterBootErase` @ `0x00F983`、`CopyBootFirmware` @ `0x00FA4A`
-（`EraseBootBank` 的调用点在 `0x00F9C8`，`EraseBackUpBank` 的在 `0x00F9D8`）。范围利用率 66.7%
-（32,788 / 49,152 字节）。
+（`EraseBootBank` 的调用点在 `0x00F9C8`，`EraseBackUpBank` 的在 `0x00F9D8`）。范围利用率 66.9%
+（32,900 / 49,152 字节）。
 
 编译告警 **0 条**（CCS Debug、CCS Release、命令行三条路线实测）。
 
@@ -358,10 +364,12 @@ Project → Clean 后重新 Build（或直接删掉那两条）才会消失；�
     应回 `F0 00 12 09 0A`，驱动保持关闭、波特率仍是 19200（抓位宽确认）、不擦写不复位；
     紧接着发 `F0 00 12 03 04`，确认仍能进入 DSP 救援流程（回 `F0 00 12 05 06` → 切 115200）。
 17. **切速时序（紧跟应答）**：ARM 收完 `F0 00 12 05 06` 的最后一个停止位就立刻切到 115200
-    发第二次握手（不留间隔），确认 `SciPortResync()` 的排空窗口没有把 `01 10 04 38 00 02`
-    的首字节吞掉——BOOT 必须照常回 8 字节应答并进入擦除与 `'C'`。同一条时序也要在 APP 侧跑一遍。
-    这一条与"115200 上不发第二次握手 → 5 s 超时回 19200"都通过之后，才用生产态 APP 包跑完整
-    Type=1 救援（第 2、3 条）。
+    发第二次握手（不留间隔），确认排空窗口没有把 `01 10 04 38 00 02` 的首字节吞掉——BOOT
+    必须照常回 8 字节应答并进入擦除与 `'C'`。实现上排空放在切速**之前**（`BootHsDrainDone()`），
+    所以哪怕抓包看到 115200 的首字节紧贴应答尾部，也不该丢帧；若仍丢帧，先查
+    `SciPortRxState()` 是否卡在 `SCI_RX_SW_RESYNC`（说明有字节持续在流）。同一条时序也要在
+    APP 侧跑一遍。这一条与"115200 上不发第二次握手 → 5 s 超时回 19200"都通过之后，才用生产态
+    APP 包跑完整 Type=1 救援（第 2、3 条）。
 
 ---
 

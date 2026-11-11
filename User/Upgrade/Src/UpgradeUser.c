@@ -321,6 +321,7 @@ static Uint16 StartReceiveFromBoot(Uint16 u16BaudCfg)
 #define BOOT_HS_WAIT_MS       (5000UL)
 /* "接收中"配置里的速率编码是 x100，115200 即 1152 */
 #define BOOT_HS_BAUD_CFG      (1152U)
+#define BOOT_HS_DRAIN_MS      (100UL)     /* 切速前排空接收环的最长等待 */
 
 #define BOOT_HS_STOPPED  (0xFFU)  /* 未启用：交给 TaskUpgrade() 或已跳 APP */
 #define BOOT_HS_IDLE     (0U)     /* 19200 等 F0 */
@@ -356,6 +357,8 @@ static const Uint16 s_au16HsReqReply[BOOT_HS_REPLY_LEN] =
 };
 
 static Uint16 s_u16HsState = BOOT_HS_STOPPED;
+static Uint16 s_u16HsDrain = 0U;            /* 0 = 本轮要发起重同步，1 = 正在排空 */
+static Uint32 s_u32HsDrainTick = 0UL;
 static Uint16 s_au16HsRx[BOOT_HS_RX_MAX];
 static Uint16 s_u16HsRxLen = 0U;
 static Uint32 s_u32HsTick = 0U;
@@ -453,11 +456,45 @@ static Uint16 BootHsSend(const Uint16 *pu16Src, Uint16 u16Len)
 }
 
 
+/* 切速之前先在本速率下把接收环排空。
+ *
+ * SciPortResync() 会让端口进入丢弃阶段（SW_RESYNC），只有某一轮读空才回 IDLE。
+ * 如果在切速之后才重同步，紧随其后的握手首帧会被当成"旧速率残留"一起丢掉——
+ * ARM 收完应答立刻切 115200 发请求时正好撞上这个窗口。所以先排空、再切速。
+ * 返回 1 = 可以切速。 */
+static Uint16 BootHsDrainDone(void)
+{
+    if (s_u16HsDrain == 0U)
+    {
+        SciPortResync(HW_SCI_ID_A);
+        s_u16HsDrain = 1U;
+        s_u32HsDrainTick = Hw_TimeBaseTicks();
+        return 0U;
+    }
+
+    if (SciPortRxState(HW_SCI_ID_A) == SCI_RX_IDLE)
+    {
+        s_u16HsDrain = 0U;
+        return 1U;
+    }
+
+    /* 对端还在连续发送（取消时尤其如此）：超时就带着残留切速，交给帧匹配兜底 */
+    if (Hw_TimeBaseElapsed(s_u32HsDrainTick) >= Hw_TimeBaseUsToTicks(BOOT_HS_DRAIN_MS * 1000UL))
+    {
+        s_u16HsDrain = 0U;
+        return 1U;
+    }
+
+    return 0U;
+}
+
+
 /* 进入收尾态：等控制字节按当前速率发完，再切回 19200 重新等 F0 */
 static void BootHsEnterRestore(void)
 {
     s_u16HsState = BOOT_HS_RESTORE;
     s_u16HsRxLen = 0U;
+    s_u16HsDrain = 0U;
 }
 
 
@@ -468,6 +505,7 @@ static void BootHsStart(void)
     (void)Hw_SciSetBaud(HW_SCI_ID_A, BOOT_HS_BAUD_NORMAL);
     SciPortResync(HW_SCI_ID_A);
     s_u16HsRxLen = 0U;
+    s_u16HsDrain = 0U;
     s_u16HsState = BOOT_HS_IDLE;
 }
 
@@ -498,12 +536,18 @@ void UpgradeUserHandshakeService(void)
             return;
         }
 
+        BootHsRead();           /* 排空要靠读推进 */
+
+        if (BootHsDrainDone() == 0U)
+        {
+            return;             /* 还在丢弃阶段：现在切速会把首帧当成残留 */
+        }
+
         if (Hw_SciSetBaud(HW_SCI_ID_A, BOOT_HS_BAUD_NORMAL) == 0U)
         {
             return;             /* 切不回去就逐轮重试，绝不在 115200 上等 F0 */
         }
 
-        SciPortResync(HW_SCI_ID_A);
         s_u16HsRxLen = 0U;
         s_u16HsState = BOOT_HS_IDLE;
         return;
@@ -516,13 +560,19 @@ void UpgradeUserHandshakeService(void)
             return;             /* 应答还在环/FIFO/移位寄存器里 */
         }
 
+        BootHsRead();                   /* 排空要靠读推进 */
+
+        if (BootHsDrainDone() == 0U)
+        {
+            return;                     /* 先把 19200 的残留丢干净再切速 */
+        }
+
         if (Hw_SciSetBaud(HW_SCI_ID_A, BOOT_HS_BAUD_UPGRADE) == 0U)
         {
             BootHsEnterRestore();
             return;
         }
 
-        SciPortResync(HW_SCI_ID_A);     /* 丢掉 19200 上的残留 */
         s_u16HsRxLen = 0U;
         s_u32HsTick = Hw_TimeBaseTicks();
         s_u16HsState = BOOT_HS_WAIT_REQ;
