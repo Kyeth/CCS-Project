@@ -1,10 +1,10 @@
 ******************************************************************************
              TMS320C2000 Linker PC v22.6.2                     
 ******************************************************************************
->> Linked Wed Nov 11 18:35:00 2026
+>> Linked Thu Nov 12 09:30:12 2026
 
 OUTPUT FILE NAME:   <EP15K_BOOT.out>
-ENTRY POINT SYMBOL: "_c_int00"  address: 000830a3
+ENTRY POINT SYMBOL: "_c_int00"  address: 000830aa
 
 
 MEMORY CONFIGURATION
@@ -16,7 +16,7 @@ PAGE 0:
   RAMD0                 0000b000   00000800  000000c3  0000073d  RWIX
   RAMGS3_RUN            0000f000   00001000  00000ab0  00000550  RWIX
   BEGIN                 00080000   00000002  00000002  00000000  RWIX
-  FLASH_BOOT            00080002   00005ffe  00004042  00001fbc  RWIX
+  FLASH_BOOT            00080002   00005ffe  0000404a  00001fb4  RWIX
   FLASH_APP_RSVD        00086000   0001a000  00000000  0001a000  RWIX
   FLASH_BACKUP_RSVD     000a0000   0001a000  00000000  0001a000  RWIX
   FLASH_SPARE_RSVD      000ba000   00004000  00000000  00004000  RWIX
@@ -150,56 +150,56 @@ codestart
 *          0    00080000    00000002     
                   00080000    00000002     F2837xS_CodeStartBranch.obj (codestart)
 
-.cinit     0    00083ff0    0000006a     
-                  00083ff0    00000037     (.cinit..data.load) [load image, compression = lzss]
-                  00084027    00000001     --HOLE-- [fill = 0]
-                  00084028    00000006     (__TI_handler_table)
-                  0008402e    00000004     (.cinit..bss.load) [load image, compression = zero_init]
-                  00084032    00000004     (.cinit..portbuf.load) [load image, compression = zero_init]
-                  00084036    00000004     (.cinit..portstat.load) [load image, compression = zero_init]
-                  0008403a    00000004     (.cinit..upybuf.load) [load image, compression = zero_init]
-                  0008403e    00000004     (.cinit.PieVectTableFile.load) [load image, compression = zero_init]
-                  00084042    00000018     (__TI_cinit_table)
+.cinit     0    00083ff8    0000006a     
+                  00083ff8    00000037     (.cinit..data.load) [load image, compression = lzss]
+                  0008402f    00000001     --HOLE-- [fill = 0]
+                  00084030    00000006     (__TI_handler_table)
+                  00084036    00000004     (.cinit..bss.load) [load image, compression = zero_init]
+                  0008403a    00000004     (.cinit..portbuf.load) [load image, compression = zero_init]
+                  0008403e    00000004     (.cinit..portstat.load) [load image, compression = zero_init]
+                  00084042    00000004     (.cinit..upybuf.load) [load image, compression = zero_init]
+                  00084046    00000004     (.cinit.PieVectTableFile.load) [load image, compression = zero_init]
+                  0008404a    00000018     (__TI_cinit_table)
 
 .init_array 
 *          0    00080008    00000000     UNINITIALIZED
 
 .TI.ramfunc 
-*          0    00083118    000000c3     RUN ADDR = 0000b000
-                  00083118    00000078     F2837xS_SysCtrl.obj (.TI.ramfunc)
-                  00083190    00000031     Dsp2837xSFlash.obj (.TI.ramfunc)
-                  000831c1    0000001a     Hw_GpioDriver.obj (.TI.ramfunc)
+*          0    00083120    000000c3     RUN ADDR = 0000b000
+                  00083120    00000078     F2837xS_SysCtrl.obj (.TI.ramfunc)
+                  00083198    00000031     Dsp2837xSFlash.obj (.TI.ramfunc)
+                  000831c9    0000001a     Hw_GpioDriver.obj (.TI.ramfunc)
 
 .flashfunc 
-*          0    000831e0    00000ab0     RUN ADDR = 0000f000
-                  000831e0    000002d3     F021_API_F2837xS_FPU32_EABI.lib : FlashStateMachine.obj (.text:_Fapi_setupFlashStateMachine)
-                  000834b3    0000019c                                     : Program.obj (.text:Fapi_issueProgrammingCommand)
-                  0008364f    00000081                                     : Read.obj (.text:_Fapi_loopRegionForValue)
-                  000836d0    0000005e                                     : Init.obj (.text:Fapi_initializeAPI)
-                  0008372e    00000046                                     : FlashStateMachine.obj (.text:_Fapi_issueFsmCommand)
-                  00083774    0000003c                                     : BlankCheck.obj (.text:Fapi_doBlankCheck)
-                  000837b0    00000036                                     : FlashStateMachine.obj (.text:Fapi_isAddressEcc)
-                  000837e6    00000031                                     : Read.obj (.text:_Fapi_checkRegionForValue)
-                  00083817    00000030                                     : FlashStateMachine.obj (.text:Fapi_setupBankSectorEnable)
-                  00083847    0000002c                                     : Utilities.obj (.text:Fapi_calculateFletcherChecksum)
-                  00083873    0000002a                                     : Utilities.obj (.text:_Fapi_divideUnsignedLong)
-                  0008389d    00000024                                     : FlashStateMachine.obj (.text:Fapi_setActiveFlashBank)
-                  000838c1    00000023                                     : Read.obj (.text:Fapi_flushPipeline)
-                  000838e4    00000022                                     : Async.obj (.text:Fapi_issueAsyncCommandWithAddress)
-                  00083906    0000001c                                     : FlashStateMachine.obj (.text:_Fapi_setupSectorsForWrite)
-                  00083922    00000019                                     : Verify.obj (.text:Fapi_doVerify)
-                  0008393b    0000000e                                     : Utilities.obj (.text:_Fapi_scaleCycleValues)
-                  00083949    00000001     --HOLE-- [fill = 0]
-                  0008394a    0000000c                                     : Init.obj (.bss) [fill = 0]
-                  00083956    0000000c                                     : Async.obj (.text:Fapi_issueAsyncCommand)
-                  00083962    0000000b                                     : FlashStateMachine.obj (.text:Fapi_checkFsmForReady)
-                  0008396d    0000000b                                     : Utilities.obj (.text:_Fapi_calculateOtpChecksum)
-                  00083978    00000007                                     : FlashStateMachine.obj (.text:Fapi_getFsmStatus)
-                  0008397f    00000192     Dsp2837xSFlash.obj (.flashfunc)
-                  00083b11    000000b4     UpgradeUser.obj (.flashfunc)
-                  00083bc5    00000065     DspUpgradeCrc.obj (.flashfunc)
-                  00083c2a    0000005c     UpgradeCore.obj (.flashfunc)
-                  00083c86    0000000a     Fapi_UserDefinedFunctions.obj (.flashfunc)
+*          0    000831e8    00000ab0     RUN ADDR = 0000f000
+                  000831e8    000002d3     F021_API_F2837xS_FPU32_EABI.lib : FlashStateMachine.obj (.text:_Fapi_setupFlashStateMachine)
+                  000834bb    0000019c                                     : Program.obj (.text:Fapi_issueProgrammingCommand)
+                  00083657    00000081                                     : Read.obj (.text:_Fapi_loopRegionForValue)
+                  000836d8    0000005e                                     : Init.obj (.text:Fapi_initializeAPI)
+                  00083736    00000046                                     : FlashStateMachine.obj (.text:_Fapi_issueFsmCommand)
+                  0008377c    0000003c                                     : BlankCheck.obj (.text:Fapi_doBlankCheck)
+                  000837b8    00000036                                     : FlashStateMachine.obj (.text:Fapi_isAddressEcc)
+                  000837ee    00000031                                     : Read.obj (.text:_Fapi_checkRegionForValue)
+                  0008381f    00000030                                     : FlashStateMachine.obj (.text:Fapi_setupBankSectorEnable)
+                  0008384f    0000002c                                     : Utilities.obj (.text:Fapi_calculateFletcherChecksum)
+                  0008387b    0000002a                                     : Utilities.obj (.text:_Fapi_divideUnsignedLong)
+                  000838a5    00000024                                     : FlashStateMachine.obj (.text:Fapi_setActiveFlashBank)
+                  000838c9    00000023                                     : Read.obj (.text:Fapi_flushPipeline)
+                  000838ec    00000022                                     : Async.obj (.text:Fapi_issueAsyncCommandWithAddress)
+                  0008390e    0000001c                                     : FlashStateMachine.obj (.text:_Fapi_setupSectorsForWrite)
+                  0008392a    00000019                                     : Verify.obj (.text:Fapi_doVerify)
+                  00083943    0000000e                                     : Utilities.obj (.text:_Fapi_scaleCycleValues)
+                  00083951    00000001     --HOLE-- [fill = 0]
+                  00083952    0000000c                                     : Init.obj (.bss) [fill = 0]
+                  0008395e    0000000c                                     : Async.obj (.text:Fapi_issueAsyncCommand)
+                  0008396a    0000000b                                     : FlashStateMachine.obj (.text:Fapi_checkFsmForReady)
+                  00083975    0000000b                                     : Utilities.obj (.text:_Fapi_calculateOtpChecksum)
+                  00083980    00000007                                     : FlashStateMachine.obj (.text:Fapi_getFsmStatus)
+                  00083987    00000192     Dsp2837xSFlash.obj (.flashfunc)
+                  00083b19    000000b4     UpgradeUser.obj (.flashfunc)
+                  00083bcd    00000065     DspUpgradeCrc.obj (.flashfunc)
+                  00083c32    0000005c     UpgradeCore.obj (.flashfunc)
+                  00083c8e    0000000a     Fapi_UserDefinedFunctions.obj (.flashfunc)
 
 .reset     0    003fffc0    00000000     DSECT
 
@@ -329,65 +329,68 @@ WdRegsFile
 *          1    00007000    0000002b     UNINITIALIZED
                   00007000    0000002b     F2837xS_GlobalVariableDefs.obj (WdRegsFile)
 
-.text      0    00080008    0000310b     
+.text      0    00080008    00003112     
                   00080008    00000a90     SciPort.obj (.text)
                   00080a98    0000069f     XmodemCore.obj (.text)
                   00081137    00000585     F2837xS_DefaultISR.obj (.text:retain)
                   000816bc    0000049e     F2837xS_SysCtrl.obj (.text)
-                  00081b5a    0000045c     UpgradeUser.obj (.text)
-                  00081fb6    000002fa     Hw_SciDriver.obj (.text)
-                  000822b0    00000240     F2837xS_Gpio.obj (.text)
-                  000824f0    000001dd     RingBuff.obj (.text)
-                  000826cd    00000199     PortTask.obj (.text)
-                  00082866    0000013f     Hw_GpioDriver.obj (.text)
-                  000829a5    0000012e     UpgradeCore.obj (.text)
-                  00082ad3    000000f6     XmodemTramsport.obj (.text)
-                  00082bc9    000000e7     Hw_CpuTimerDriver.obj (.text)
-                  00082cb0    000000b6     Hw_TimeBase.obj (.text)
-                  00082d66    000000af     main.obj (.text)
-                  00082e15    00000060     Hw_ClockDriver.obj (.text)
-                  00082e75    00000060     XmodemDataHandle.obj (.text)
-                  00082ed5    00000058     XmodemTimeOut.obj (.text)
-                  00082f2d    00000034     XmodemSlaveProcess.obj (.text)
-                  00082f61    00000034     main.obj (.text:retain)
-                  00082f95    0000002e     rts2800_fpu32_eabi.lib : copy_decompress_lzss.c.obj (.text:decompress:lzss)
-                  00082fc3    0000002b                            : autoinit.c.obj (.text:__TI_auto_init_nobinit_nopinit)
-                  00082fee    00000029                            : exit.c.obj (.text)
-                  00083017    00000028     F2837xS_PieCtrl.obj (.text)
-                  0008303f    00000026     F2837xS_PieVect.obj (.text)
-                  00083065    00000021     Dsp2837xSFlash.obj (.text)
-                  00083086    0000001d     rts2800_fpu32_eabi.lib : memcpy.c.obj (.text)
-                  000830a3    00000017                            : boot28.asm.obj (.text)
-                  000830ba    0000000f     Hw_WatchDog.obj (.text)
-                  000830c9    0000000c     rts2800_fpu32_eabi.lib : args_main.c.obj (.text)
-                  000830d5    0000000b                            : u_div28.asm.obj (.text)
-                  000830e0    0000000a     PortCritical.obj (.text)
-                  000830ea    00000009     rts2800_fpu32_eabi.lib : _lock.c.obj (.text)
-                  000830f3    00000008     F2837xS_CodeStartBranch.obj (.text)
-                  000830fb    00000008     rts2800_fpu32_eabi.lib : copy_decompress_none.c.obj (.text:decompress:none)
-                  00083103    00000007                            : memset.c.obj (.text)
-                  0008310a    00000006                            : copy_zero_init.c.obj (.text:decompress:ZI)
-                  00083110    00000002                            : pre_init.c.obj (.text)
-                  00083112    00000001                            : startup.c.obj (.text)
+                  00081b5a    00000463     UpgradeUser.obj (.text)
+                  00081fbd    000002fa     Hw_SciDriver.obj (.text)
+                  000822b7    00000240     F2837xS_Gpio.obj (.text)
+                  000824f7    000001dd     RingBuff.obj (.text)
+                  000826d4    00000199     PortTask.obj (.text)
+                  0008286d    0000013f     Hw_GpioDriver.obj (.text)
+                  000829ac    0000012e     UpgradeCore.obj (.text)
+                  00082ada    000000f6     XmodemTramsport.obj (.text)
+                  00082bd0    000000e7     Hw_CpuTimerDriver.obj (.text)
+                  00082cb7    000000b6     Hw_TimeBase.obj (.text)
+                  00082d6d    000000af     main.obj (.text)
+                  00082e1c    00000060     Hw_ClockDriver.obj (.text)
+                  00082e7c    00000060     XmodemDataHandle.obj (.text)
+                  00082edc    00000058     XmodemTimeOut.obj (.text)
+                  00082f34    00000034     XmodemSlaveProcess.obj (.text)
+                  00082f68    00000034     main.obj (.text:retain)
+                  00082f9c    0000002e     rts2800_fpu32_eabi.lib : copy_decompress_lzss.c.obj (.text:decompress:lzss)
+                  00082fca    0000002b                            : autoinit.c.obj (.text:__TI_auto_init_nobinit_nopinit)
+                  00082ff5    00000029                            : exit.c.obj (.text)
+                  0008301e    00000028     F2837xS_PieCtrl.obj (.text)
+                  00083046    00000026     F2837xS_PieVect.obj (.text)
+                  0008306c    00000021     Dsp2837xSFlash.obj (.text)
+                  0008308d    0000001d     rts2800_fpu32_eabi.lib : memcpy.c.obj (.text)
+                  000830aa    00000017                            : boot28.asm.obj (.text)
+                  000830c1    0000000f     Hw_WatchDog.obj (.text)
+                  000830d0    0000000c     rts2800_fpu32_eabi.lib : args_main.c.obj (.text)
+                  000830dc    0000000b                            : u_div28.asm.obj (.text)
+                  000830e7    0000000a     PortCritical.obj (.text)
+                  000830f1    00000009     rts2800_fpu32_eabi.lib : _lock.c.obj (.text)
+                  000830fa    00000008     F2837xS_CodeStartBranch.obj (.text)
+                  00083102    00000008     rts2800_fpu32_eabi.lib : copy_decompress_none.c.obj (.text:decompress:none)
+                  0008310a    00000007                            : memset.c.obj (.text)
+                  00083111    00000006                            : copy_zero_init.c.obj (.text:decompress:ZI)
+                  00083117    00000002                            : pre_init.c.obj (.text)
+                  00083119    00000001                            : startup.c.obj (.text)
 
-.const.1   0    00083c90    0000002e     
-                  00083c90    00000018     DrvCfg_EP15K.obj (.const:stSciCfgItem)
-                  00083ca8    0000000e     DrvCfg_EP15K.obj (.const)
-                  00083cb6    00000008     Hw_SciDriver.obj (.const:gSci)
+.const.1   0    00083c98    00000026     
+                  00083c98    00000018     DrvCfg_EP15K.obj (.const:stSciCfgItem)
+                  00083cb0    0000000e     DrvCfg_EP15K.obj (.const)
 
-.const.2   0    00083cc0    0000032c     
+.const.2   0    00083cc0    000002fe     
                   00083cc0    000001c0     F2837xS_PieVect.obj (.const)
                   00083e80    00000100     XmodemCore.obj (.const:crc16tab)
                   00083f80    00000035     Dsp2837xSFlash.obj (.const:.string)
-                  00083fb5    00000008     UpgradeUser.obj (.const:s_au16HsReqReply)
-                  00083fbd    00000003     PortTask.obj (.const:s_au16SciUnitPort)
+                  00083fb5    00000001     --HOLE-- [fill = 0]
+                  00083fb6    00000008     Hw_SciDriver.obj (.const:gSci)
+
+.const.3   0    00083fc0    00000037     
                   00083fc0    0000000c     SciPort.obj (.const)
-                  00083fcc    00000006     Hw_CpuTimerDriver.obj (.const:gCpuTimerRegs)
-                  00083fd2    00000006     UpgradeUser.obj (.const:s_au16HsReq)
-                  00083fd8    00000005     UpgradeUser.obj (.const:s_au16HsArmCmd)
-                  00083fdd    00000005     UpgradeUser.obj (.const:s_au16HsArmReply)
-                  00083fe2    00000005     UpgradeUser.obj (.const:s_au16HsUpCmd)
-                  00083fe7    00000005     UpgradeUser.obj (.const:s_au16HsUpReply)
+                  00083fcc    00000008     UpgradeUser.obj (.const:s_au16HsReqReply)
+                  00083fd4    00000006     Hw_CpuTimerDriver.obj (.const:gCpuTimerRegs)
+                  00083fda    00000006     UpgradeUser.obj (.const:s_au16HsReq)
+                  00083fe0    00000005     UpgradeUser.obj (.const:s_au16HsArmCmd)
+                  00083fe5    00000005     UpgradeUser.obj (.const:s_au16HsArmReply)
+                  00083fea    00000005     UpgradeUser.obj (.const:s_au16HsUpCmd)
+                  00083fef    00000005     UpgradeUser.obj (.const:s_au16HsUpReply)
+                  00083ff4    00000003     PortTask.obj (.const:s_au16SciUnitPort)
 
 .bss       1    0000c000    0000092b     UNINITIALIZED
                   0000c000    0000043e     XmodemSlaveProcess.obj (.bss)
@@ -475,9 +478,9 @@ MODULE SUMMARY
        Total:                           2125    256       1094   
                                                                  
     .\User\Upgrade\Src\
-       UpgradeUser.obj                  1476    34        52     
+       UpgradeUser.obj                  1483    34        52     
     +--+--------------------------------+-------+---------+---------+
-       Total:                           1476    34        52     
+       Total:                           1483    34        52     
                                                                  
     .\User\XmodemSlaveProcess\Src\
        XmodemSlaveProcess.obj           52      0         1086   
@@ -531,23 +534,23 @@ MODULE SUMMARY
        Stack:                           0       0         512    
        Linker Generated:                0       105       0      
     +--+--------------------------------+-------+---------+---------+
-       Grand Total:                     18393   963       8025   
+       Grand Total:                     18400   963       8025   
 
 
 LINKER GENERATED COPY TABLES
 
-__TI_cinit_table @ 00084042 records: 6, size/record: 4, table size: 24
-	.data: load addr=00083ff0, load size=00000037 bytes, run addr=0000c92c, run size=00000063 bytes, compression=lzss
-	.bss: load addr=0008402e, load size=00000004 bytes, run addr=0000c000, run size=0000092b bytes, compression=zero_init
-	.portbuf: load addr=00084032, load size=00000004 bytes, run addr=0000dc00, run size=00000180 bytes, compression=zero_init
-	.portstat: load addr=00084036, load size=00000004 bytes, run addr=0000d000, run size=0000000c bytes, compression=zero_init
-	.upybuf: load addr=0008403a, load size=00000004 bytes, run addr=0000e000, run size=00000840 bytes, compression=zero_init
-	PieVectTableFile: load addr=0008403e, load size=00000004 bytes, run addr=00000d00, run size=000001c0 bytes, compression=zero_init
+__TI_cinit_table @ 0008404a records: 6, size/record: 4, table size: 24
+	.data: load addr=00083ff8, load size=00000037 bytes, run addr=0000c92c, run size=00000063 bytes, compression=lzss
+	.bss: load addr=00084036, load size=00000004 bytes, run addr=0000c000, run size=0000092b bytes, compression=zero_init
+	.portbuf: load addr=0008403a, load size=00000004 bytes, run addr=0000dc00, run size=00000180 bytes, compression=zero_init
+	.portstat: load addr=0008403e, load size=00000004 bytes, run addr=0000d000, run size=0000000c bytes, compression=zero_init
+	.upybuf: load addr=00084042, load size=00000004 bytes, run addr=0000e000, run size=00000840 bytes, compression=zero_init
+	PieVectTableFile: load addr=00084046, load size=00000004 bytes, run addr=00000d00, run size=000001c0 bytes, compression=zero_init
 
 
 LINKER GENERATED HANDLER TABLE
 
-__TI_handler_table @ 00084028 records: 3, size/record: 2, table size: 6
+__TI_handler_table @ 00084030 records: 3, size/record: 2, table size: 6
 	index: 0, handler: __TI_zero_init
 	index: 1, handler: __TI_decompress_lzss
 	index: 2, handler: __TI_decompress_none
@@ -621,8 +624,8 @@ address     data page           name
 
 0005ff00    17fc (0005ff00)     Flash1EccRegs
 
-00083c90    20f2 (00083c80)     stSciCfgItem
-00083ca8    20f2 (00083c80)     stClockCfg
+00083c98    20f2 (00083c80)     stSciCfgItem
+00083cb0    20f2 (00083c80)     stClockCfg
 
 00083cc0    20f3 (00083cc0)     PieVectTableInit
 
@@ -656,7 +659,7 @@ page  address   name
 0     00081b17  AuxAuxClkSel                         
 0     00081b01  AuxIntOsc2Sel                        
 0     00081b0b  AuxXtalOscSel                        
-0     00082fee  C$$EXIT                              
+0     00082ff5  C$$EXIT                              
 0     00081443  CANA0_ISR                            
 0     0008144d  CANA1_ISR                            
 0     00081457  CANB0_ISR                            
@@ -671,10 +674,10 @@ page  address   name
 0     00081501  CLA1_8_ISR                           
 0     00081687  CLA_OVERFLOW_ISR                     
 0     00081691  CLA_UNDERFLOW_ISR                    
-0     00082a38  CalcUpgradeCfgSum                    
-0     00081e70  CheckUpgrade                         
+0     00082a3f  CalcUpgradeCfgSum                    
+0     00081e77  CheckUpgrade                         
 1     0005d200  ClkCfgRegs                           
-0     00082a77  CopyAppFirmware                      
+0     00082a7e  CopyAppFirmware                      
 0     0000fa4a  CopyBootFirmware                     
 1     0005d300  CpuSysRegs                           
 1     00000c00  CpuTimer0Regs                        
@@ -730,7 +733,7 @@ page  address   name
 0     00081321  EQEP1_ISR                            
 0     0008132b  EQEP2_ISR                            
 0     00081335  EQEP3_ISR                            
-0     00083036  EnableInterrupts                     
+0     0008303d  EnableInterrupts                     
 0     00081b88  EraseAppBank                         
 0     0000f931  EraseBackUpBank                      
 0     0000f952  EraseBootBank                        
@@ -764,60 +767,60 @@ page  address   name
 1     00050024  FlashPumpSemaphoreRegs               
 0     0000f7d3  FlashRestoreInt                      
 0     0000f7cf  FlashSaveInt                         
-0     0008307a  FlashSetStallOnTimeout               
-0     000824a5  GPIO_EnableUnbondedIOPullups         
-0     00082480  GPIO_EnableUnbondedIOPullupsFor100Pin
-0     00082467  GPIO_EnableUnbondedIOPullupsFor176Pin
-0     000824bb  GPIO_ReadPin                         
-0     0008240c  GPIO_SetupLock                       
-0     000822f0  GPIO_SetupPinMux                     
-0     00082378  GPIO_SetupPinOptions                 
-0     00082435  GPIO_SetupXINT1Gpio                  
-0     0008243f  GPIO_SetupXINT2Gpio                  
-0     00082449  GPIO_SetupXINT3Gpio                  
-0     00082453  GPIO_SetupXINT4Gpio                  
-0     0008245d  GPIO_SetupXINT5Gpio                  
-0     000824d2  GPIO_WritePin                        
-0     000829e1  GetUpgradeFirmwareFlag               
-0     000829d4  GetUpgradeFlag                       
+0     00083081  FlashSetStallOnTimeout               
+0     000824ac  GPIO_EnableUnbondedIOPullups         
+0     00082487  GPIO_EnableUnbondedIOPullupsFor100Pin
+0     0008246e  GPIO_EnableUnbondedIOPullupsFor176Pin
+0     000824c2  GPIO_ReadPin                         
+0     00082413  GPIO_SetupLock                       
+0     000822f7  GPIO_SetupPinMux                     
+0     0008237f  GPIO_SetupPinOptions                 
+0     0008243c  GPIO_SetupXINT1Gpio                  
+0     00082446  GPIO_SetupXINT2Gpio                  
+0     00082450  GPIO_SetupXINT3Gpio                  
+0     0008245a  GPIO_SetupXINT4Gpio                  
+0     00082464  GPIO_SetupXINT5Gpio                  
+0     000824d9  GPIO_WritePin                        
+0     000829e8  GetUpgradeFirmwareFlag               
+0     000829db  GetUpgradeFlag                       
 1     00007c00  GpioCtrlRegs                         
 1     00007f00  GpioDataRegs                         
 0     00081b35  HALT                                 
 0     00081b46  HIB                                  
-0     00082e15  Hw_ClockInit                         
-0     00082c82  Hw_CpuTimerClearIntFlag              
-0     00082c77  Hw_CpuTimerGetCount                  
-0     00082bdf  Hw_CpuTimerInit                      
-0     00082c8e  Hw_CpuTimerIsrTick                   
-0     00082c6b  Hw_CpuTimerReload                    
-0     00082c48  Hw_CpuTimerSetPeriod                 
-0     00082c30  Hw_CpuTimerStart                     
-0     00082c3c  Hw_CpuTimerStop                      
-0     000830ba  Hw_EnableWatchDog                    
-0     000830c6  Hw_FeedWatchDog                      
-0     0008297d  Hw_GpioClearPin                      
-0     00082939  Hw_GpioInit                          
-0     00082953  Hw_GpioReadPin                       
-0     00082969  Hw_GpioSetPin                        
-0     00082991  Hw_GpioTogglePin                     
+0     00082e1c  Hw_ClockInit                         
+0     00082c89  Hw_CpuTimerClearIntFlag              
+0     00082c7e  Hw_CpuTimerGetCount                  
+0     00082be6  Hw_CpuTimerInit                      
+0     00082c95  Hw_CpuTimerIsrTick                   
+0     00082c72  Hw_CpuTimerReload                    
+0     00082c4f  Hw_CpuTimerSetPeriod                 
+0     00082c37  Hw_CpuTimerStart                     
+0     00082c43  Hw_CpuTimerStop                      
+0     000830c1  Hw_EnableWatchDog                    
+0     000830cd  Hw_FeedWatchDog                      
+0     00082984  Hw_GpioClearPin                      
+0     00082940  Hw_GpioInit                          
+0     0008295a  Hw_GpioReadPin                       
+0     00082970  Hw_GpioSetPin                        
+0     00082998  Hw_GpioTogglePin                     
 0     0000b0a9  Hw_GpioWritePin                      
-0     0008218b  Hw_SciClearRxError                   
-0     00082252  Hw_SciGetRxError                     
-0     00082113  Hw_SciGetRxFifoLevel                 
-0     0008212d  Hw_SciGetRxStatus                    
-0     000820f9  Hw_SciGetTxFifoLevel                 
-0     00082214  Hw_SciGetTxIdle                      
-0     00081fb6  Hw_SciInit                           
-0     00082243  Hw_SciIsTxIdle                       
-0     00082266  Hw_SciSetBaud                        
-0     0008209a  Hw_SciTryReadByte                    
-0     000820c4  Hw_SciTryWriteByte                   
-0     0008292d  Hw_SingleGpioInit                    
-0     00082d38  Hw_TimeBaseElapsed                   
-0     00082cd1  Hw_TimeBaseInit                      
-0     00082d47  Hw_TimeBaseIsReady                   
-0     00082d2b  Hw_TimeBaseTicks                     
-0     00082d4b  Hw_TimeBaseUsToTicks                 
+0     00082192  Hw_SciClearRxError                   
+0     00082259  Hw_SciGetRxError                     
+0     0008211a  Hw_SciGetRxFifoLevel                 
+0     00082134  Hw_SciGetRxStatus                    
+0     00082100  Hw_SciGetTxFifoLevel                 
+0     0008221b  Hw_SciGetTxIdle                      
+0     00081fbd  Hw_SciInit                           
+0     0008224a  Hw_SciIsTxIdle                       
+0     0008226d  Hw_SciSetBaud                        
+0     000820a1  Hw_SciTryReadByte                    
+0     000820cb  Hw_SciTryWriteByte                   
+0     00082934  Hw_SingleGpioInit                    
+0     00082d3f  Hw_TimeBaseElapsed                   
+0     00082cd8  Hw_TimeBaseInit                      
+0     00082d4e  Hw_TimeBaseIsReady                   
+0     00082d32  Hw_TimeBaseTicks                     
+0     00082d52  Hw_TimeBaseUsToTicks                 
 0     000813d5  I2CA_FIFO_ISR                        
 0     000813cb  I2CA_ISR                             
 0     000813e9  I2CB_FIFO_ISR                        
@@ -831,14 +834,14 @@ page  address   name
 0     000819bd  InitAuxPll                           
 0     0000b000  InitFlash_Bank0                      
 0     0000b02e  InitFlash_Bank1                      
-0     000822b0  InitGpio                             
+0     000822b7  InitGpio                             
 0     000816f9  InitPeripheralClocks                 
-0     00083017  InitPieCtrl                          
-0     0008303f  InitPieVectTable                     
+0     0008301e  InitPieCtrl                          
+0     00083046  InitPieVectTable                     
 0     000816bc  InitSysCtrl                          
 0     000817cf  InitSysPll                           
 1     00007900  InputXbarRegs                        
-0     00082efe  IsTimeOut                            
+0     00082f05  IsTimeOut                            
 0     00081367  MCBSPA_RX_ISR                        
 0     00081371  MCBSPA_TX_ISR                        
 0     0008137b  MCBSPB_RX_ISR                        
@@ -850,51 +853,51 @@ page  address   name
 1     00000ce0  PieCtrlRegs                          
 1     00000d00  PieVectTable                         
 0     00083cc0  PieVectTableInit                     
-0     0008270b  PortBudgetActive                     
-0     000826f1  PortBudgetBegin                      
-0     00082705  PortBudgetEnd                        
-0     0008270f  PortBudgetFaulted                    
-0     00082717  PortBudgetHasLeft                    
-0     00082713  PortBudgetUnitStartTick              
-0     000830e0  PortEnterCriticalReal                
-0     000830e4  PortExitCriticalReal                 
-0     000827a4  PortTask                             
-0     0008283a  PortTaskBudgetTruncations            
-0     00082748  PortTaskInit                         
-0     00082832  PortTaskLastFirstUnit                
-0     0008282e  PortTaskLastUnit                     
-0     00082836  PortTaskLastUnits                    
-0     00082864  PortTaskRegister                     
-0     00082824  PortTaskRequest                      
-0     00082846  PortTaskRequestsMerged               
-0     00082817  PortTaskService                      
-0     00082842  PortTaskServiceCalls                 
-0     0008285a  PortTaskServiceFromHeartbeat         
-0     0008278d  PortTaskSetTimeSource                
-0     0008283e  PortTaskTimeSourceFailures           
-0     0008284a  PortTaskUnitMaxGapTicks              
-0     00082780  PortTaskUnitPortId                   
+0     00082712  PortBudgetActive                     
+0     000826f8  PortBudgetBegin                      
+0     0008270c  PortBudgetEnd                        
+0     00082716  PortBudgetFaulted                    
+0     0008271e  PortBudgetHasLeft                    
+0     0008271a  PortBudgetUnitStartTick              
+0     000830e7  PortEnterCriticalReal                
+0     000830eb  PortExitCriticalReal                 
+0     000827ab  PortTask                             
+0     00082841  PortTaskBudgetTruncations            
+0     0008274f  PortTaskInit                         
+0     00082839  PortTaskLastFirstUnit                
+0     00082835  PortTaskLastUnit                     
+0     0008283d  PortTaskLastUnits                    
+0     0008286b  PortTaskRegister                     
+0     0008282b  PortTaskRequest                      
+0     0008284d  PortTaskRequestsMerged               
+0     0008281e  PortTaskService                      
+0     00082849  PortTaskServiceCalls                 
+0     00082861  PortTaskServiceFromHeartbeat         
+0     00082794  PortTaskSetTimeSource                
+0     00082845  PortTaskTimeSourceFailures           
+0     00082851  PortTaskUnitMaxGapTicks              
+0     00082787  PortTaskUnitPortId                   
 0     00081669  RAM_ACCESS_VIOLATION_ISR             
 0     00081655  RAM_CORRECTABLE_ERROR_ISR            
 0     00081155  RTOS_ISR                             
 abs   000000c3  RamfuncsLoadSize                     
-0     00083118  RamfuncsLoadStart                    
+0     00083120  RamfuncsLoadStart                    
 0     0000b000  RamfuncsRunStart                     
-0     00082e75  ReadBlock                            
+0     00082e7c  ReadBlock                            
 0     0000f911  ReadFlashData                        
-0     00082a5b  ReadUpgradeCfg                       
+0     00082a62  ReadUpgradeCfg                       
 0     000817a9  ReleaseFlashPump                     
-0     00082557  RingBuffCapacity                     
-0     000826be  RingBuffClear                        
-0     00082670  RingBuffDrop                         
-0     00082575  RingBuffFree                         
-0     00082549  RingBuffInit                         
-0     00082511  RingBuffInitItems                    
-0     0008268c  RingBuffPeek                         
-0     00082613  RingBuffRead                         
-0     00082563  RingBuffUsed                         
-0     00082601  RingBuffWrite                        
-0     0008260a  RingBuffWriteExact                   
+0     0008255e  RingBuffCapacity                     
+0     000826c5  RingBuffClear                        
+0     00082677  RingBuffDrop                         
+0     0008257c  RingBuffFree                         
+0     00082550  RingBuffInit                         
+0     00082518  RingBuffInitItems                    
+0     00082693  RingBuffPeek                         
+0     0008261a  RingBuffRead                         
+0     0008256a  RingBuffUsed                         
+0     00082608  RingBuffWrite                        
+0     00082611  RingBuffWriteExact                   
 0     0008141b  SCIA_RX_ISR                          
 0     00081425  SCIA_TX_ISR                          
 0     0008142f  SCIB_RX_ISR                          
@@ -970,10 +973,10 @@ abs   000000c3  RamfuncsLoadSize
 0     00081231  TIMER0_ISR                           
 0     00081137  TIMER1_ISR                           
 0     00081141  TIMER2_ISR                           
-0     00081eef  TaskUpgrade                          
-0     00082ed5  TimeInit                             
-0     00082ed6  TimeStart                            
-0     00082f25  TimeStop                             
+0     00081ef6  TaskUpgrade                          
+0     00082edc  TimeInit                             
+0     00082edd  TimeStart                            
+0     00082f2c  TimeStop                             
 0     000815e7  UPPA_ISR                             
 0     000815f1  USBA_ISR                             
 0     000811d7  USER10_ISR                           
@@ -988,18 +991,18 @@ abs   000000c3  RamfuncsLoadSize
 0     000811b9  USER7_ISR                            
 0     000811c3  USER8_ISR                            
 0     000811cd  USER9_ISR                            
-0     000829a5  UpgradeCoreInit                      
+0     000829ac  UpgradeCoreInit                      
 0     0000f9e5  UpgradeCrc32                         
-0     00081fa4  UpgradeUserAbort                     
+0     00081fab  UpgradeUserAbort                     
 0     00081d84  UpgradeUserHandshakeService          
 0     00081b6e  UpgradeUserInit                      
-0     00081eeb  UpgradeUserSessionReset              
+0     00081ef2  UpgradeUserSessionReset              
 0     00081529  VCU_ISR                              
-0     00082a1e  VerifyAppArea                        
-0     000829f1  VerifyFireware                       
+0     00082a25  VerifyAppArea                        
+0     000829f8  VerifyFireware                       
 0     0008123b  WAKE_ISR                             
 1     00007000  WdRegs                               
-0     00082e7b  WriteBlock                           
+0     00082e82  WriteBlock                           
 0     0000f8bd  WriteFlashData                       
 0     0000f8b5  WriteFourWord                        
 0     00081213  XINT1_ISR                            
@@ -1008,14 +1011,14 @@ abs   000000c3  RamfuncsLoadSize
 0     00081515  XINT4_ISR                            
 0     0008151f  XINT5_ISR                            
 0     00080afa  XmodemInit                           
-0     00082f2d  XmodemProcessInit                    
-0     00082b1d  XmodemRead                           
+0     00082f34  XmodemProcessInit                    
+0     00082b24  XmodemRead                           
 0     00080dc4  XmodemReceive                        
-0     00082aed  XmodemRxPreload                      
-0     00082ae5  XmodemRxReset                        
+0     00082af4  XmodemRxPreload                      
+0     00082aec  XmodemRxReset                        
 0     00080b80  XmodemSinglePacket                   
 0     00081132  XmodemTransmit                       
-0     00082b14  XmodemWrite                          
+0     00082b1b  XmodemWrite                          
 0     0000f78d  _Fapi_calculateOtpChecksum           
 0     0000f606  _Fapi_checkRegionForValue            
 0     0000f693  _Fapi_divideUnsignedLong             
@@ -1024,51 +1027,51 @@ abs   000000c3  RamfuncsLoadSize
 0     0000f75b  _Fapi_scaleCycleValues               
 0     0000f726  _Fapi_setupSectorsForWrite           
 abs   00000ab0  _FlashfuncLoadSize                   
-abs   000831e0  _FlashfuncLoadStart                  
+abs   000831e8  _FlashfuncLoadStart                  
 abs   0000f000  _FlashfuncRunStart                   
-0     00084042  __TI_CINIT_Base                      
-0     0008405a  __TI_CINIT_Limit                     
-0     0008405a  __TI_CINIT_Warm                      
-0     00084028  __TI_Handler_Table_Base              
-0     0008402e  __TI_Handler_Table_Limit             
+0     0008404a  __TI_CINIT_Base                      
+0     00084062  __TI_CINIT_Limit                     
+0     00084062  __TI_CINIT_Warm                      
+0     00084030  __TI_Handler_Table_Base              
+0     00084036  __TI_Handler_Table_Limit             
 1     00000600  __TI_STACK_END                       
 abs   00000200  __TI_STACK_SIZE                      
-0     00082fc3  __TI_auto_init_nobinit_nopinit       
+0     00082fca  __TI_auto_init_nobinit_nopinit       
 1     0000c97c  __TI_cleanup_ptr                     
-0     00082f95  __TI_decompress_lzss                 
-0     000830fb  __TI_decompress_none                 
+0     00082f9c  __TI_decompress_lzss                 
+0     00083102  __TI_decompress_none                 
 1     0000c97e  __TI_dtors_ptr                       
 1     0000c97a  __TI_enable_exit_profile_output      
 abs   ffffffff  __TI_pprof_out_hndl                  
 abs   ffffffff  __TI_prof_data_size                  
 abs   ffffffff  __TI_prof_data_start                 
-0     0008310a  __TI_zero_init                       
-0     000830d5  __c28xabi_divu                       
-0     000830da  __c28xabi_modu                       
+0     00083111  __TI_zero_init                       
+0     000830dc  __c28xabi_divu                       
+0     000830e1  __c28xabi_modu                       
 n/a   UNDEFED   __c_args__                           
 0     0000faa6  __error__                            
 1     00000400  __stack                              
-0     000830c9  _args_main                           
-0     000830a3  _c_int00                             
+0     000830d0  _args_main                           
+0     000830aa  _c_int00                             
 1     0000c98a  _lock                                
-0     000830f2  _nop                                 
-0     000830ee  _register_lock                       
-0     000830ea  _register_unlock                     
-0     00083112  _system_post_cinit                   
-0     00083110  _system_pre_init                     
+0     000830f9  _nop                                 
+0     000830f5  _register_lock                       
+0     000830f1  _register_unlock                     
+0     00083119  _system_post_cinit                   
+0     00083117  _system_pre_init                     
 1     0000c98c  _unlock                              
-0     00082fee  abort                                
+0     00082ff5  abort                                
 0     00080000  code_start                           
-0     00082ff0  exit                                 
-0     00081e64  jump_to_app                          
-0     00082dfb  main                                 
-0     00083086  memcpy                               
-0     00083103  memset                               
-0     00083ca8  stClockCfg                           
+0     00082ff7  exit                                 
+0     00081e6b  jump_to_app                          
+0     00082e02  main                                 
+0     0008308d  memcpy                               
+0     0008310a  memset                               
+0     00083cb0  stClockCfg                           
 1     0000c948  stGpioCfg                            
 1     0000c92c  stGpioCfgItem                        
 1     0000c94c  stSciCfg                             
-0     00083c90  stSciCfgItem                         
+0     00083c98  stSciCfgItem                         
 1     0000c952  stSysCpuTimer1                       
 1     0000c900  stUpgradeHandle                      
 1     0000e000  u16AppBuff                           
@@ -1335,144 +1338,144 @@ page  address   name
 0     00081b6e  UpgradeUserInit                      
 0     00081b88  EraseAppBank                         
 0     00081d84  UpgradeUserHandshakeService          
-0     00081e64  jump_to_app                          
-0     00081e70  CheckUpgrade                         
-0     00081eeb  UpgradeUserSessionReset              
-0     00081eef  TaskUpgrade                          
-0     00081fa4  UpgradeUserAbort                     
-0     00081fb6  Hw_SciInit                           
-0     0008209a  Hw_SciTryReadByte                    
-0     000820c4  Hw_SciTryWriteByte                   
-0     000820f9  Hw_SciGetTxFifoLevel                 
-0     00082113  Hw_SciGetRxFifoLevel                 
-0     0008212d  Hw_SciGetRxStatus                    
-0     0008218b  Hw_SciClearRxError                   
-0     00082214  Hw_SciGetTxIdle                      
-0     00082243  Hw_SciIsTxIdle                       
-0     00082252  Hw_SciGetRxError                     
-0     00082266  Hw_SciSetBaud                        
-0     000822b0  InitGpio                             
-0     000822f0  GPIO_SetupPinMux                     
-0     00082378  GPIO_SetupPinOptions                 
-0     0008240c  GPIO_SetupLock                       
-0     00082435  GPIO_SetupXINT1Gpio                  
-0     0008243f  GPIO_SetupXINT2Gpio                  
-0     00082449  GPIO_SetupXINT3Gpio                  
-0     00082453  GPIO_SetupXINT4Gpio                  
-0     0008245d  GPIO_SetupXINT5Gpio                  
-0     00082467  GPIO_EnableUnbondedIOPullupsFor176Pin
-0     00082480  GPIO_EnableUnbondedIOPullupsFor100Pin
-0     000824a5  GPIO_EnableUnbondedIOPullups         
-0     000824bb  GPIO_ReadPin                         
-0     000824d2  GPIO_WritePin                        
-0     00082511  RingBuffInitItems                    
-0     00082549  RingBuffInit                         
-0     00082557  RingBuffCapacity                     
-0     00082563  RingBuffUsed                         
-0     00082575  RingBuffFree                         
-0     00082601  RingBuffWrite                        
-0     0008260a  RingBuffWriteExact                   
-0     00082613  RingBuffRead                         
-0     00082670  RingBuffDrop                         
-0     0008268c  RingBuffPeek                         
-0     000826be  RingBuffClear                        
-0     000826f1  PortBudgetBegin                      
-0     00082705  PortBudgetEnd                        
-0     0008270b  PortBudgetActive                     
-0     0008270f  PortBudgetFaulted                    
-0     00082713  PortBudgetUnitStartTick              
-0     00082717  PortBudgetHasLeft                    
-0     00082748  PortTaskInit                         
-0     00082780  PortTaskUnitPortId                   
-0     0008278d  PortTaskSetTimeSource                
-0     000827a4  PortTask                             
-0     00082817  PortTaskService                      
-0     00082824  PortTaskRequest                      
-0     0008282e  PortTaskLastUnit                     
-0     00082832  PortTaskLastFirstUnit                
-0     00082836  PortTaskLastUnits                    
-0     0008283a  PortTaskBudgetTruncations            
-0     0008283e  PortTaskTimeSourceFailures           
-0     00082842  PortTaskServiceCalls                 
-0     00082846  PortTaskRequestsMerged               
-0     0008284a  PortTaskUnitMaxGapTicks              
-0     0008285a  PortTaskServiceFromHeartbeat         
-0     00082864  PortTaskRegister                     
-0     0008292d  Hw_SingleGpioInit                    
-0     00082939  Hw_GpioInit                          
-0     00082953  Hw_GpioReadPin                       
-0     00082969  Hw_GpioSetPin                        
-0     0008297d  Hw_GpioClearPin                      
-0     00082991  Hw_GpioTogglePin                     
-0     000829a5  UpgradeCoreInit                      
-0     000829d4  GetUpgradeFlag                       
-0     000829e1  GetUpgradeFirmwareFlag               
-0     000829f1  VerifyFireware                       
-0     00082a1e  VerifyAppArea                        
-0     00082a38  CalcUpgradeCfgSum                    
-0     00082a5b  ReadUpgradeCfg                       
-0     00082a77  CopyAppFirmware                      
-0     00082ae5  XmodemRxReset                        
-0     00082aed  XmodemRxPreload                      
-0     00082b14  XmodemWrite                          
-0     00082b1d  XmodemRead                           
-0     00082bdf  Hw_CpuTimerInit                      
-0     00082c30  Hw_CpuTimerStart                     
-0     00082c3c  Hw_CpuTimerStop                      
-0     00082c48  Hw_CpuTimerSetPeriod                 
-0     00082c6b  Hw_CpuTimerReload                    
-0     00082c77  Hw_CpuTimerGetCount                  
-0     00082c82  Hw_CpuTimerClearIntFlag              
-0     00082c8e  Hw_CpuTimerIsrTick                   
-0     00082cd1  Hw_TimeBaseInit                      
-0     00082d2b  Hw_TimeBaseTicks                     
-0     00082d38  Hw_TimeBaseElapsed                   
-0     00082d47  Hw_TimeBaseIsReady                   
-0     00082d4b  Hw_TimeBaseUsToTicks                 
-0     00082dfb  main                                 
-0     00082e15  Hw_ClockInit                         
-0     00082e75  ReadBlock                            
-0     00082e7b  WriteBlock                           
-0     00082ed5  TimeInit                             
-0     00082ed6  TimeStart                            
-0     00082efe  IsTimeOut                            
-0     00082f25  TimeStop                             
-0     00082f2d  XmodemProcessInit                    
-0     00082f95  __TI_decompress_lzss                 
-0     00082fc3  __TI_auto_init_nobinit_nopinit       
-0     00082fee  C$$EXIT                              
-0     00082fee  abort                                
-0     00082ff0  exit                                 
-0     00083017  InitPieCtrl                          
-0     00083036  EnableInterrupts                     
-0     0008303f  InitPieVectTable                     
-0     0008307a  FlashSetStallOnTimeout               
-0     00083086  memcpy                               
-0     000830a3  _c_int00                             
-0     000830ba  Hw_EnableWatchDog                    
-0     000830c6  Hw_FeedWatchDog                      
-0     000830c9  _args_main                           
-0     000830d5  __c28xabi_divu                       
-0     000830da  __c28xabi_modu                       
-0     000830e0  PortEnterCriticalReal                
-0     000830e4  PortExitCriticalReal                 
-0     000830ea  _register_unlock                     
-0     000830ee  _register_lock                       
-0     000830f2  _nop                                 
-0     000830fb  __TI_decompress_none                 
-0     00083103  memset                               
-0     0008310a  __TI_zero_init                       
-0     00083110  _system_pre_init                     
-0     00083112  _system_post_cinit                   
-0     00083118  RamfuncsLoadStart                    
-0     00083c90  stSciCfgItem                         
-0     00083ca8  stClockCfg                           
+0     00081e6b  jump_to_app                          
+0     00081e77  CheckUpgrade                         
+0     00081ef2  UpgradeUserSessionReset              
+0     00081ef6  TaskUpgrade                          
+0     00081fab  UpgradeUserAbort                     
+0     00081fbd  Hw_SciInit                           
+0     000820a1  Hw_SciTryReadByte                    
+0     000820cb  Hw_SciTryWriteByte                   
+0     00082100  Hw_SciGetTxFifoLevel                 
+0     0008211a  Hw_SciGetRxFifoLevel                 
+0     00082134  Hw_SciGetRxStatus                    
+0     00082192  Hw_SciClearRxError                   
+0     0008221b  Hw_SciGetTxIdle                      
+0     0008224a  Hw_SciIsTxIdle                       
+0     00082259  Hw_SciGetRxError                     
+0     0008226d  Hw_SciSetBaud                        
+0     000822b7  InitGpio                             
+0     000822f7  GPIO_SetupPinMux                     
+0     0008237f  GPIO_SetupPinOptions                 
+0     00082413  GPIO_SetupLock                       
+0     0008243c  GPIO_SetupXINT1Gpio                  
+0     00082446  GPIO_SetupXINT2Gpio                  
+0     00082450  GPIO_SetupXINT3Gpio                  
+0     0008245a  GPIO_SetupXINT4Gpio                  
+0     00082464  GPIO_SetupXINT5Gpio                  
+0     0008246e  GPIO_EnableUnbondedIOPullupsFor176Pin
+0     00082487  GPIO_EnableUnbondedIOPullupsFor100Pin
+0     000824ac  GPIO_EnableUnbondedIOPullups         
+0     000824c2  GPIO_ReadPin                         
+0     000824d9  GPIO_WritePin                        
+0     00082518  RingBuffInitItems                    
+0     00082550  RingBuffInit                         
+0     0008255e  RingBuffCapacity                     
+0     0008256a  RingBuffUsed                         
+0     0008257c  RingBuffFree                         
+0     00082608  RingBuffWrite                        
+0     00082611  RingBuffWriteExact                   
+0     0008261a  RingBuffRead                         
+0     00082677  RingBuffDrop                         
+0     00082693  RingBuffPeek                         
+0     000826c5  RingBuffClear                        
+0     000826f8  PortBudgetBegin                      
+0     0008270c  PortBudgetEnd                        
+0     00082712  PortBudgetActive                     
+0     00082716  PortBudgetFaulted                    
+0     0008271a  PortBudgetUnitStartTick              
+0     0008271e  PortBudgetHasLeft                    
+0     0008274f  PortTaskInit                         
+0     00082787  PortTaskUnitPortId                   
+0     00082794  PortTaskSetTimeSource                
+0     000827ab  PortTask                             
+0     0008281e  PortTaskService                      
+0     0008282b  PortTaskRequest                      
+0     00082835  PortTaskLastUnit                     
+0     00082839  PortTaskLastFirstUnit                
+0     0008283d  PortTaskLastUnits                    
+0     00082841  PortTaskBudgetTruncations            
+0     00082845  PortTaskTimeSourceFailures           
+0     00082849  PortTaskServiceCalls                 
+0     0008284d  PortTaskRequestsMerged               
+0     00082851  PortTaskUnitMaxGapTicks              
+0     00082861  PortTaskServiceFromHeartbeat         
+0     0008286b  PortTaskRegister                     
+0     00082934  Hw_SingleGpioInit                    
+0     00082940  Hw_GpioInit                          
+0     0008295a  Hw_GpioReadPin                       
+0     00082970  Hw_GpioSetPin                        
+0     00082984  Hw_GpioClearPin                      
+0     00082998  Hw_GpioTogglePin                     
+0     000829ac  UpgradeCoreInit                      
+0     000829db  GetUpgradeFlag                       
+0     000829e8  GetUpgradeFirmwareFlag               
+0     000829f8  VerifyFireware                       
+0     00082a25  VerifyAppArea                        
+0     00082a3f  CalcUpgradeCfgSum                    
+0     00082a62  ReadUpgradeCfg                       
+0     00082a7e  CopyAppFirmware                      
+0     00082aec  XmodemRxReset                        
+0     00082af4  XmodemRxPreload                      
+0     00082b1b  XmodemWrite                          
+0     00082b24  XmodemRead                           
+0     00082be6  Hw_CpuTimerInit                      
+0     00082c37  Hw_CpuTimerStart                     
+0     00082c43  Hw_CpuTimerStop                      
+0     00082c4f  Hw_CpuTimerSetPeriod                 
+0     00082c72  Hw_CpuTimerReload                    
+0     00082c7e  Hw_CpuTimerGetCount                  
+0     00082c89  Hw_CpuTimerClearIntFlag              
+0     00082c95  Hw_CpuTimerIsrTick                   
+0     00082cd8  Hw_TimeBaseInit                      
+0     00082d32  Hw_TimeBaseTicks                     
+0     00082d3f  Hw_TimeBaseElapsed                   
+0     00082d4e  Hw_TimeBaseIsReady                   
+0     00082d52  Hw_TimeBaseUsToTicks                 
+0     00082e02  main                                 
+0     00082e1c  Hw_ClockInit                         
+0     00082e7c  ReadBlock                            
+0     00082e82  WriteBlock                           
+0     00082edc  TimeInit                             
+0     00082edd  TimeStart                            
+0     00082f05  IsTimeOut                            
+0     00082f2c  TimeStop                             
+0     00082f34  XmodemProcessInit                    
+0     00082f9c  __TI_decompress_lzss                 
+0     00082fca  __TI_auto_init_nobinit_nopinit       
+0     00082ff5  C$$EXIT                              
+0     00082ff5  abort                                
+0     00082ff7  exit                                 
+0     0008301e  InitPieCtrl                          
+0     0008303d  EnableInterrupts                     
+0     00083046  InitPieVectTable                     
+0     00083081  FlashSetStallOnTimeout               
+0     0008308d  memcpy                               
+0     000830aa  _c_int00                             
+0     000830c1  Hw_EnableWatchDog                    
+0     000830cd  Hw_FeedWatchDog                      
+0     000830d0  _args_main                           
+0     000830dc  __c28xabi_divu                       
+0     000830e1  __c28xabi_modu                       
+0     000830e7  PortEnterCriticalReal                
+0     000830eb  PortExitCriticalReal                 
+0     000830f1  _register_unlock                     
+0     000830f5  _register_lock                       
+0     000830f9  _nop                                 
+0     00083102  __TI_decompress_none                 
+0     0008310a  memset                               
+0     00083111  __TI_zero_init                       
+0     00083117  _system_pre_init                     
+0     00083119  _system_post_cinit                   
+0     00083120  RamfuncsLoadStart                    
+0     00083c98  stSciCfgItem                         
+0     00083cb0  stClockCfg                           
 0     00083cc0  PieVectTableInit                     
-0     00084028  __TI_Handler_Table_Base              
-0     0008402e  __TI_Handler_Table_Limit             
-0     00084042  __TI_CINIT_Base                      
-0     0008405a  __TI_CINIT_Limit                     
-0     0008405a  __TI_CINIT_Warm                      
+0     00084030  __TI_Handler_Table_Base              
+0     00084036  __TI_Handler_Table_Limit             
+0     0008404a  __TI_CINIT_Base                      
+0     00084062  __TI_CINIT_Limit                     
+0     00084062  __TI_CINIT_Warm                      
 1     00000400  __stack                              
 1     00000600  __TI_STACK_END                       
 1     00000c00  CpuTimer0Regs                        
@@ -1516,7 +1519,7 @@ abs   000000c3  RamfuncsLoadSize
 abs   00000200  __TI_STACK_SIZE                      
 abs   00000ab0  _FlashfuncLoadSize                   
 abs   0000f000  _FlashfuncRunStart                   
-abs   000831e0  _FlashfuncLoadStart                  
+abs   000831e8  _FlashfuncLoadStart                  
 abs   ffffffff  __TI_pprof_out_hndl                  
 abs   ffffffff  __TI_prof_data_size                  
 abs   ffffffff  __TI_prof_data_start                 

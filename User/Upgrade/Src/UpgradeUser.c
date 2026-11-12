@@ -325,6 +325,9 @@ static Uint16 StartReceiveFromBoot(Uint16 u16BaudCfg)
 /* "接收中"配置里的速率编码是 x100，115200 即 1152 */
 #define BOOT_HS_BAUD_CFG      (1152U)
 #define BOOT_HS_DRAIN_MS      (100UL)     /* 发 F0 应答前排空接收环的最长等待 */
+/* s_u16HsDrain 的第三个取值：已经排空过。应答入队失败重试时必须靠它跳过重同步，
+ * 否则每重试一轮就会再开一次丢弃窗口，把 ARM 紧跟应答发来的第二帧吃掉。 */
+#define BOOT_HS_DRAINED       (2U)
 
 #define BOOT_HS_STOPPED  (0xFFU)  /* 未启用：交给 TaskUpgrade() 或已跳 APP */
 #define BOOT_HS_IDLE     (0U)     /* 19200 等 F0 */
@@ -561,29 +564,35 @@ void UpgradeUserHandshakeService(void)
 
     if (s_u16HsState == BOOT_HS_F0_DRAIN)
     {
-        Uint16 u16Drain;
-
-        BootHsRead();                   /* 排空要靠读推进 */
-
-        u16Drain = BootHsDrainDone();
-
-        if (u16Drain == 0U)
+        if (s_u16HsDrain != BOOT_HS_DRAINED)
         {
-            return;                     /* 还在丢弃阶段 */
-        }
+            Uint16 u16Drain;
 
-        if (u16Drain == 2U)
-        {
-            /* 排空超时：对端还在说话，这轮握手已经乱了。不发应答、回等待态，
-             * 由 ARM 按超时重发 F0，重新走一遍。 */
-            s_u16HsRxLen = 0U;
-            s_u16HsState = BOOT_HS_IDLE;
-            return;
+            BootHsRead();               /* 排空要靠读推进 */
+
+            u16Drain = BootHsDrainDone();
+
+            if (u16Drain == 0U)
+            {
+                return;                 /* 还在丢弃阶段 */
+            }
+
+            if (u16Drain == 2U)
+            {
+                /* 排空超时：对端还在说话，这轮握手已经乱了。不发应答、回等待态，
+                 * 由 ARM 按超时重发 F0，重新走一遍。 */
+                s_u16HsRxLen = 0U;
+                s_u16HsState = BOOT_HS_IDLE;
+                return;
+            }
+
+            /* 记下"已排空"：后面只允许重试入队，绝不再重同步 */
+            s_u16HsDrain = BOOT_HS_DRAINED;
         }
 
         if (BootHsSend(&s_au16HsUpReply[0], BOOT_HS_CMD_LEN) == 0U)
         {
-            return;                     /* 发送环满：下一轮再排入 */
+            return;                     /* 发送环满：下一轮直接再排入，不重排空 */
         }
 
         s_u16HsState = BOOT_HS_F0_TX;
